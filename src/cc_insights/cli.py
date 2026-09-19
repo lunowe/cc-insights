@@ -12,7 +12,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from cc_insights import __version__, config as config_mod, db, derive, ingest, stats
+from cc_insights import __version__, config as config_mod, db, derive, ingest, serve, stats
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -213,6 +213,18 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    """Hand the database to the local HTTP server and block until Ctrl-C.
+
+    `_open_db` is used only to reuse its "no database yet" message; the handle
+    is closed immediately, because the server opens its own **read-only**
+    connections, one per worker thread.
+    """
+    cfg, conn = _open_db(args)
+    conn.close()
+    return serve.run(cfg, port=args.port, open_browser=not args.no_open)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="cci", description="CC-Insights — coding-agent usage tracking")
     p.add_argument("--version", action="version", version=f"cc-insights {__version__}")
@@ -238,6 +250,13 @@ def build_parser() -> argparse.ArgumentParser:
     der.set_defaults(fn=cmd_derive)
 
     sub.add_parser("stats", help="summarize agent usage").set_defaults(fn=cmd_stats)
+
+    srv = sub.add_parser("serve", help="serve the dashboard and JSON API on localhost")
+    srv.add_argument("--port", type=int, default=serve.DEFAULT_PORT,
+                     help=f"port to listen on (default: {serve.DEFAULT_PORT})")
+    srv.add_argument("--no-open", action="store_true",
+                     help="do not open a browser window")
+    srv.set_defaults(fn=cmd_serve)
     return p
 
 
