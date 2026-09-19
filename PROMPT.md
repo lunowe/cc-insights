@@ -3,8 +3,14 @@
 > Single source of truth for the build. Work packages fan out to subagents in
 > parallel once Stage 0 is merged.
 >
-> **Status: Stage 0 complete** (schema, config, db, adapter protocol, CLI,
-> 21 tests green). Stage 1 is ready to dispatch.
+> **Status: Stage 0 complete. WP1 (fixtures), WP2 (Claude adapter) and WP3
+> (Codex adapter) delivered; 116 tests green. WP2b (subagent transcripts) in
+> flight. Next: WP4 (ingest), WP5 (derivation).**
+>
+> ⚠️ Ground truth was corrected on 2026-09-19 — three bugs, including a glob
+> that missed 52% of the Claude Code corpus. **Every acceptance number below
+> comes from `docs/probes/canonical_metrics.py`. Re-run it rather than trusting
+> a number quoted from memory.**
 
 ## Mission
 
@@ -99,9 +105,11 @@ split it rather than letting one agent run long.
 - Set `byte_end` on every event so ingest can resume mid-file. Skip a truncated
   trailing line without raising.
 - **Done when:** parses all WP1 Claude fixtures, and over the real corpus yields
-  **121 sessions / 52,919 deduped events**, coverage from 2026-06-24 (±1% for
-  logs written since the probe).
+  **118 sessions / 496 threads / 116,722 deduped events**, coverage from
+  2026-06-24 (±1% on events only, for logs written since).
 - **Stop:** parse and normalize only. No DB, no spans.
+- **Status: delivered.** WP2b adds the `subagents/` transcripts (52% of the
+  corpus) as subagent threads and applies the stem session-id fallback.
 
 **WP3. Codex adapter** → *opus-5*
 - `sources/codex.py`. Globs in `config.DEFAULT_SOURCE_GLOBS["codex"]`.
@@ -113,9 +121,11 @@ split it rather than letting one agent run long.
 - `native_event_id` = `f"{thread_id}:{ordinal}"` — **never `ordinal` alone**
   (FINDINGS §2: that drops 8,709 events).
 - **Done when:** parses all WP1 Codex fixtures, and over the real corpus yields
-  **188 sessions / 215 threads / 27 subagent threads / 54,296 deduped events**,
+  **188 sessions / 215 threads / 27 subagent threads / 63,005 deduped events**,
   coverage from 2026-02-08.
 - **Stop:** parse and normalize only.
+- **Status: delivered and verified.** The original 54,296 target was itself the
+  output of the bare-ordinal bug; 63,005 is correct. See FINDINGS §5.
 
 **WP4. Ingest layer** → *opus-5*
 - `ingest.py`: drive adapters, upsert `project` / `session` / `thread` / `event`.
@@ -132,17 +142,17 @@ split it rather than letting one agent run long.
 - `derive.py`, operating purely on `event`/`thread` — independent of adapters.
 - **Spans per thread**, using the FINDINGS §0 definition. Port
   `docs/probes/canonical_metrics.py`.
-- **Derived Claude subagent threads**: pair `Agent` `tool_use` → `tool_result`
-  on `tool_use_id`; insert `thread` rows with `is_subagent = 1`,
-  `parent_thread_id` = the root, and one span each. **`isSidechain` is always
-  `false` — ignore it** (FINDINGS §3).
+- **Claude subagent threads are NOT derived** — they are real files with real
+  timestamps (FINDINGS §2), ingested by WP2b. Use `Agent` `tool_use` →
+  `tool_result` pairing only to attribute a subagent thread to the tool call
+  that spawned it, not to invent its span.
 - `attended`: a gap ending at a `user_prompt` means the user was present → 1;
   a gap inside an agent turn → 0.
 - Concurrency by sweep-line over spans.
-- **Done when:** session-level output reproduces FINDINGS §1 exactly —
-  Claude Code 584 spans / 65.8 h / 57.0 h wall / 1.15x / peak 5 on 2026-09-09;
-  Codex 284 spans / 36.8 h / 35.1 h wall. Per-thread output may legitimately
-  exceed these for the 7 multi-thread Codex sessions; document the delta.
+- **Done when:** per-thread output reproduces FINDINGS §1 exactly —
+  Claude Code **1,050 spans / 143.1 h active / 83.2 h wall / 1.72x / peak 7 /
+  33.9 h (41%) at ≥2**; Codex **316 spans / 41.5 h active / 36.1 h wall /
+  1.15x / peak 4**.
 - **Stop:** no CLI, no formatting.
 
 **WP6. CLI + scheduling** → *opus-5 (CLI), muse-spark-1.3 (plist)*

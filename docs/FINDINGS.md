@@ -1,12 +1,15 @@
 # Findings — measured ground truth
 
-Measured against the real logs on this machine (Darwin 27.0.0), regenerated
-2026-09-19 by `docs/probes/canonical_metrics.py`. That script is the **spec for
-the time math** — WP4 must reproduce it.
+Regenerated 2026-09-19 by `docs/probes/canonical_metrics.py`, which is the
+**spec for the time math**. Trust that script over any number quoted elsewhere;
+where this document and the script disagree, the script wins.
 
-These numbers are ground truth for acceptance tests. If an implementation
-disagrees with them, the implementation is wrong. Re-derive only by re-running
-the canonical script.
+> **Three ground-truth bugs were found and fixed after the first draft.** All
+> three had already propagated into this file as "measured" fact, and two were
+> caught by implementers who refused to accept an acceptance number they could
+> not reproduce. They are documented in §5 because the lesson generalizes: a
+> reference implementation that contains the bug it warns about will manufacture
+> confident, wrong ground truth.
 
 ## 0. Definition — what "active time" means
 
@@ -14,108 +17,145 @@ the canonical script.
 > maximal run of events whose consecutive gaps are ≤ `idle_threshold`.
 > A gap **above** the threshold contributes **zero**.
 
-The tempting alternative, `sum(min(gap, threshold))`, silently invents
-`threshold` seconds of work for every idle gap. On this corpus that inflated
-Claude Code's total from 65.8 h to 104.5 h — **+59%**. An early draft of this
-document shipped that wrong number. Do not reintroduce it.
+Spans are computed **per thread**, never per session. A session groups a root
+thread with its subagent threads; merging them into one stream would hide
+exactly the parallelism this tool exists to measure.
+
+The tempting alternative, `sum(min(gap, threshold))`, invents `threshold`
+seconds of work per idle gap and inflated an early draft by 59%. Do not
+reintroduce it.
 
 ## 1. Corpus
 
 | | Claude Code | Codex |
 | --- | --- | --- |
-| Log glob | `~/.claude/projects/*/*.jsonl` | `~/.codex/sessions/*/*/*/*.jsonl` (+ `archived_sessions`) |
-| Files | 504 | 215 |
-| Sessions | 121 | 188 |
-| Events (deduped) | 52,919 | 54,296 |
+| Files | 120 main + 386 subagent | 215 |
+| Sessions | 118 | 188 |
+| **Threads** | **496** | **215** |
+| Events (deduped) | 116,722 | 63,005 |
 | Coverage | 2026-06-24 → 2026-09-19 | 2026-02-08 → 2026-09-19 |
-| **Active time** | **65.8 h** | **36.8 h** |
-| Sum of wall-spans | 2710.7 h | 741.7 h |
-| Active as % of wall-span | **2.4%** | 5.0% |
-| Wall-clock with ≥1 active | 57.0 h | 35.1 h |
-| Active spans | 584 | 284 |
-| Parallelism multiplier | 1.15x | 1.05x |
-| Peak concurrency | 5 @ 2026-09-09 12:14 | 4 @ 2026-08-27 13:30 |
-| Time ≥2 concurrent | 6.9 h (12%) | 1.6 h (5%) |
+| Active spans | 1,050 | 316 |
+| **Active time** | **143.1 h** | **41.5 h** |
+| Wall-clock with ≥1 active | 83.2 h | 36.1 h |
+| **Parallelism multiplier** | **1.72x** | 1.15x |
+| Peak concurrency | 7 | 4 |
+| Time ≥2 concurrent | **33.9 h (41%)** | 3.3 h (9%) |
 
-Concurrency distribution, Claude Code (share of the 57.0 h):
+Claude Code concurrency distribution (share of the 83.2 h):
 
-| concurrent | 1 | 2 | 3 | 4 | 5 |
-| --- | --- | --- | --- | --- | --- |
-| hours | 50.1 | 5.3 | 1.3 | 0.3 | 0.0 |
-| share | 88.0% | 9.2% | 2.3% | 0.5% | 0.0% |
+| threads | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| hours | 49.4 | 17.6 | 9.4 | 4.8 | 1.3 | 0.4 | 0.2 |
+| share | 59.3% | 21.1% | 11.3% | 5.8% | 1.6% | 0.5% | 0.3% |
 
-**Wall-span is useless**: reporting it would overstate Claude Code usage by 41x.
+**Parallelism is the headline, not a footnote.** 41% of Claude Code wall-clock
+has two or more threads running. An early draft put this at 12%, because it was
+measuring only 48% of the data.
 
-> These figures are **session-level**. WP4 derives spans **per thread**, which
-> will reveal extra intra-session concurrency in the 7 Codex sessions that have
-> multiple threads. Expect Codex's multiplier to rise; Claude Code's is
-> unaffected until derived subagent threads land.
+## 2. Claude Code writes subagent transcripts to disk
 
-## 2. Dedup is mandatory, and the key differs per source
+This was missed entirely at first and is the single largest correction.
 
-`native_event_id` must be unique **within its session**. Getting this wrong
-corrupts every downstream number.
+- `~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl` — 328 files
+- `~/.claude/projects/<project>/<session>/subagents/workflows/<wf>/agent-<id>.jsonl` — 58 files
 
-**Claude Code — key is the event `uuid`.**
-1,295 (session, uuid) pairs appear more than once; 1,294 of them are in
-*different files* with **identical timestamp and type**. Session resume replays
-prior history into the new file. Deduping on `uuid` collapses these correctly.
-Ingest-assigned ordinals would **overcount by ~2.6%**.
-`uuid` is absent on 3,502 events, all of type `queue-operation`, `pr-link` or
-`file-history-delta` — fall back to a hash of the raw line.
+They carry **`isSidechain: true`**, an **`agentId`**, and a `sessionId` pointing
+at the parent session. They hold **59,667 timestamped events — 52% of all
+Claude Code activity — with zero uuid overlap** with the main transcripts.
 
-**Codex — key is `"<thread_id>:<ordinal>"`, never `ordinal` alone.**
-`ordinal` is *file-scoped* and restarts at 0 in every thread. Keying on
-`(session_id, ordinal)` collides 8,709 times with **different timestamps** —
-i.e. it would have silently **dropped 8,709 real events**.
+Consequence: Claude Code subagent threads do **not** need deriving from
+`Agent` tool_use/tool_result pairing. They are real threads with real
+timestamps, exactly like Codex's. Pairing remains useful only to attribute a
+subagent thread to the specific tool call that spawned it.
 
-## 3. Codex records subagent threads explicitly — Claude Code does not
+⚠️ The earlier claim "**`isSidechain` is always false**" was an artifact of
+looking only at `projects/*/*.jsonl`. It is false in *main* transcripts and
+true in *subagent* transcripts. The flag is reliable; the glob was not.
 
-The 215 Codex files are **215 distinct threads**, not 215 sessions. Each file's
-`session_meta.payload` carries:
+## 3. Codex records threads explicitly
+
+Each Codex log file is one **thread**. Its first `session_meta.payload` carries:
 
 - `id` — this thread's own id (unique per file, 1:1 with the file)
-- `session_id` — the **root** session id, shared by all its threads
+- `session_id` — the **root** session, shared by all its threads
 - `parent_thread_id`, `forked_from_id`, `subagent_history_start_ordinal`
-- `source = {"subagent": {"thread_spawn": {...}}}` on subagent threads
+- `source` — a **dict** only on subagent threads (`{"subagent": {...}}`); on
+  root threads it is a plain **string** (`"vscode"`, `"cli"`). A literal
+  `"subagent" in payload.source` is a substring test against a string and a
+  false positive waiting to happen — gate on `isinstance(source, dict)`.
 
-Totals: **188 root sessions, 215 threads, 27 marked subagent**, 7 roots have
-more than one thread, max **9 threads under one root**. Threads under one root
-hold *disjoint* events (verified: 0 content overlap between two threads of the
-same session) — they are genuinely parallel work, not replay.
+Totals: **188 root sessions, 215 threads, 27 subagent threads**, 7 roots with
+more than one thread, max 9 under one root. Sibling threads hold *disjoint*
+events — genuinely parallel work, not replay.
 
-Claude Code has no equivalent: **`isSidechain` is `false` on all 54,227
-events** despite **323 `Agent` tool calls**. Its subagent threads must be
-*derived* by pairing `Agent` `tool_use` → `tool_result` on `tool_use_id`.
+**Only the FIRST `session_meta` is authoritative.** Three files carry a second
+one whose `payload.id` is the root session id rather than the thread id; taking
+the last, or re-resolving per line, corrupts the thread count.
 
-This is why the schema models **thread** as the universal unit: it is the only
-way one timeline renders both sources. See `migrations/001_init.sql`.
+## 4. Dedup keys — different per source, both traps fatal
 
-## 4. Other gotchas
+`native_event_id` must be unique **within its session**.
 
-1. **`<synthetic>` appears as a model name** in Claude Code assistant events.
-   Exclude it from model and cost breakdowns.
+**Claude Code — the event `uuid`.** 1,295 (session, uuid) pairs appear twice;
+1,294 are in *different files* with **identical timestamp and type**, because
+resume replays history forward. Deduping on `uuid` collapses them; an
+ingest-assigned ordinal would overcount by ~2.6%. `uuid` is absent only on
+`queue-operation` / `pr-link` / `file-history-delta` (3,502 events) — fall back
+to a hash of the raw line.
+
+**Codex — `"<thread_id>:<ordinal>"`, never `ordinal` alone.** `ordinal` is
+*thread-scoped* and restarts at 0 in every thread. Keying on
+`(session_id, ordinal)` collides 2,352 times and **silently drops 8,709 real
+events**; every collision group spans more than one timestamp and none occurs
+within a single thread. Codex never replays history, so the correct key dedups
+nothing — `63,005` raw lines yield `63,005` events.
+
+**Session-id fallback uses the file STEM, not the basename.** 36
+`file-history-delta` events carry no `sessionId`; their file stems are already
+real session ids. A basename fallback (keeping `.jsonl`) mints 3 phantom
+sessions — that is how 118 real sessions became a "measured" 121.
+
+## 5. How the ground truth was wrong (keep this section)
+
+1. **The Codex reference implementation contained the exact bug its own
+   findings condemned** — `nid = str(ordinal)`. It produced 54,296 events, and
+   that number was published as ground truth. `63,005 − 8,709 = 54,296`
+   reproduces it precisely. Caught by the WP3 implementer, who reported that
+   acceptance criteria #2 and #3 were mutually exclusive rather than quietly
+   satisfying the wrong one.
+2. **The basename/stem fallback** minted 3 phantom sessions (121 vs 118).
+   Caught by the WP2 implementer.
+3. **The glob missed 52% of the corpus.** Caught by the WP2 implementer, who
+   noticed the stated file count (504) did not match what the stated glob
+   returns (120).
+
+The pattern: every number here is only as good as the script that produced it.
+**If an implementation cannot reproduce a number, suspect the number too.**
+
+## 6. Other gotchas
+
+1. **`<synthetic>`** appears as a Claude model name — exclude it from model and
+   cost breakdowns.
 2. **Codex nests everything under `payload`**; Claude Code puts `cwd`,
-   `gitBranch` and `version` at the top level of every event.
-3. **Only Codex's `session_meta` line carries the session id.** Resolve it once
-   per file and apply to every event in that file — a per-line fallback splits
-   each file into a phantom extra session (this inflated an early count from
-   188 to 403).
-4. **Token usage** lives in `message.usage` per assistant event and is
-   dominated by `cache_creation_input_tokens` / `cache_read_input_tokens`.
-   Cost math must price those separately from fresh input.
-5. **A session's events span multiple files** (resume, worktrees). Sessionize on
-   the id *field*, never the filename.
-6. **PostgreSQL `INTEGER` is int4** (max 2.1e9) while epoch-ms is ~1.79e12.
-   Every timestamp column must be `BIGINT` on Postgres or it overflows on the
-   first insert. `tests/test_db.py` guards the value range.
-7. **Logs are a rolling window.** `~/.claude/.last-cleanup` is touched
-   regularly, and Claude history reaches back only to June while Codex reaches
-   February. Unrecorded history is lost permanently — this is why ingest is
-   urgent and dashboards are not.
+   `gitBranch`, `version` at the top level of every event.
+3. **Codex `input_tokens` is inclusive of `cached_input_tokens`.** Verified over
+   25,181 usage blocks. Emit `input_tokens - cached_input_tokens` as fresh
+   input, or cost math double-counts. Codex's `total/turn/thread_token_usage`
+   fields are **cumulative** — summing them explodes the totals. Use
+   `token_count.info.last_token_usage` and `token_usage_record.usage`.
+4. **Codex `item_completed` mirrors the `response_item` stream** (10,325
+   events, present in 214 of 215 files). Mapping it through its inner
+   `item.type` double-counts every prompt, message and tool call.
+5. **`attachment` is Claude Code's second-largest event type** (15,843
+   timestamped lines) — system-injected context, not user turns.
+6. **A session's events span multiple files.** Sessionize on the id *field*.
+7. **PostgreSQL `INTEGER` is int4** (max 2.1e9); epoch-ms is ~1.79e12. Every
+   timestamp column must be `BIGINT` on Postgres. Guarded in `tests/test_db.py`.
+8. **Logs are a rolling window.** Claude reaches back only to June while Codex
+   reaches February. Unrecorded history is lost permanently — which is why
+   ingest is urgent and dashboards are not.
 
-## 5. Scale
+## 7. Scale
 
-~107k events for the combined corpus (3 months of one tool, 7 of the other).
-A full year of both stays well under 1M rows. **SQLite is not a performance
-compromise.** Postgres is a sharing decision, not a scale one.
+~180k events for the combined corpus. A full year of both stays under 1M rows.
+**SQLite is not a performance compromise.** Postgres is a sharing decision.
