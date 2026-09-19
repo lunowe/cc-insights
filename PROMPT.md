@@ -180,40 +180,85 @@ that is the entire point of Stage 1. Do not start Stage 2 first.
 
 ---
 
-# Stage 2 — Insights & Visualization
+# Stage 2 — Frontend (shadcn) + API
 
-**WP8. Metrics layer** → *opus-5*
-- `metrics.py`, one function per question returning plain rows: daily active
-  hours; concurrency histogram; per-project/branch totals; session-length
-  distribution; model & token mix; attended vs unattended; hour-of-day ×
-  day-of-week matrix.
-- UTC → local conversion happens **here**, once, not in the UI.
-- **Done when:** each function has a test asserting against the real corpus.
-- **Stop:** data only. No HTML, no colors.
+**Decided:** a real frontend app, not a generated static file. `cci serve`
+starts a read-only localhost API and serves the built app. Filtering across
+180k events needs real queries, and this keeps the Postgres/multi-machine path
+on the roadmap open.
 
-**WP9. Timeline swimlane** → *opus-5 or fable-5.1 (taste ≥ 7)*
-- The centerpiece: one lane per thread across a day/week, grouped by session,
-  colored by project; subagent threads render as an indented sub-lane under
-  their parent. Overlap must be obvious at a glance.
-- Read the `dataviz` skill before writing chart code. Self-contained HTML +
-  inline SVG. Light and dark. Works at phone width.
-- **Done when:** rendering the real corpus makes the 6.9 h of parallel time and
-  the 5-way peak on 2026-09-09 visible without reading a number.
+**Stack — matches the conventions already used in this user's other projects:**
+Vite 7 + React 19 + TypeScript + Tailwind v4 + shadcn/ui (**style `new-york`,
+baseColor `neutral`, icons `lucide`**) + Recharts via shadcn's chart wrappers,
+package manager **pnpm**. Python stays **zero-dependency** — the server is
+stdlib `http.server`; do not add FastAPI.
 
-**WP10. Dashboard shell** → *opus-5 or fable-5.1 (taste ≥ 7)*
-- Hosts WP9 plus daily active-hours bars, project breakdown, session-length
-  histogram, hour-of-day heatmap, model/token mix; date-range and source filters.
-- `cci dashboard` emits one static HTML file. No server.
-- **Done when:** the file opens correctly offline.
+## Stage 2a — contract ✅ DONE
 
-**WP11. Time-tracking export** → *muse-spark-1.3*
-- `cci export --from X --to Y --format csv|json`, grouped by project/branch/day.
-- Every export embeds the `idle_threshold` used and the generation timestamp —
-  a number without its threshold is not defensible in a timesheet.
+- **`docs/API.md`** — the frozen API contract. Both sides build against it.
+- **`frontend/src/fixtures/*.json`** — a real capture of all 8 endpoints from a
+  live DB (1,370 spans, 224 days, 185.3 h). Verified self-consistent: daily,
+  heatmap and timeline each sum exactly to `summary.activeMs`.
+- **`scripts/dump_fixtures.py`** — regenerates them.
 
-**WP12. Review gate** → *fable-5.1, plus gpt-6 as an independent second pass*
-- Correctness of the time math, schema portability, and any path by which
-  message content could reach the DB.
+The fixtures are why WP8 and WP9 run in parallel: the frontend is built and
+reviewed with **no server running**.
+
+---
+
+**WP8. Filter-aware metrics + `cci serve`** → *opus-5*
+- `metrics.py`: one function per endpoint in `docs/API.md`, each taking a
+  `Filters` dataclass (projects, sources, from, to, role). Filters narrow
+  **spans**; session/thread counts are counts reachable from surviving spans.
+- `serve.py`: stdlib `ThreadingHTTPServer` on `127.0.0.1:8787`, read-only,
+  serving `/api/*` plus the built frontend from `frontend/dist` when present.
+  CORS `localhost:5173` for the Vite dev server. `400`/`404` as JSON.
+- `cci serve [--port] [--no-open]`.
+- Split spans at local day/hour boundaries for `daily` and `heatmap` — a span
+  crossing midnight belongs partly to each day (see `dump_fixtures.py`).
+- **Done when:** with no filters, every endpoint's response **equals the
+  committed fixture** (compare parsed JSON, ignoring `generatedAt`); filters
+  demonstrably narrow results; `cci serve` answers all 8 endpoints.
+- **Stop:** no frontend files.
+
+**WP9. Frontend scaffold, shell and filters** → *opus-5 or fable-5.1 (taste ≥ 7)*
+- Scaffold `frontend/` with the stack above. `pnpm` only.
+- A data layer that reads **fixtures by default** and the live API when
+  `VITE_API_URL` is set — so the app always runs standalone.
+- App shell: header, responsive layout, dark/light via shadcn theming.
+- **The filter bar is the point of this package**: multi-select **project**
+  filter (the user asked for this explicitly), plus source toggle, role
+  (all/root/subagent), and a date-range picker. Filter state in the URL so a
+  view is shareable and survives reload. Filters must visibly drive the
+  numbers.
+- Stat tiles for the summary, and a sortable projects table. **No charts** —
+  WP10 owns those.
+- **Done when:** `pnpm build` succeeds, `pnpm dev` renders from fixtures with
+  no server, and changing a project filter visibly changes the tiles and table.
+- **Stop:** do not write chart components.
+
+**WP10. Charts** → *fable-5.1 or opus-5 (taste ≥ 7)* — after WP9
+- **Load the `dataviz` skill before writing any chart code.**
+- The centerpiece is the **timeline swimlane**: one lane per thread, grouped by
+  session, coloured by project, subagent lanes indented under their parent.
+  Overlap must be obvious at a glance. This is custom SVG/canvas, not a stock
+  Recharts chart.
+- Then, using shadcn chart components: daily active hours, concurrency
+  distribution, project breakdown, agent-type breakdown, weekday×hour heatmap.
+- Respect the truncation flag on `/api/timeline` — tell the user, never drop
+  silently.
+- **Done when:** rendering the fixtures makes the 34 h of parallel time and the
+  peak of 9 concurrent threads visible without reading a number.
+
+**WP11. CSV export** → *opus-5*
+- `cci export --from --to --format csv|json`, grouped by project/day, honouring
+  the same filters. Every export embeds the `idleThresholdS` used and the
+  generation timestamp — a duration without its threshold is not defensible in
+  a timesheet.
+
+**WP12. Review** → *fable-5.1, plus gpt-6 independently if limits allow*
+- Time math, filter correctness, and any path by which message content could
+  reach the DB or the wire.
 
 ---
 

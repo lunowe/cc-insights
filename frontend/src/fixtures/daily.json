@@ -1,0 +1,1541 @@
+{
+ "days": [
+  {
+   "date": "2026-02-08",
+   "activeMs": 3212195,
+   "wallMs": 3212195,
+   "bySource": {
+    "codex": 3212195
+   }
+  },
+  {
+   "date": "2026-02-09",
+   "activeMs": 1018997,
+   "wallMs": 1018997,
+   "bySource": {
+    "codex": 1018997
+   }
+  },
+  {
+   "date": "2026-02-10",
+   "activeMs": 2401410,
+   "wallMs": 2401410,
+   "bySource": {
+    "codex": 2401410
+   }
+  },
+  {
+   "date": "2026-02-11",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-02-12",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-02-13",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-02-14",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-02-15",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-02-16",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-02-17",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-02-18",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-02-19",
+   "activeMs": 524794,
+   "wallMs": 524794,
+   "bySource": {
+    "codex": 524794
+   }
+  },
+  {
+   "date": "2026-02-20",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-02-21",
+   "activeMs": 818860,
+   "wallMs": 818860,
+   "bySource": {
+    "codex": 818860
+   }
+  },
+  {
+   "date": "2026-02-22",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-02-23",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-02-24",
+   "activeMs": 1088945,
+   "wallMs": 1088945,
+   "bySource": {
+    "codex": 1088945
+   }
+  },
+  {
+   "date": "2026-02-25",
+   "activeMs": 2164921,
+   "wallMs": 2164921,
+   "bySource": {
+    "codex": 2164921
+   }
+  },
+  {
+   "date": "2026-02-26",
+   "activeMs": 365018,
+   "wallMs": 365018,
+   "bySource": {
+    "codex": 365018
+   }
+  },
+  {
+   "date": "2026-02-27",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-02-28",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-01",
+   "activeMs": 4354739,
+   "wallMs": 4354739,
+   "bySource": {
+    "codex": 4354739
+   }
+  },
+  {
+   "date": "2026-03-02",
+   "activeMs": 1378146,
+   "wallMs": 1378146,
+   "bySource": {
+    "codex": 1378146
+   }
+  },
+  {
+   "date": "2026-03-03",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-04",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-05",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-06",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-07",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-08",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-09",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-10",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-11",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-12",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-13",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-14",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-15",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-16",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-17",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-18",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-19",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-20",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-21",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-22",
+   "activeMs": 880252,
+   "wallMs": 880252,
+   "bySource": {
+    "codex": 880252
+   }
+  },
+  {
+   "date": "2026-03-23",
+   "activeMs": 1770509,
+   "wallMs": 1770509,
+   "bySource": {
+    "codex": 1770509
+   }
+  },
+  {
+   "date": "2026-03-24",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-25",
+   "activeMs": 439530,
+   "wallMs": 439530,
+   "bySource": {
+    "codex": 439530
+   }
+  },
+  {
+   "date": "2026-03-26",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-27",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-28",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-29",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-30",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-03-31",
+   "activeMs": 2573584,
+   "wallMs": 2573584,
+   "bySource": {
+    "codex": 2573584
+   }
+  },
+  {
+   "date": "2026-04-01",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-02",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-03",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-04",
+   "activeMs": 809432,
+   "wallMs": 809432,
+   "bySource": {
+    "codex": 809432
+   }
+  },
+  {
+   "date": "2026-04-05",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-06",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-07",
+   "activeMs": 2971124,
+   "wallMs": 2971124,
+   "bySource": {
+    "codex": 2971124
+   }
+  },
+  {
+   "date": "2026-04-08",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-09",
+   "activeMs": 3053680,
+   "wallMs": 3053680,
+   "bySource": {
+    "codex": 3053680
+   }
+  },
+  {
+   "date": "2026-04-10",
+   "activeMs": 468863,
+   "wallMs": 468863,
+   "bySource": {
+    "codex": 468863
+   }
+  },
+  {
+   "date": "2026-04-11",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-12",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-13",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-14",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-15",
+   "activeMs": 3412033,
+   "wallMs": 3412033,
+   "bySource": {
+    "codex": 3412033
+   }
+  },
+  {
+   "date": "2026-04-16",
+   "activeMs": 1322763,
+   "wallMs": 1322763,
+   "bySource": {
+    "codex": 1322763
+   }
+  },
+  {
+   "date": "2026-04-17",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-18",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-19",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-20",
+   "activeMs": 1107105,
+   "wallMs": 1107105,
+   "bySource": {
+    "codex": 1107105
+   }
+  },
+  {
+   "date": "2026-04-21",
+   "activeMs": 263897,
+   "wallMs": 263897,
+   "bySource": {
+    "codex": 263897
+   }
+  },
+  {
+   "date": "2026-04-22",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-23",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-24",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-25",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-26",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-27",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-04-28",
+   "activeMs": 483476,
+   "wallMs": 483476,
+   "bySource": {
+    "codex": 483476
+   }
+  },
+  {
+   "date": "2026-04-29",
+   "activeMs": 288970,
+   "wallMs": 288970,
+   "bySource": {
+    "codex": 288970
+   }
+  },
+  {
+   "date": "2026-04-30",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-01",
+   "activeMs": 251095,
+   "wallMs": 251095,
+   "bySource": {
+    "codex": 251095
+   }
+  },
+  {
+   "date": "2026-05-02",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-03",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-04",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-05",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-06",
+   "activeMs": 312683,
+   "wallMs": 312683,
+   "bySource": {
+    "codex": 312683
+   }
+  },
+  {
+   "date": "2026-05-07",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-08",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-09",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-10",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-11",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-12",
+   "activeMs": 1722347,
+   "wallMs": 1722347,
+   "bySource": {
+    "codex": 1722347
+   }
+  },
+  {
+   "date": "2026-05-13",
+   "activeMs": 148119,
+   "wallMs": 148119,
+   "bySource": {
+    "codex": 148119
+   }
+  },
+  {
+   "date": "2026-05-14",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-15",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-16",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-17",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-18",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-19",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-20",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-21",
+   "activeMs": 500006,
+   "wallMs": 500006,
+   "bySource": {
+    "codex": 500006
+   }
+  },
+  {
+   "date": "2026-05-22",
+   "activeMs": 217935,
+   "wallMs": 217935,
+   "bySource": {
+    "codex": 217935
+   }
+  },
+  {
+   "date": "2026-05-23",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-24",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-25",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-26",
+   "activeMs": 635496,
+   "wallMs": 635496,
+   "bySource": {
+    "codex": 635496
+   }
+  },
+  {
+   "date": "2026-05-27",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-28",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-29",
+   "activeMs": 1179747,
+   "wallMs": 1179747,
+   "bySource": {
+    "codex": 1179747
+   }
+  },
+  {
+   "date": "2026-05-30",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-05-31",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-01",
+   "activeMs": 458516,
+   "wallMs": 458516,
+   "bySource": {
+    "codex": 458516
+   }
+  },
+  {
+   "date": "2026-06-02",
+   "activeMs": 3049059,
+   "wallMs": 3049059,
+   "bySource": {
+    "codex": 3049059
+   }
+  },
+  {
+   "date": "2026-06-03",
+   "activeMs": 31956,
+   "wallMs": 31956,
+   "bySource": {
+    "codex": 31956
+   }
+  },
+  {
+   "date": "2026-06-04",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-05",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-06",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-07",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-08",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-09",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-10",
+   "activeMs": 805289,
+   "wallMs": 805289,
+   "bySource": {
+    "codex": 805289
+   }
+  },
+  {
+   "date": "2026-06-11",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-12",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-13",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-14",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-15",
+   "activeMs": 166309,
+   "wallMs": 166309,
+   "bySource": {
+    "codex": 166309
+   }
+  },
+  {
+   "date": "2026-06-16",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-17",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-18",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-19",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-20",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-21",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-22",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-23",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-24",
+   "activeMs": 4892596,
+   "wallMs": 4892596,
+   "bySource": {
+    "claude_code": 4892596
+   }
+  },
+  {
+   "date": "2026-06-25",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-26",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-27",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-28",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-29",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-06-30",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-01",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-02",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-03",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-04",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-05",
+   "activeMs": 198,
+   "wallMs": 198,
+   "bySource": {
+    "claude_code": 198
+   }
+  },
+  {
+   "date": "2026-07-06",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-07",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-08",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-09",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-10",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-11",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-12",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-13",
+   "activeMs": 880691,
+   "wallMs": 880691,
+   "bySource": {
+    "codex": 880691
+   }
+  },
+  {
+   "date": "2026-07-14",
+   "activeMs": 687242,
+   "wallMs": 687242,
+   "bySource": {
+    "codex": 687242
+   }
+  },
+  {
+   "date": "2026-07-15",
+   "activeMs": 4866956,
+   "wallMs": 4866956,
+   "bySource": {
+    "codex": 4866956
+   }
+  },
+  {
+   "date": "2026-07-16",
+   "activeMs": 24240660,
+   "wallMs": 24240660,
+   "bySource": {
+    "claude_code": 15714490,
+    "codex": 8526170
+   }
+  },
+  {
+   "date": "2026-07-17",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-18",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-19",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-20",
+   "activeMs": 201620,
+   "wallMs": 201620,
+   "bySource": {
+    "codex": 201620
+   }
+  },
+  {
+   "date": "2026-07-21",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-22",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-23",
+   "activeMs": 1774410,
+   "wallMs": 1774410,
+   "bySource": {
+    "codex": 1774410
+   }
+  },
+  {
+   "date": "2026-07-24",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-25",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-26",
+   "activeMs": 238613,
+   "wallMs": 238613,
+   "bySource": {
+    "codex": 238613
+   }
+  },
+  {
+   "date": "2026-07-27",
+   "activeMs": 1717582,
+   "wallMs": 1717582,
+   "bySource": {
+    "codex": 1717582
+   }
+  },
+  {
+   "date": "2026-07-28",
+   "activeMs": 46877,
+   "wallMs": 46877,
+   "bySource": {
+    "codex": 46877
+   }
+  },
+  {
+   "date": "2026-07-29",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-30",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-07-31",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-08-01",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-08-02",
+   "activeMs": 26215307,
+   "wallMs": 26215307,
+   "bySource": {
+    "claude_code": 26215307
+   }
+  },
+  {
+   "date": "2026-08-03",
+   "activeMs": 4600219,
+   "wallMs": 4600219,
+   "bySource": {
+    "claude_code": 4600219
+   }
+  },
+  {
+   "date": "2026-08-04",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-08-05",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-08-06",
+   "activeMs": 428488,
+   "wallMs": 428488,
+   "bySource": {
+    "codex": 428488
+   }
+  },
+  {
+   "date": "2026-08-07",
+   "activeMs": 1623903,
+   "wallMs": 1623903,
+   "bySource": {
+    "codex": 1623903
+   }
+  },
+  {
+   "date": "2026-08-08",
+   "activeMs": 1260017,
+   "wallMs": 1260017,
+   "bySource": {
+    "codex": 1260017
+   }
+  },
+  {
+   "date": "2026-08-09",
+   "activeMs": 5772435,
+   "wallMs": 5772435,
+   "bySource": {
+    "codex": 5772435
+   }
+  },
+  {
+   "date": "2026-08-10",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-08-11",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-08-12",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-08-13",
+   "activeMs": 249618,
+   "wallMs": 249618,
+   "bySource": {
+    "codex": 249618
+   }
+  },
+  {
+   "date": "2026-08-14",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-08-15",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-08-16",
+   "activeMs": 1256829,
+   "wallMs": 1256829,
+   "bySource": {
+    "codex": 1256829
+   }
+  },
+  {
+   "date": "2026-08-17",
+   "activeMs": 5085336,
+   "wallMs": 5085336,
+   "bySource": {
+    "codex": 5085336
+   }
+  },
+  {
+   "date": "2026-08-18",
+   "activeMs": 3213599,
+   "wallMs": 3213599,
+   "bySource": {
+    "claude_code": 3213599
+   }
+  },
+  {
+   "date": "2026-08-19",
+   "activeMs": 1,
+   "wallMs": 1,
+   "bySource": {
+    "claude_code": 1
+   }
+  },
+  {
+   "date": "2026-08-20",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-08-21",
+   "activeMs": 14211971,
+   "wallMs": 14211971,
+   "bySource": {
+    "claude_code": 14211971
+   }
+  },
+  {
+   "date": "2026-08-22",
+   "activeMs": 3353215,
+   "wallMs": 3353215,
+   "bySource": {
+    "claude_code": 3353215
+   }
+  },
+  {
+   "date": "2026-08-23",
+   "activeMs": 23949755,
+   "wallMs": 23949755,
+   "bySource": {
+    "claude_code": 4082197,
+    "codex": 19867558
+   }
+  },
+  {
+   "date": "2026-08-24",
+   "activeMs": 11739325,
+   "wallMs": 11739325,
+   "bySource": {
+    "claude_code": 7056605,
+    "codex": 4682720
+   }
+  },
+  {
+   "date": "2026-08-25",
+   "activeMs": 10289741,
+   "wallMs": 10289741,
+   "bySource": {
+    "claude_code": 8462586,
+    "codex": 1827155
+   }
+  },
+  {
+   "date": "2026-08-26",
+   "activeMs": 31025564,
+   "wallMs": 31025564,
+   "bySource": {
+    "claude_code": 25384108,
+    "codex": 5641456
+   }
+  },
+  {
+   "date": "2026-08-27",
+   "activeMs": 12693408,
+   "wallMs": 12693408,
+   "bySource": {
+    "claude_code": 7135066,
+    "codex": 5558342
+   }
+  },
+  {
+   "date": "2026-08-28",
+   "activeMs": 2526854,
+   "wallMs": 2526854,
+   "bySource": {
+    "claude_code": 1463631,
+    "codex": 1063223
+   }
+  },
+  {
+   "date": "2026-08-29",
+   "activeMs": 18930255,
+   "wallMs": 18930255,
+   "bySource": {
+    "claude_code": 17405080,
+    "codex": 1525175
+   }
+  },
+  {
+   "date": "2026-08-30",
+   "activeMs": 15591544,
+   "wallMs": 15591544,
+   "bySource": {
+    "claude_code": 13632724,
+    "codex": 1958820
+   }
+  },
+  {
+   "date": "2026-08-31",
+   "activeMs": 7829756,
+   "wallMs": 7829756,
+   "bySource": {
+    "claude_code": 7010550,
+    "codex": 819206
+   }
+  },
+  {
+   "date": "2026-09-01",
+   "activeMs": 12414738,
+   "wallMs": 12414738,
+   "bySource": {
+    "claude_code": 11423706,
+    "codex": 991032
+   }
+  },
+  {
+   "date": "2026-09-02",
+   "activeMs": 75729193,
+   "wallMs": 75729193,
+   "bySource": {
+    "claude_code": 68061536,
+    "codex": 7667657
+   }
+  },
+  {
+   "date": "2026-09-03",
+   "activeMs": 38864561,
+   "wallMs": 38864561,
+   "bySource": {
+    "claude_code": 37795255,
+    "codex": 1069306
+   }
+  },
+  {
+   "date": "2026-09-04",
+   "activeMs": 16576176,
+   "wallMs": 16576176,
+   "bySource": {
+    "claude_code": 15321721,
+    "codex": 1254455
+   }
+  },
+  {
+   "date": "2026-09-05",
+   "activeMs": 1759676,
+   "wallMs": 1759676,
+   "bySource": {
+    "claude_code": 1503752,
+    "codex": 255924
+   }
+  },
+  {
+   "date": "2026-09-06",
+   "activeMs": 32080370,
+   "wallMs": 32080370,
+   "bySource": {
+    "claude_code": 28989746,
+    "codex": 3090624
+   }
+  },
+  {
+   "date": "2026-09-07",
+   "activeMs": 14252121,
+   "wallMs": 14252121,
+   "bySource": {
+    "claude_code": 14252121
+   }
+  },
+  {
+   "date": "2026-09-08",
+   "activeMs": 9147697,
+   "wallMs": 9147697,
+   "bySource": {
+    "claude_code": 9147697
+   }
+  },
+  {
+   "date": "2026-09-09",
+   "activeMs": 31468279,
+   "wallMs": 31468279,
+   "bySource": {
+    "claude_code": 31468279
+   }
+  },
+  {
+   "date": "2026-09-10",
+   "activeMs": 6694983,
+   "wallMs": 6694983,
+   "bySource": {
+    "claude_code": 4419398,
+    "codex": 2275585
+   }
+  },
+  {
+   "date": "2026-09-11",
+   "activeMs": 27540338,
+   "wallMs": 27540338,
+   "bySource": {
+    "claude_code": 26527582,
+    "codex": 1012756
+   }
+  },
+  {
+   "date": "2026-09-12",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-09-13",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-09-14",
+   "activeMs": 0,
+   "wallMs": 0,
+   "bySource": {}
+  },
+  {
+   "date": "2026-09-15",
+   "activeMs": 83024,
+   "wallMs": 83024,
+   "bySource": {
+    "claude_code": 83024
+   }
+  },
+  {
+   "date": "2026-09-16",
+   "activeMs": 51817549,
+   "wallMs": 51817549,
+   "bySource": {
+    "claude_code": 49399179,
+    "codex": 2418370
+   }
+  },
+  {
+   "date": "2026-09-17",
+   "activeMs": 37074278,
+   "wallMs": 37074278,
+   "bySource": {
+    "claude_code": 34295592,
+    "codex": 2778686
+   }
+  },
+  {
+   "date": "2026-09-18",
+   "activeMs": 12533617,
+   "wallMs": 12533617,
+   "bySource": {
+    "claude_code": 12533617
+   }
+  },
+  {
+   "date": "2026-09-19",
+   "activeMs": 11045324,
+   "wallMs": 11045324,
+   "bySource": {
+    "codex": 2449167,
+    "claude_code": 8596157
+   }
+  }
+ ]
+}

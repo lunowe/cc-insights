@@ -1,0 +1,184 @@
+{
+ "agents": [
+  {
+   "agentName": "general-purpose",
+   "source": "claude_code",
+   "threads": 199,
+   "activeMs": 202779728
+  },
+  {
+   "agentName": "claude",
+   "source": "claude_code",
+   "threads": 27,
+   "activeMs": 32820759
+  },
+  {
+   "agentName": "workflow-subagent",
+   "source": "claude_code",
+   "threads": 49,
+   "activeMs": 28604516
+  },
+  {
+   "agentName": "Explore",
+   "source": "claude_code",
+   "threads": 46,
+   "activeMs": 11734188
+  },
+  {
+   "agentName": "codex:codex-rescue",
+   "source": "claude_code",
+   "threads": 52,
+   "activeMs": 2262454
+  },
+  {
+   "agentName": "Confucius",
+   "source": "codex",
+   "threads": 2,
+   "activeMs": 1698984
+  },
+  {
+   "agentName": "Singer",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 1460506
+  },
+  {
+   "agentName": "Schrodinger",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 1419689
+  },
+  {
+   "agentName": "Ohm",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 1308979
+  },
+  {
+   "agentName": "Popper",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 1252581
+  },
+  {
+   "agentName": "Poincare",
+   "source": "codex",
+   "threads": 2,
+   "activeMs": 1134025
+  },
+  {
+   "agentName": "Curie",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 928795
+  },
+  {
+   "agentName": "Hilbert",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 756008
+  },
+  {
+   "agentName": "Pauli",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 751449
+  },
+  {
+   "agentName": "Averroes",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 605230
+  },
+  {
+   "agentName": "Descartes",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 498539
+  },
+  {
+   "agentName": "Hume",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 319130
+  },
+  {
+   "agentName": "Leibniz",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 307542
+  },
+  {
+   "agentName": "Mill",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 233626
+  },
+  {
+   "agentName": "McClintock",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 208703
+  },
+  {
+   "agentName": "Parfit",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 202406
+  },
+  {
+   "agentName": "Dalton",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 63926
+  },
+  {
+   "agentName": "Aristotle",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 0
+  },
+  {
+   "agentName": "Beauvoir",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 0
+  },
+  {
+   "agentName": "Bohr",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 0
+  },
+  {
+   "agentName": "Carver",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 0
+  },
+  {
+   "agentName": "Feynman",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 0
+  },
+  {
+   "agentName": "Linnaeus",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 0
+  },
+  {
+   "agentName": "Ptolemy",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 0
+  },
+  {
+   "agentName": "Ramanujan",
+   "source": "codex",
+   "threads": 1,
+   "activeMs": 0
+  }
+ ]
+}
