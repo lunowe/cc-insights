@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template. scripts/install-launchd.sh substitutes __CCI__ and __LOGDIR__ and
+  writes the result to ~/Library/LaunchAgents/. Do not load this file directly.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cc-insights</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>__CCI__ ingest &amp;&amp; __CCI__ derive</string>
+    </array>
+
+    <!-- Every 15 minutes. The job is cheap: a warm run reads only files whose
+         size or mtime changed and takes ~0.04s. -->
+    <key>StartInterval</key>
+    <integer>900</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__LOGDIR__/ingest.log</string>
+    <key>StandardErrorPath</key>
+    <string>__LOGDIR__/ingest.err</string>
+
+    <!-- Stay out of the way of interactive work. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>
