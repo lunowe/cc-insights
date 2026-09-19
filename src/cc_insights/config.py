@@ -25,7 +25,11 @@ DEFAULT_IDLE_THRESHOLD_S = 300
 # headline numbers are not an artifact of this knob. See docs/FINDINGS.md.
 
 DEFAULT_SOURCE_GLOBS: dict[str, list[str]] = {
-    "claude_code": ["~/.claude/projects/*/*.jsonl"],
+    # Two shapes, both real. The second needs recursive glob expansion (`**`):
+    # it catches `<session>/subagents/agent-<id>.jsonl` *and* the workflow
+    # nesting `<session>/subagents/workflows/<wf-id>/agent-<id>.jsonl`, which
+    # together hold 52% of all Claude Code events. See sources/claude_code.py.
+    "claude_code": ["~/.claude/projects/*/*.jsonl", "~/.claude/projects/*/*/subagents/**/*.jsonl"],
     "codex": ["~/.codex/sessions/*/*/*/*.jsonl", "~/.codex/archived_sessions/**/*.jsonl"],
 }
 

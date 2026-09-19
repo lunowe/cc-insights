@@ -11,6 +11,11 @@
 > that missed 52% of the Claude Code corpus. **Every acceptance number below
 > comes from `docs/probes/canonical_metrics.py`. Re-run it rather than trusting
 > a number quoted from memory.**
+>
+> **The corpus grows while you measure it** (this machine writes agent logs
+> continuously). Verify by loading the probe and your implementation in ONE
+> process and comparing key sets for equality — not by matching a frozen count.
+> See FINDINGS §0b.
 
 ## Mission
 

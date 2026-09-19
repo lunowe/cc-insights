@@ -25,7 +25,18 @@ The tempting alternative, `sum(min(gap, threshold))`, invents `threshold`
 seconds of work per idle gap and inflated an early draft by 59%. Do not
 reintroduce it.
 
-## 1. Corpus
+## 0b. The corpus moves while you measure it
+
+Every number below drifts upward between runs, because this machine writes new
+agent logs continuously — including the sessions doing this work. Between two
+runs minutes apart the Claude Code event count moved 116,722 → 116,947.
+
+**Therefore acceptance must not compare against a frozen number.** Load the
+probe and the implementation *in one process at the same instant* and compare
+key sets. That is exact and stable; a literal count is neither. Frozen numbers
+below are dated and indicative only.
+
+## 1. Corpus (as of 2026-09-19)
 
 | | Claude Code | Codex |
 | --- | --- | --- |
@@ -67,6 +78,23 @@ Consequence: Claude Code subagent threads do **not** need deriving from
 `Agent` tool_use/tool_result pairing. They are real threads with real
 timestamps, exactly like Codex's. Pairing remains useful only to attribute a
 subagent thread to the specific tool call that spawned it.
+
+**Subagent transcripts name their agent type.** Assistant lines carry
+`attributionAgent`, constant per `agentId` (0 of 371 agents carry two values)
+and absent from main transcripts entirely. Observed on this corpus:
+`general-purpose` 45,451 events, `claude` 8,193, `Explore` 5,669,
+`workflow-subagent` 3,896, `codex:codex-rescue` 504. This is a free dimension
+for the dashboard — which *kind* of agent consumes the time — and it is only
+available because subagent transcripts are ingested. It is absent from the
+opening user line, so sniff it from the head of the file, not per event, or a
+resumed parse yields a different name than a whole-file parse.
+
+`journal.jsonl` (8 files, 97 lines) has no `timestamp`/`uuid`/`sessionId` and
+is dropped by the no-timestamp guard — it creates no phantom threads.
+
+Classify a thread as a subagent by the event's own **`agentId`** (present on
+100% of subagent events, 0% of main-transcript events), not by its path, so
+classification survives a future layout change.
 
 ⚠️ The earlier claim "**`isSidechain` is always false**" was an artifact of
 looking only at `projects/*/*.jsonl`. It is false in *main* transcripts and
