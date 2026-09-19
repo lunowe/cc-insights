@@ -1,320 +1,230 @@
 # CC-Insights — Build Prompt
 
-> Hand this to an orchestrating agent. It is the single source of truth for the
-> build. Work packages are designed to fan out to subagents in parallel once
-> Stage 0 is merged.
+> Single source of truth for the build. Work packages fan out to subagents in
+> parallel once Stage 0 is merged.
+>
+> **Status: Stage 0 complete** (schema, config, db, adapter protocol, CLI,
+> 21 tests green). Stage 1 is ready to dispatch.
 
 ## Mission
 
-Build a local-first tool that ingests the logs coding agents already write on
-this machine, stores a normalized *metadata-only* history in SQLite, and
-visualizes when / how long / how concurrently those agents ran.
+Ingest the logs coding agents already write on this machine, store a normalized
+*metadata-only* history in SQLite, and visualize when / how long / how
+concurrently those agents ran.
 
-Two stages. **Stage 1 is urgent** (agent log dirs are pruned on a rolling basis,
-so unrecorded history is lost permanently). Stage 2 is not.
+**Stage 1 is urgent** — agent log directories are pruned on a rolling basis, so
+unrecorded history is lost permanently. Stage 2 is not urgent.
 
 ## Read first — do not skip
 
-1. `docs/FINDINGS.md` — measured ground truth from the real logs. Contains the
-   gap distribution, concurrency numbers, and five gotchas that will otherwise
-   cost you a day each. **Do not re-derive these.**
-2. `docs/probes/` — working reference implementations of active-time and
-   concurrency computation. They are correct; productionize rather than reinvent.
-3. `~/.claude/CLAUDE.md` — model selection policy for subagent dispatch.
+1. **`docs/FINDINGS.md`** — measured ground truth. Contains the definition of
+   active time, the per-source dedup keys, the Codex thread hierarchy, and
+   seven gotchas that each cost a day to rediscover. **Do not re-derive.**
+2. **`docs/probes/canonical_metrics.py`** — the reference implementation of the
+   time math. WP5 must reproduce its output exactly.
+3. **`migrations/001_init.sql`** — the schema, with the portability contract in
+   its header comment.
+4. **`src/cc_insights/sources/base.py`** — the adapter contract.
+5. `~/.claude/CLAUDE.md` — model selection policy.
 
 ## Non-negotiables
 
-These are design decisions, already made. Do not relitigate them in a work package.
+Already decided. Do not relitigate inside a work package.
 
-1. **Metadata only. Never store message content.** Ingest timestamps, session
-   ids, cwd, git branch, model, tool names, token counts. Never prompt or
-   response text, tool arguments, or file contents. This is what makes the
-   future cloud mode safe and keeps secrets out of the DB. A work package that
-   needs content to work is a work package with a wrong design.
-2. **Active time, not wall-span.** Wall-span overstates usage 25x (see
-   FINDINGS §2). Active time = sum of inter-event gaps capped at
-   `idle_threshold` (default 300 s, configurable).
-3. **`host_id` on every row from day one.** The multi-machine future is a config
-   change, not a migration. Generate a stable UUID once, store it in config.
-4. **Idempotent ingest.** Re-running ingest over the same logs must be a no-op.
-   Deterministic ids (hashes of natural keys) + `ON CONFLICT DO UPDATE`.
-5. **Postgres-portable SQL.** See § Schema rules. No SQLite-only syntax.
+1. **Metadata only. Never store message content.** Timestamps, ids, cwd,
+   branch, model, tool names, token counts. Never prompt/response text, tool
+   arguments, or file contents. `RawEvent` is a frozen slots dataclass
+   specifically so an adapter *cannot* smuggle content through it. Content
+   found in the DB is a release blocker.
+2. **Active time = sum of active span durations.** A gap above the threshold
+   contributes **zero**, never a capped `threshold`. See FINDINGS §0 — the
+   capped form inflates the total by 59%.
+3. **`host_id` on every row.** Multi-machine is a config change, not a migration.
+4. **Idempotent ingest.** Deterministic hash ids + `ON CONFLICT DO UPDATE`.
+   Re-running over unchanged logs inserts zero rows.
+5. **Postgres-portable SQL.** See the header of `migrations/001_init.sql`.
+   `tests/test_db.py::test_migration_sql_stays_postgres_portable` enforces it.
 6. **No "time saved" metric.** Logs measure agent time, not the human
-   counterfactual. Any such number would be agent-hours x an invented
-   multiplier. Ship leading indicators instead and let the user apply their own
-   multiplier explicitly, in the UI, where it is visibly theirs. See ROADMAP.
+   counterfactual. See `docs/ROADMAP.md`.
 
-## Schema (the integration contract)
+## The data model in one paragraph
 
-This is fixed before fan-out so packages can be built in parallel against it.
-Migration `001_init.sql`.
-
-```sql
-CREATE TABLE schema_migrations (
-  version     INTEGER PRIMARY KEY,
-  applied_at  INTEGER NOT NULL           -- epoch ms UTC
-);
-
-CREATE TABLE host (
-  host_id     TEXT PRIMARY KEY,          -- stable UUID, generated once into config
-  hostname    TEXT NOT NULL,
-  os          TEXT,
-  first_seen  INTEGER NOT NULL,
-  last_seen   INTEGER NOT NULL
-);
-
-CREATE TABLE project (
-  project_id  TEXT PRIMARY KEY,          -- sha256(root_path)[:32]
-  root_path   TEXT NOT NULL UNIQUE,
-  name        TEXT NOT NULL              -- basename, human-facing
-);
-
-CREATE TABLE session (
-  id           TEXT PRIMARY KEY,         -- sha256(host_id|source|native_id)[:32]
-  native_id    TEXT NOT NULL,            -- sessionId / session_meta.session_id
-  source       TEXT NOT NULL,            -- 'claude_code' | 'codex'
-  host_id      TEXT NOT NULL REFERENCES host(host_id),
-  project_id   TEXT REFERENCES project(project_id),
-  cwd          TEXT,
-  git_branch   TEXT,
-  cli_version  TEXT,
-  started_at   INTEGER NOT NULL,         -- epoch ms UTC
-  ended_at     INTEGER NOT NULL,
-  event_count  INTEGER NOT NULL DEFAULT 0,
-  active_ms    INTEGER NOT NULL DEFAULT 0,
-  UNIQUE (host_id, source, native_id)
-);
-
-CREATE TABLE event (
-  id                 TEXT PRIMARY KEY,   -- sha256(session_id|ordinal)[:32]
-  session_id         TEXT NOT NULL REFERENCES session(id),
-  ts                 INTEGER NOT NULL,   -- epoch ms UTC
-  ordinal            INTEGER NOT NULL,   -- per-session monotonic
-  kind               TEXT NOT NULL,      -- user_prompt|assistant|tool_use|tool_result|system
-  model              TEXT,               -- NULL for non-model events; drop '<synthetic>'
-  tool_name          TEXT,
-  tool_use_id        TEXT,               -- for tool_use/tool_result pairing
-  input_tokens       INTEGER,
-  output_tokens      INTEGER,
-  cache_read_tokens  INTEGER,
-  cache_write_tokens INTEGER,
-  UNIQUE (session_id, ordinal)
-);
-
-CREATE TABLE span (                      -- derived: contiguous active work blocks
-  id           TEXT PRIMARY KEY,
-  session_id   TEXT NOT NULL REFERENCES session(id),
-  started_at   INTEGER NOT NULL,
-  ended_at     INTEGER NOT NULL,
-  event_count  INTEGER NOT NULL,
-  attended     INTEGER                   -- 1 user present, 0 unattended, NULL unknown
-);
-
-CREATE TABLE subagent_span (             -- derived: Agent tool_use -> tool_result
-  id           TEXT PRIMARY KEY,
-  session_id   TEXT NOT NULL REFERENCES session(id),
-  tool_use_id  TEXT NOT NULL,
-  agent_type   TEXT,
-  started_at   INTEGER NOT NULL,
-  ended_at     INTEGER,                  -- NULL if never returned
-  UNIQUE (session_id, tool_use_id)
-);
-
-CREATE TABLE ingest_file (               -- incremental ingest bookkeeping
-  host_id      TEXT NOT NULL,
-  path         TEXT NOT NULL,
-  source       TEXT NOT NULL,
-  size_bytes   INTEGER NOT NULL,
-  mtime_ms     INTEGER NOT NULL,
-  bytes_read   INTEGER NOT NULL,
-  lines_read   INTEGER NOT NULL,
-  last_ingest  INTEGER NOT NULL,
-  PRIMARY KEY (host_id, path)
-);
-```
-
-### Schema rules (Postgres portability)
-
-- **All timestamps are `INTEGER` epoch milliseconds UTC.** Never ISO strings,
-  never local time. Postgres migration is `to_timestamp(ts/1000.0)`.
-- **Every epoch-ms column maps to `BIGINT` in Postgres, never `INTEGER`.**
-  SQLite's `INTEGER` is 64-bit, but Postgres `INTEGER` is int4 (max 2.1e9) and
-  epoch-ms is ~1.79e12 — a plain port overflows on the first insert. This also
-  applies to `size_bytes` and `bytes_read` in `ingest_file`. The Postgres
-  migration must be written with `BIGINT`, and a test must assert a
-  present-day timestamp round-trips.
-- **All ids are `TEXT`.** No `AUTOINCREMENT`, no integer surrogate keys.
-- Upserts use `INSERT ... ON CONFLICT (...) DO UPDATE` — valid in both engines.
-- No `strftime`, no `julianday`, no dynamic typing tricks. Date bucketing for
-  reports happens in application code, not in stored SQL.
-- Migrations are numbered `.sql` files applied in order, tracked in
-  `schema_migrations`. Never edit a shipped migration; add a new one.
+A **session** is one root conversation. A **thread** is one serial stream of
+events within it. Codex threads are explicit — one log file each, with
+`payload.id`, `payload.session_id` and a `source.subagent` marker. Claude Code
+logs only the root thread, so its subagent threads are *derived* from `Agent`
+`tool_use` → `tool_result` pairs and carry no events of their own. Modelling
+both as threads is what lets one timeline render both sources. **Spans** are
+derived per thread. Schema: `migrations/001_init.sql` — that file is
+authoritative; this document does not duplicate it.
 
 ---
 
-# Stage 0 — Foundation (SERIAL, blocks everything)
+# Stage 0 — Foundation ✅ DONE
 
-**Owner: orchestrator (opus-5). Do not delegate — this is the contract every
-other package builds against.**
+`pyproject.toml`, `migrations/001_init.sql`, `config.py`, `db.py` (migration
+runner), `ids.py` (deterministic ids), `sources/base.py` (adapter protocol),
+`cli.py` (`init` / `status` / `config`), 21 passing tests.
 
-**WP0. Repo skeleton + schema + adapter protocol**
-- Python 3.11+, `src/cc_insights/`, `pyproject.toml`, pytest.
-- `migrations/001_init.sql` exactly as above; migration runner.
-- `config.py`: TOML at `~/.config/cc-insights/config.toml` — `db_path`,
-  `idle_threshold_s = 300`, `host_id` (generated on first run), source globs.
-- `sources/base.py`: the adapter protocol every source implements —
-  ```python
-  class SourceAdapter(Protocol):
-      name: str
-      def discover(self) -> Iterable[Path]: ...
-      def parse(self, path: Path, from_byte: int) -> Iterator[RawEvent]: ...
-  ```
-  `RawEvent` is a dataclass mapping 1:1 onto the `event` table plus the session
-  fields needed to upsert `session`.
-- **Done when:** `pytest` passes on an empty suite, `cci init` creates the DB
-  with migration 001 applied, and `sources/base.py` is importable.
-- **Stop:** do not write any adapter here.
+Verify with `.venv/bin/python -m pytest -q` and `cci --config-dir <tmp> init`.
 
 ---
 
-# Stage 1 — Ingest & Store (PARALLEL after WP0)
+# Stage 1 — Ingest & Store
 
-WP1–WP4 have no dependencies on each other. Dispatch simultaneously.
+WP1–WP3 are independent and dispatch together. WP4 needs WP2 or WP3. WP5 needs
+only the schema. **Keep each package to one sitting** — if a package grows,
+split it rather than letting one agent run long.
 
 **WP1. Synthetic fixtures** → *muse-spark-1.3*
-- Generate `tests/fixtures/claude_code/*.jsonl` and `tests/fixtures/codex/*.jsonl`:
-  synthetic log lines matching the real shapes documented in FINDINGS §5.
-- Must cover: multi-file session resume, a 6-hour idle gap, two overlapping
-  sessions, an `Agent` tool_use with a matching tool_result, a `<synthetic>`
-  model event, and a truncated final line (crash mid-write).
-- **Done when:** every fixture file is valid JSONL (one object per line) and a
-  provided `validate_fixtures.py` exits 0.
+- `tests/fixtures/claude_code/*.jsonl` and `tests/fixtures/codex/*.jsonl`,
+  matching the real shapes in FINDINGS §2–4.
+- Must cover: the same event replayed into two files with identical timestamp
+  (Claude resume); two Codex threads sharing one `session_id` with overlapping
+  ordinals but different timestamps; a 6-hour idle gap; two overlapping
+  sessions; an `Agent` tool_use with matching tool_result; a `<synthetic>`
+  model event; a truncated final line.
+- **Done when:** every file is valid JSONL and `validate_fixtures.py` exits 0.
 - **Stop:** fixtures only. Do not touch `src/`.
-- *Rationale: mechanical, spec is exact, output is machine-verifiable.*
 
-**WP2. Claude Code adapter** → *gpt-5.6 (or fable-5.1 if Codex is limited)*
-- Implement `sources/claude_code.py` against the WP0 protocol.
-- Glob `~/.claude/projects/*/*.jsonl`. Top-level `cwd`/`gitBranch`/`version`.
-- Sessionize on the `sessionId` **field**, not filename (FINDINGS §1).
-- Extract `message.usage` token fields; drop `<synthetic>` models.
-- Emit `tool_use_id` for tool_use/tool_result so WP4 can pair subagent spans.
-- Tolerate truncated trailing lines without losing the file.
-- **Done when:** parses all WP1 Claude fixtures, and a real-corpus run reproduces
-  **120 sessions / 53,915 events** (±1% for logs written since the probe).
-- **Stop:** no derived metrics, no span logic. Parse and normalize only.
+**WP2. Claude Code adapter** → *opus-5*
+- `sources/claude_code.py` implementing the `SourceAdapter` protocol.
+- Sessionize on the `sessionId` **field**, not filename (FINDINGS §4.5).
+- `native_event_id` = event `uuid`; fall back to `ids.content_fallback_id(line)`
+  for `queue-operation` / `pr-link` / `file-history-delta` (FINDINGS §2).
+- Root thread only: `native_thread_id == native_session_id`. Emit `tool_use_id`
+  on Agent tool_use/tool_result so WP5 can derive subagent threads. **Do not
+  derive threads here.**
+- Map to `EventKind`; drop `<synthetic>` models; extract `message.usage`.
+- Set `byte_end` on every event so ingest can resume mid-file. Skip a truncated
+  trailing line without raising.
+- **Done when:** parses all WP1 Claude fixtures, and over the real corpus yields
+  **121 sessions / 52,919 deduped events**, coverage from 2026-06-24 (±1% for
+  logs written since the probe).
+- **Stop:** parse and normalize only. No DB, no spans.
 
-**WP3. Codex adapter** → *gpt-5.6 (or fable-5.1 if Codex is limited)*
-- Implement `sources/codex.py`. Glob `~/.codex/sessions/*/*/*/*.jsonl`.
-- Metadata is nested under `payload`; the `session_meta` line carries `cwd`,
-  `originator`, `cli_version`, `model_provider` (FINDINGS §5.4).
-- Also read `~/.codex/archived_sessions/`.
-- **Done when:** parses all WP1 Codex fixtures and a real-corpus run yields
-  **212 sessions**, coverage starting 2026-02-08.
+**WP3. Codex adapter** → *opus-5*
+- `sources/codex.py`. Globs in `config.DEFAULT_SOURCE_GLOBS["codex"]`.
+- Resolve `session_meta` **once per file** and apply to all its events
+  (FINDINGS §4.3). `native_thread_id` = `payload.id`,
+  `native_session_id` = `payload.session_id`, `parent_native_thread_id` =
+  `payload.parent_thread_id`, `is_subagent` = `"subagent" in payload.source`,
+  `agent_name` = `payload.agent_nickname`.
+- `native_event_id` = `f"{thread_id}:{ordinal}"` — **never `ordinal` alone**
+  (FINDINGS §2: that drops 8,709 events).
+- **Done when:** parses all WP1 Codex fixtures, and over the real corpus yields
+  **188 sessions / 215 threads / 27 subagent threads / 54,296 deduped events**,
+  coverage from 2026-02-08.
 - **Stop:** parse and normalize only.
 
-**WP4. Derivation engine** → *gpt-5.6 (or fable-5.1 if Codex is limited)*
-- `derive.py`, operating purely on the `event` table — **independent of adapters**.
-- `active spans`: split a session's events wherever the gap exceeds
-  `idle_threshold`; write to `span`. Port `docs/probes/gap_distribution.py`.
-- `attended`: an inter-event gap that ends at a `user_prompt` = user was present
-  (reading/thinking) → `attended = 1`. A gap inside an agent turn = unattended
-  → `attended = 0`.
-- `subagent_span`: pair `Agent` tool_use → tool_result on `tool_use_id`.
-  **`isSidechain` is always 0 — ignore it** (FINDINGS §5.1).
-- `concurrency`: sweep-line over spans. Port `docs/probes/concurrency.py`.
-- **Done when:** on the real corpus it reproduces FINDINGS §4 exactly —
-  582 spans, 65.6 active h, 56.9 h wall-clock, 1.15x multiplier, peak 5 on
-  2026-09-09. These are regression tests.
-- **Stop:** no CLI, no output formatting.
+**WP4. Ingest layer** → *opus-5*
+- `ingest.py`: drive adapters, upsert `project` / `session` / `thread` / `event`.
+- Session and thread `started_at`/`ended_at`/`event_count` are aggregates over
+  their events. `cwd`/`git_branch`/`cli_version` take the value from the
+  **latest** event, so worktree switches land correctly.
+- Incremental via `ingest_file`: resume at `bytes_read`; restart from 0 if
+  `size_bytes` shrank (rotation).
+- **Done when:** two consecutive full ingests — the second inserts 0 rows and
+  finishes in < 2 s; row counts match WP2/WP3 acceptance numbers.
+- **Stop:** no derived metrics.
 
-**WP5. CLI + scheduling** → *muse-spark-1.3 for the plist, gpt-5.6 for the CLI*
-- `cci init | ingest [--source X] | derive | stats | export`.
-- `ingest` is incremental via `ingest_file` (resume at `bytes_read`; re-read from
-  0 if `size_bytes` shrank — file was rotated).
-- launchd plist, 15-minute interval, logging to `~/.config/cc-insights/logs/`.
-- **Done when:** two consecutive `cci ingest` runs — the second inserts 0 rows
-  and completes in < 2 s.
+**WP5. Derivation engine** → *opus-5*
+- `derive.py`, operating purely on `event`/`thread` — independent of adapters.
+- **Spans per thread**, using the FINDINGS §0 definition. Port
+  `docs/probes/canonical_metrics.py`.
+- **Derived Claude subagent threads**: pair `Agent` `tool_use` → `tool_result`
+  on `tool_use_id`; insert `thread` rows with `is_subagent = 1`,
+  `parent_thread_id` = the root, and one span each. **`isSidechain` is always
+  `false` — ignore it** (FINDINGS §3).
+- `attended`: a gap ending at a `user_prompt` means the user was present → 1;
+  a gap inside an agent turn → 0.
+- Concurrency by sweep-line over spans.
+- **Done when:** session-level output reproduces FINDINGS §1 exactly —
+  Claude Code 584 spans / 65.8 h / 57.0 h wall / 1.15x / peak 5 on 2026-09-09;
+  Codex 284 spans / 36.8 h / 35.1 h wall. Per-thread output may legitimately
+  exceed these for the 7 multi-thread Codex sessions; document the delta.
+- **Stop:** no CLI, no formatting.
 
-**WP6. Test suite + CI** → *gpt-5.6*
-- Unit tests per adapter on fixtures; golden-number regression tests from
-  FINDINGS §4; idempotency test (ingest twice → identical row counts).
+**WP6. CLI + scheduling** → *opus-5 (CLI), muse-spark-1.3 (plist)*
+- Extend `cli.py` with `ingest`, `derive`, `stats`.
+- launchd plist, 15-minute interval, logs to `<config_dir>/logs/`.
+- **Done when:** `cci ingest && cci derive && cci stats` prints the FINDINGS
+  numbers; the plist loads and fires.
+
+**WP7. Test suite + CI** → *opus-5*
+- Adapter tests on fixtures; golden-number regression tests from FINDINGS §1;
+  an idempotency test (ingest twice → identical row counts); a test asserting
+  no DB column contains message content.
 - **Done when:** `pytest` green, coverage ≥ 80% on `src/cc_insights/`.
 
 ### Stage 1 gate
 
-Before any Stage 2 work starts: run ingest over the real corpus and confirm the
-FINDINGS §4 numbers reproduce. Then **schedule the launchd job immediately** —
-history stops being lost at that moment, which is the whole point of Stage 1.
+Run a full ingest over the real corpus, confirm FINDINGS §1 reproduces, then
+**load the launchd job immediately**. History stops being lost at that moment —
+that is the entire point of Stage 1. Do not start Stage 2 first.
 
 ---
 
-# Stage 2 — Insights & Visualization (PARALLEL after Stage 1 gate)
+# Stage 2 — Insights & Visualization
 
-**WP7. Metrics layer** → *gpt-5.6*
-- `metrics.py` — one function per question, each returning plain rows:
-  daily active hours; concurrency histogram; per-project/branch totals;
-  session-length distribution; model & token mix; attended vs unattended ratio;
-  hour-of-day x day-of-week heatmap matrix.
-- Timezone conversion (UTC → local) happens **here**, once, not in the UI.
+**WP8. Metrics layer** → *opus-5*
+- `metrics.py`, one function per question returning plain rows: daily active
+  hours; concurrency histogram; per-project/branch totals; session-length
+  distribution; model & token mix; attended vs unattended; hour-of-day ×
+  day-of-week matrix.
+- UTC → local conversion happens **here**, once, not in the UI.
 - **Done when:** each function has a test asserting against the real corpus.
 - **Stop:** data only. No HTML, no colors.
 
-**WP8. Timeline swimlane** → *opus-5 or fable-5.1 (taste ≥ 7 required)*
-- The centerpiece view: one horizontal lane per session across a day/week,
-  colored by project, overlap visually obvious at a glance. Subagent spans
-  render as a thinner sub-lane inside their parent session's lane.
-- Read the `dataviz` skill before writing chart code.
-- Self-contained HTML + inline SVG/canvas. Light and dark. Works at phone width.
-- **Done when:** rendering the real corpus makes the 6.7 h of parallel time and
-  the 5-way peak on 2026-09-09 immediately visible without reading a number.
+**WP9. Timeline swimlane** → *opus-5 or fable-5.1 (taste ≥ 7)*
+- The centerpiece: one lane per thread across a day/week, grouped by session,
+  colored by project; subagent threads render as an indented sub-lane under
+  their parent. Overlap must be obvious at a glance.
+- Read the `dataviz` skill before writing chart code. Self-contained HTML +
+  inline SVG. Light and dark. Works at phone width.
+- **Done when:** rendering the real corpus makes the 6.9 h of parallel time and
+  the 5-way peak on 2026-09-09 visible without reading a number.
 
-**WP9. Dashboard shell** → *opus-5 or fable-5.1 (taste ≥ 7 required)*
-- Hosts WP8 plus: daily active-hours bars, project breakdown, session-length
-  histogram, hour-of-day heatmap, model/token mix. Date-range + source filters.
-- Generated as a single static HTML file from the DB (`cci dashboard`). No server.
-- **Done when:** one command produces a file that opens correctly offline.
+**WP10. Dashboard shell** → *opus-5 or fable-5.1 (taste ≥ 7)*
+- Hosts WP9 plus daily active-hours bars, project breakdown, session-length
+  histogram, hour-of-day heatmap, model/token mix; date-range and source filters.
+- `cci dashboard` emits one static HTML file. No server.
+- **Done when:** the file opens correctly offline.
 
-**WP10. Time-tracking export** → *muse-spark-1.3*
-- `cci export --from X --to Y --format csv|json`, grouped by project/branch/day,
-  with active hours per bucket.
+**WP11. Time-tracking export** → *muse-spark-1.3*
+- `cci export --from X --to Y --format csv|json`, grouped by project/branch/day.
 - Every export embeds the `idle_threshold` used and the generation timestamp —
   a number without its threshold is not defensible in a timesheet.
-- **Done when:** round-trips into a spreadsheet with correct totals.
 
-**WP11. Review gate** → *fable-5.1, plus gpt-6 as an independent second pass*
-- Review the full implementation for correctness of the time math, schema
-  portability, and any place message content leaked into the DB.
-- **Done when:** both reviews return no critical findings.
+**WP12. Review gate** → *fable-5.1, plus gpt-6 as an independent second pass*
+- Correctness of the time math, schema portability, and any path by which
+  message content could reach the DB.
 
 ---
 
 ## Fan-out rules
 
-- **Stage 0 is serial and undelegated.** Everything else is parallel *because*
-  the schema and adapter protocol are fixed first. Do not start Stage 1 before
-  WP0 is merged — fan-out without a fixed contract produces four
-  incompatible halves.
-- Dispatch WP1–WP4 in a single batch, WP7–WP10 in a single batch.
-- **Model assignment** follows `~/.claude/CLAUDE.md`:
-  - muse-spark-1.3 (free, ~4 s/call, intelligence 3): WP1, WP10, the plist,
-    docstrings, smoke checks. Only work whose output is *mechanically
-    verifiable*. Invoke as:
+- **Stage 0 was serial and is done.** Everything downstream is parallel
+  *because* the schema and adapter protocol are frozen. Fan-out without a fixed
+  contract produces incompatible halves.
+- Dispatch WP1–WP3 as one batch; WP8–WP11 as one batch.
+- **Model assignment** (see `~/.claude/CLAUDE.md`):
+  - **muse-spark-1.3** — free, ~4 s/call, intelligence 3. Only mechanically
+    verifiable output: WP1, WP11, the plist, docstrings, smoke checks.
     `opencode run -m opencode/muse-spark-1.3-contributor-free --dir <path> --auto "<prompt>"`
-  - gpt-5.6 via the codex plugin: WP2–WP6, WP7. **Currently rate-limited** — if
-    still limited, escalate these to fable-5.1, never down to muse-spark.
-  - opus-5 / fable-5.1: WP0, WP8, WP9 (taste-critical and design-critical).
-- **Every subagent prompt must carry**: the relevant FINDINGS section, its
-  single deliverable, its done-when condition, and its explicit stop condition.
-  These models will otherwise keep going indefinitely.
-- Verify subagent output yourself against the done-when condition. Do not
-  trust a self-reported "done".
+  - **opus-5** — standing in for gpt-5.6 while Codex is rate-limited: WP2–WP8.
+    Keep packages to one sitting each; split rather than run one agent long.
+  - **fable-5.1** — WP9, WP10 (taste-critical), WP12 (review).
+- **Every subagent prompt carries**: the relevant FINDINGS section, one
+  deliverable, its done-when condition, its explicit stop condition.
+- Verify output against the done-when condition yourself. Never trust a
+  self-reported "done".
 
 ## Guardrails
 
-- If a package's real-corpus numbers disagree with FINDINGS §4, **the code is
-  wrong, not the findings** — they were measured directly. Investigate before
-  changing an expected value.
-- Never commit `*.db` or anything under `data/` (already in `.gitignore`).
-- If content text is found anywhere in the DB, that is a release blocker.
-- If Stage 1 grows past ~2 weeks of work, ship WP0+WP2+WP5 alone and schedule
-  the ingest job. A running ingest beats a perfect one.
+- If a package's real-corpus numbers disagree with FINDINGS §1, **the code is
+  wrong, not the findings** — they come from one canonical script. Investigate
+  before editing an expected value.
+- Never commit `*.db` or `data/` (already in `.gitignore`).
+- If Stage 1 slips past ~2 weeks, ship WP2 + WP4 + WP6 alone and load the
+  launchd job. A running ingest beats a perfect one.

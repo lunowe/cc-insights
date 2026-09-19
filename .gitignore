@@ -13,3 +13,7 @@ build/
 *.egg-info/
 node_modules/
 .DS_Store
+
+# tooling
+.pytest_cache/
+.ruff_cache/

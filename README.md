@@ -16,8 +16,16 @@ productivity claim you want to make — without inventing numbers.
 
 ## Status
 
-Pre-implementation. The premise has been validated against real logs on this
-machine; see `docs/FINDINGS.md`. The build is specified in `PROMPT.md`.
+**Stage 0 complete** — schema, migration runner, config, deterministic ids,
+adapter protocol and CLI, with 21 passing tests. No adapter is written yet, so
+the database is still empty. Stage 1 (ingest) is specified and ready to
+dispatch in `PROMPT.md`.
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -e . pytest
+.venv/bin/python -m pytest -q
+.venv/bin/cci init && .venv/bin/cci status
+```
 
 ## Why this is not just "sum the session durations"
 
@@ -25,10 +33,10 @@ Measured on this machine's Claude Code logs (2026-06-24 → 2026-09-19):
 
 | metric | value |
 | --- | --- |
-| Sum of session wall-clock spans | 2710.3 h |
-| Actual active agent time | **104.1 h** (4% of span) |
+| Sum of session wall-clock spans | 2710.7 h |
+| Actual active agent time | **65.8 h** (2.4% of span) |
 
-Sessions stay open for days. Any tool that reports wall-span is off by 25x.
+Sessions stay open for days. Any tool that reports wall-span is off by 41x.
 CC-Insights reconstructs *active* time from inter-event gaps instead. See
 `docs/FINDINGS.md` for the gap distribution that justifies the threshold.
 
@@ -36,8 +44,8 @@ CC-Insights reconstructs *active* time from inter-event gaps instead. See
 
 | source | log location | verified history |
 | --- | --- | --- |
-| Claude Code | `~/.claude/projects/*/*.jsonl` | 120 sessions, 65.6 active h |
-| Codex | `~/.codex/sessions/YYYY/MM/DD/*.jsonl` | 212 sessions, 49.9 active h |
+| Claude Code | `~/.claude/projects/*/*.jsonl` | 121 sessions, 65.8 active h |
+| Codex | `~/.codex/sessions/YYYY/MM/DD/*.jsonl` | 188 sessions / 215 threads, 36.8 active h |
 
 ## Design stance
 
