@@ -1,0 +1,193 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ── CC-Insights theme ───────────────────────────────────────────────────────
+   shadcn/ui new-york, baseColor neutral, with one signal hue (amber) reserved
+   for "this is measured / this is selected". Everything else stays neutral so
+   the numbers carry the page.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --radius: 0.5rem;
+
+  --background: oklch(0.992 0.002 92);
+  --foreground: oklch(0.175 0.004 92);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.175 0.004 92);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.175 0.004 92);
+  --primary: oklch(0.545 0.152 48);
+  --primary-foreground: oklch(0.99 0.006 90);
+  --secondary: oklch(0.962 0.003 92);
+  --secondary-foreground: oklch(0.23 0.004 92);
+  --muted: oklch(0.962 0.003 92);
+  --muted-foreground: oklch(0.48 0.006 92);
+  --accent: oklch(0.955 0.014 72);
+  --accent-foreground: oklch(0.23 0.004 92);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.902 0.004 92);
+  --input: oklch(0.902 0.004 92);
+  --ring: oklch(0.545 0.152 48);
+
+  /* Categorical palette for WP10 (project identity). Same five hue families
+     as the original set, re-ordered and re-stepped so the dataviz validator
+     passes in both themes: the original put rose beside green (deutan ΔE 2.5)
+     and sat at C 0.096 on the teal. Slot order is the CVD-safety mechanism —
+     never reassign. Validated: worst adjacent ΔE 17.4 CVD / 18.1 normal. */
+  --chart-1: oklch(0.6 0.135 58);
+  --chart-2: oklch(0.63 0.112 218);
+  --chart-3: oklch(0.53 0.14 145);
+  --chart-4: oklch(0.595 0.135 275);
+  --chart-5: oklch(0.505 0.155 15);
+  /* De-emphasis: projects past the fifth slot, and the "base" series in an
+     emphasis chart (wall-clock under the parallel surplus, level 1 under ≥2). */
+  --chart-other: oklch(0.74 0.006 92);
+  /* Single-series nominal bars (agent types): ink, so no false identity. */
+  --chart-ink: oklch(0.4 0.006 92);
+  /* Sequential ramp for the heatmap: one hue, light → dark. */
+  --heat-lo: oklch(0.965 0.018 75);
+  --heat-hi: oklch(0.44 0.13 48);
+
+  --sidebar: oklch(0.975 0.002 92);
+  --sidebar-foreground: oklch(0.175 0.004 92);
+  --sidebar-primary: oklch(0.545 0.152 48);
+  --sidebar-primary-foreground: oklch(0.99 0.006 90);
+  --sidebar-accent: oklch(0.955 0.014 72);
+  --sidebar-accent-foreground: oklch(0.23 0.004 92);
+  --sidebar-border: oklch(0.902 0.004 92);
+  --sidebar-ring: oklch(0.545 0.152 48);
+
+  /* Hairline used for the instrument-panel rules and grid. */
+  --rule: oklch(0.175 0.004 92 / 9%);
+}
+
+.dark {
+  --background: oklch(0.155 0.004 92);
+  --foreground: oklch(0.945 0.003 92);
+  --card: oklch(0.194 0.004 92);
+  --card-foreground: oklch(0.945 0.003 92);
+  --popover: oklch(0.208 0.004 92);
+  --popover-foreground: oklch(0.945 0.003 92);
+  --primary: oklch(0.76 0.142 63);
+  --primary-foreground: oklch(0.2 0.032 52);
+  --secondary: oklch(0.262 0.004 92);
+  --secondary-foreground: oklch(0.945 0.003 92);
+  --muted: oklch(0.248 0.004 92);
+  --muted-foreground: oklch(0.715 0.006 92);
+  --accent: oklch(0.295 0.016 66);
+  --accent-foreground: oklch(0.955 0.003 92);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 11%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.76 0.142 63);
+
+  /* Dark steps of the same five hues, selected for the dark surface
+     (validator band L 0.48–0.67): worst adjacent ΔE 18.2 CVD / 18.8 normal. */
+  --chart-1: oklch(0.61 0.125 60);
+  --chart-2: oklch(0.665 0.113 218);
+  --chart-3: oklch(0.6 0.155 138);
+  --chart-4: oklch(0.665 0.14 291);
+  --chart-5: oklch(0.62 0.155 17);
+  --chart-other: oklch(0.48 0.006 92);
+  --chart-ink: oklch(0.8 0.006 92);
+  --heat-lo: oklch(0.235 0.012 75);
+  --heat-hi: oklch(0.84 0.14 72);
+
+  --sidebar: oklch(0.194 0.004 92);
+  --sidebar-foreground: oklch(0.945 0.003 92);
+  --sidebar-primary: oklch(0.76 0.142 63);
+  --sidebar-primary-foreground: oklch(0.2 0.032 52);
+  --sidebar-accent: oklch(0.295 0.016 66);
+  --sidebar-accent-foreground: oklch(0.955 0.003 92);
+  --sidebar-border: oklch(1 0 0 / 11%);
+  --sidebar-ring: oklch(0.76 0.142 63);
+
+  --rule: oklch(1 0 0 / 10%);
+}
+
+@theme inline {
+  --font-sans: "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-rule: var(--rule);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-other: var(--chart-other);
+  --color-chart-ink: var(--chart-ink);
+  --color-heat-lo: var(--heat-lo);
+  --color-heat-hi: var(--heat-hi);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Numbers are the product here: never let them jitter. */
+  :is(table, .num, [data-slot="stat-value"]) {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "zero" 1;
+}
+
+/* A one-pixel rule that reads as an instrument bezel, not a box. */
+@utility hairline-t {
+  border-top: 1px solid var(--rule);
+}
+
+@layer components {
+  .eyebrow {
+    @apply text-[0.6875rem] font-medium tracking-[0.13em] text-muted-foreground uppercase;
+  }
+}
