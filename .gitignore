@@ -1,0 +1,15 @@
+# local data — never commit; contains machine-specific usage history
+*.db
+*.db-wal
+*.db-shm
+data/
+.env
+__pycache__/
+.venv/
+venv/
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+node_modules/
+.DS_Store
