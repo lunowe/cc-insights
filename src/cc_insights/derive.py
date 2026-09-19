@@ -29,37 +29,57 @@ Two edge cases, both chosen to match docs/probes/canonical_metrics.py exactly:
 
 ATTENDED
 --------
-`span.attended` classifies **the transition into the span** -- that is, how the
-run began -- and nothing else. Exact rule, applied to the span's first event:
+`span.attended` classifies **the transition into the span** -- that is, whether
+a human turn started this run -- and nothing else.
 
-    1     the span's first event is a `user_prompt`.
-          A human typed. Either they came back after the idle gap that ended
-          the previous span (they were present: reading, thinking, typing), or
-          this is the thread's opening prompt.
-    0     the span's first event is not a `user_prompt` AND some earlier span
-          exists in the same thread.
-          The thread resumed mid-agent-turn: a tool returned, or the model
-          emitted its next message, with no human input in between. Whatever
-          happened during the gap, it was not a human turn in this thread.
-    NULL  the span's first event is not a `user_prompt` and this is the
-          thread's first span.
+It is judged on the span's **head**: the events from the span's first up to,
+but excluding, the first `assistant` / `tool_use` / `tool_result` event. The
+head is used rather than the literal first event because neither CLI writes the
+human's turn first. Claude Code emits `queue-operation` and `attachment` lines
+in the same instant the human presses enter (measured: a median of tens of
+milliseconds before the `user` line); Codex opens a session with its meta,
+environment and instruction lines before the first human message. Those are the
+client's packaging of the human's turn, not work. Keying on the literal first
+event scored a 66-hour corpus of human-driven root-thread work as 1.5 hours.
+The head ends at the first agent event because that is the point where the run
+stops being "the human starting something" and becomes "the model working".
+
+    1     the thread is a ROOT thread and its span's head contains a
+          `user_prompt`. A human typed: either they came back after the idle
+          gap that ended the previous span (present: reading, thinking,
+          typing), or this is the thread's opening prompt.
+    0     everything else that is not NULL, i.e. either
+          (a) the thread is a SUBAGENT thread -- structurally, never attended;
+              see below -- or
+          (b) some earlier span exists in this thread and its head holds no
+              human turn: the thread resumed mid-agent-turn (a tool returned,
+              the model emitted its next message) with no human input.
+    NULL  a ROOT thread's FIRST span whose head holds no human turn.
           There is no preceding gap to classify and no human action to point
-          at. Genuinely unknowable -- typically a subagent thread, which is
-          spawned by the model and opens with injected context.
+          at. Genuinely unknowable.
+
+**Subagent threads are never `1`.** A human has no interface to type into a
+subagent thread, so a human turn there is definitionally impossible. Their
+first line *is* `user`-typed -- it carries the orchestrator's task prompt --
+which is exactly the trap this gate exists to close: ungated, those injected
+prompts scored as the largest block of "supervised" time in the corpus.
 
 What this DOES NOT claim:
 
-* Not "a human watched this whole span." Attendance is judged once, at the
-  span's first event. A span marked 1 may run unattended for an hour after
-  that first prompt.
+* Not "a human watched this whole span." Attendance is judged once, at the head
+  of the span. A span marked 1 may run unattended for an hour afterwards.
 * Not "the human was away" when 0. They may have been watching the agent work
-  the entire time -- they simply did not type into *this thread*. They may
-  also have been typing into a *different* thread, which is precisely what the
-  concurrency numbers measure.
+  the entire time -- they simply did not start this run. They may also have
+  been typing into a *different* thread, which is what concurrency measures.
+* **Attendance is only ever asserted for root threads.** A 0 on a subagent span
+  is structural, not a measurement: it says "a model spawned this", not "nobody
+  was watching". Any dashboard that sums attended vs unattended time must say
+  so, or it will read as a claim that the user abandoned work they may well
+  have been supervising from the parent thread.
 * Not an idle-time measure. The gap before a span is not part of any span, so
   `attended` never adds or removes active time; it only labels it.
-* User prompts *inside* a span are ignored by this flag. They are mid-run
-  interjections, not re-entries after idleness.
+* User prompts *after* the head are ignored: a prompt that follows an agent
+  event is a mid-run interjection, not the thing that started the run.
 
 RE-RUN SEMANTICS: delete-and-recompute, not upsert.
 ---------------------------------------------------
@@ -163,11 +183,13 @@ def spans_for_thread(
     thread_id: str,
     session_id: str,
     idle_threshold_s: int = DEFAULT_IDLE_THRESHOLD_S,
+    is_subagent: bool = False,
 ) -> list[Span]:
     """Split one thread's events into maximal active spans.
 
     `events` is `[(ts_ms, kind), ...]` **sorted by ts_ms**. A thread with fewer
-    than two events yields no span.
+    than two events yields no span. `is_subagent` only affects `attended`: a
+    subagent thread has no human interface, so none of its spans can be 1.
     """
     if len(events) < 2:
         return []
@@ -178,10 +200,10 @@ def spans_for_thread(
     prev = 0
     for i in range(1, len(events)):
         if events[i][0] - events[prev][0] > idle_ms:
-            out.append(_span(events, start, prev, thread_id, session_id))
+            out.append(_span(events, start, prev, thread_id, session_id, is_subagent))
             start = i
         prev = i
-    out.append(_span(events, start, prev, thread_id, session_id))
+    out.append(_span(events, start, prev, thread_id, session_id, is_subagent))
     return out
 
 
@@ -191,6 +213,7 @@ def _span(
     end: int,
     thread_id: str,
     session_id: str,
+    is_subagent: bool,
 ) -> Span:
     started_at = events[start][0]
     return Span(
@@ -200,17 +223,41 @@ def _span(
         started_at=started_at,
         ended_at=events[end][0],
         event_count=end - start + 1,
-        attended=_attended(events[start][1], is_first_span=start == 0),
+        attended=_attended(
+            events, start, end, is_first_span=start == 0, is_subagent=is_subagent
+        ),
     )
 
 
-def _attended(first_kind: str, *, is_first_span: bool) -> int | None:
+# The head of a span ends at the first of these: past this point the run is the
+# model working, not a human starting something.
+_AGENT_KINDS = frozenset({
+    str(EventKind.ASSISTANT), str(EventKind.TOOL_USE), str(EventKind.TOOL_RESULT),
+})
+
+
+def _attended(
+    events: Sequence[tuple[int, str]],
+    start: int,
+    end: int,
+    *,
+    is_first_span: bool,
+    is_subagent: bool,
+) -> int | None:
     """See ATTENDED in the module docstring. This is the whole rule."""
-    if first_kind == EventKind.USER_PROMPT:
-        return 1
+    if is_subagent:
+        # No human interface exists for this thread. Its opening `user_prompt`
+        # is the orchestrator's task prompt, so it can never mean attendance.
+        return 0
+    for i in range(start, end + 1):
+        kind = events[i][1]
+        if kind == EventKind.USER_PROMPT:
+            return 1         # a human turn opened the run
+        if kind in _AGENT_KINDS:
+            break            # head is over: the model took it from here
     if is_first_span:
-        return None      # no preceding gap, no human action: unknowable
-    return 0             # resumed mid-agent-turn
+        return None          # no preceding gap, no human turn: unknowable
+    return 0                 # resumed mid-agent-turn
 
 
 # --------------------------------------------------------------------------
@@ -276,14 +323,21 @@ def _compute(
 ) -> list[Span]:
     """All spans for the scope, computed from `event` joined to `thread`.
 
-    The thread row is authoritative for `session_id`: `thread.id` is derived
-    from its session, so a thread can never straddle two sessions.
+    The thread row is authoritative for `session_id` and `is_subagent`:
+    `thread.id` is derived from its session, so a thread can never straddle two
+    sessions, and the subagent flag is a property of the thread, not of any one
+    event.
     """
     sql = (
-        "SELECT e.thread_id AS thread_id, t.session_id AS session_id, e.ts AS ts, e.kind AS kind "
+        "SELECT e.thread_id AS thread_id, t.session_id AS session_id, "
+        "       t.is_subagent AS is_subagent, e.ts AS ts, e.kind AS kind "
         "FROM event e JOIN thread t ON t.id = e.thread_id "
     )
-    order = " ORDER BY e.thread_id, e.ts"
+    # e.id breaks ts ties deterministically: it cannot change a span boundary
+    # (those depend only on the sorted timestamps), but it keeps `attended`
+    # and event_count stable across runs and engines when two events of one
+    # thread share a millisecond.
+    order = " ORDER BY e.thread_id, e.ts, e.id"
 
     rows: list[sqlite3.Row] = []
     if scope is None:
@@ -297,20 +351,22 @@ def _compute(
     current: list[tuple[int, str]] = []
     cur_thread: str | None = None
     cur_session: str | None = None
+    cur_sub = False
     for r in rows:
         tid = r["thread_id"]
         if tid != cur_thread:
             if cur_thread is not None:
                 out += spans_for_thread(
                     current, thread_id=cur_thread, session_id=cur_session,
-                    idle_threshold_s=idle_threshold_s,
+                    idle_threshold_s=idle_threshold_s, is_subagent=cur_sub,
                 )
             cur_thread, cur_session, current = tid, r["session_id"], []
+            cur_sub = bool(r["is_subagent"])
         current.append((r["ts"], r["kind"]))
     if cur_thread is not None:
         out += spans_for_thread(
             current, thread_id=cur_thread, session_id=cur_session,
-            idle_threshold_s=idle_threshold_s,
+            idle_threshold_s=idle_threshold_s, is_subagent=cur_sub,
         )
     return out
 

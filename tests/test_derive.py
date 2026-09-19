@@ -100,6 +100,8 @@ def _spans(conn: sqlite3.Connection, thread_id: str | None = None) -> list[deriv
 U = str(EventKind.USER_PROMPT)
 A = str(EventKind.ASSISTANT)
 TR = str(EventKind.TOOL_RESULT)
+SYS = str(EventKind.SYSTEM)
+OTHER = str(EventKind.OTHER)
 
 
 # --------------------------------------------------------------------------
@@ -208,9 +210,9 @@ def test_attended_is_0_when_work_resumes_mid_agent_turn(conn):
 
 
 def test_attended_is_null_for_a_first_span_with_no_human_action(conn):
-    """A subagent thread opens with injected context: genuinely unknowable."""
-    s = _session(conn, "s-sub")
-    t = _thread(conn, s, "sub", [(T0, A), (T0 + MIN, TR)], is_subagent=True)
+    """A root thread that opens straight into model work: nothing to classify."""
+    s = _session(conn, "s-null")
+    t = _thread(conn, s, "t", [(T0, A), (T0 + MIN, TR)])
     derive.derive(conn, idle_threshold_s=IDLE_S)
 
     spans = _spans(conn, t)
@@ -219,13 +221,77 @@ def test_attended_is_null_for_a_first_span_with_no_human_action(conn):
     assert raw["attended"] is None
 
 
-def test_user_prompt_inside_a_span_does_not_change_attended(conn):
+def test_attended_counts_a_prompt_behind_the_clients_own_bookkeeping(conn):
+    """Neither CLI writes the human's turn first.
+
+    Claude Code emits `queue-operation` / `attachment` lines milliseconds
+    before the `user` line, and Codex opens with meta and environment lines.
+    Keying on the literal first event scored 66 h of human-driven root work as
+    1.5 h on the real corpus.
+    """
+    s = _session(conn, "s-head")
+    t = _thread(conn, s, "t", [
+        (T0, OTHER), (T0 + 14, OTHER), (T0 + 14, U), (T0 + MIN, A),      # session opens
+        (T0 + 60 * MIN, SYS), (T0 + 60 * MIN + 70, U), (T0 + 61 * MIN, A),  # human returns
+    ])
+    derive.derive(conn, idle_threshold_s=IDLE_S)
+
+    assert [sp.attended for sp in _spans(conn, t)] == [1, 1]
+
+
+def test_attended_head_ends_at_the_first_agent_event(conn):
+    """A prompt after the model has spoken is a mid-run interjection, not a start."""
+    s = _session(conn, "s-headend")
+    t = _thread(conn, s, "t", [
+        (T0, U), (T0 + MIN, A),
+        (T0 + 60 * MIN, SYS), (T0 + 60 * MIN + 1, A), (T0 + 61 * MIN, U),
+    ])
+    derive.derive(conn, idle_threshold_s=IDLE_S)
+
+    assert [sp.attended for sp in _spans(conn, t)] == [1, 0]
+
+
+def test_user_prompt_after_the_head_does_not_change_attended(conn):
     """The flag classifies the entry into the span, not its contents."""
     s = _session(conn, "s-mid")
-    t = _thread(conn, s, "sub", [(T0, A), (T0 + MIN, U), (T0 + 2 * MIN, A)], is_subagent=True)
+    t = _thread(conn, s, "t", [(T0, A), (T0 + MIN, U), (T0 + 2 * MIN, A)])
     derive.derive(conn, idle_threshold_s=IDLE_S)
 
     assert [sp.attended for sp in _spans(conn, t)] == [None]
+
+
+def test_subagent_spans_are_never_attended(conn):
+    """A Claude subagent transcript opens with a `user`-typed line, but it is
+    the orchestrator's task prompt: a human has no interface to type there."""
+    s = _session(conn, "s-sub")
+    root = _thread(conn, s, "root", [(T0, U), (T0 + MIN, A)])
+    sub = _thread(conn, s, "sub", [
+        (T0 + MIN, U), (T0 + 2 * MIN, A),                 # injected task prompt
+        (T0 + 60 * MIN, U), (T0 + 61 * MIN, A),           # and again after idling
+    ], is_subagent=True)
+    derive.derive(conn, idle_threshold_s=IDLE_S)
+
+    assert [sp.attended for sp in _spans(conn, sub)] == [0, 0]
+    assert [sp.attended for sp in _spans(conn, root)] == [1]
+
+
+def test_subagent_first_span_is_zero_not_unknown(conn):
+    """Structurally knowable: a model spawned it. That is not 'unknowable'."""
+    s = _session(conn, "s-sub2")
+    t = _thread(conn, s, "sub", [(T0, A), (T0 + MIN, TR)], is_subagent=True)
+    derive.derive(conn, idle_threshold_s=IDLE_S)
+
+    assert [sp.attended for sp in _spans(conn, t)] == [0]
+
+
+def test_no_span_of_a_subagent_thread_is_ever_attended_whatever_its_kinds(conn):
+    s = _session(conn, "s-sub3")
+    kinds = [U, A, TR, SYS, OTHER, str(EventKind.TOOL_USE)]
+    events = [(T0 + i * MIN, k) for i, k in enumerate(kinds)]
+    t = _thread(conn, s, "sub", events, is_subagent=True)
+    derive.derive(conn, idle_threshold_s=IDLE_S)
+
+    assert {sp.attended for sp in _spans(conn, t)} == {0}
 
 
 # --------------------------------------------------------------------------
