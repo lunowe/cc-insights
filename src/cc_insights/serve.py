@@ -27,9 +27,11 @@ No wildcard: a page on any other origin has no business reading this.
 
 from __future__ import annotations
 
+import errno
 import json
 import mimetypes
 import sqlite3
+import sys
 import threading
 import webbrowser
 from http import HTTPStatus
@@ -347,13 +349,35 @@ def run(
     quiet: bool = False,
 ) -> int:
     """Serve until interrupted. Returns a process exit code."""
-    server = make_server(cfg, host=host, port=port, dist_dir=dist_dir, quiet=quiet)
+    try:
+        server = make_server(cfg, host=host, port=port, dist_dir=dist_dir, quiet=quiet)
+    except OSError as exc:
+        if exc.errno in (errno.EADDRINUSE, errno.EACCES):
+            print(f"port {port} is already in use — try `cci serve --port {port + 1}`",
+                  file=sys.stderr, flush=True)
+            return 1
+        raise
+
     built = server.dist_dir is not None and server.dist_dir.is_dir()
-    print(f"CC-Insights   {server.url}")
-    print(f"db            {cfg.db_path}")
-    print("frontend      " + (str(server.dist_dir) if built
-                              else "not built — serving the JSON API only"))
-    print("Ctrl-C to stop")
+
+    # flush=True on every line: launchd and `cci serve > log` redirect stdout to
+    # a file, where print is block-buffered and the banner would otherwise never
+    # reach the log.
+    say = lambda line="": print(line, flush=True)
+    say()
+    say(f"  CC-Insights is running at  {server.url}")
+    say()
+    say(f"  database   {cfg.db_path}")
+    if built:
+        say(f"  frontend   {server.dist_dir}")
+    else:
+        say("  frontend   not built — serving the JSON API only")
+        say("             build it with:  cd frontend && pnpm install && pnpm build")
+    base = server.url.rstrip("/")
+    say(f"  endpoints  {base}/api/summary  (see docs/API.md for all 8)")
+    say()
+    say("  Ctrl-C to stop")
+    say()
     if open_browser:
         # After the loop is accepting, so the first request is not refused.
         threading.Timer(0.3, webbrowser.open, args=(server.url,)).start()

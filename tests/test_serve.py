@@ -397,3 +397,43 @@ def test_cci_serve_answers_every_endpoint_and_shuts_down_cleanly(
     assert rc == [0]
     out = capsys.readouterr().out
     assert f":{port}/" in out and "Ctrl-C" in out
+
+
+# --- startup banner -------------------------------------------------------
+# These cover two bugs that shipped briefly: the banner was block-buffered and
+# so never reached a redirected log (which is exactly what launchd gives it),
+# and a port clash raised a raw traceback instead of a usable message.
+
+
+def test_busy_port_reports_a_usable_message_not_a_traceback(tmp_path, capsys, monkeypatch):
+    import errno as _errno
+
+    from cc_insights import config as config_mod, db, serve as serve_mod
+
+    cfg = config_mod.load(tmp_path)
+    db.migrate(db.connect(cfg.db_path))
+
+    def boom(*a, **k):
+        raise OSError(_errno.EADDRINUSE, "Address already in use")
+
+    monkeypatch.setattr(serve_mod, "make_server", boom)
+    assert serve_mod.run(cfg, port=9999, open_browser=False) == 1
+    err = capsys.readouterr().err
+    assert "already in use" in err and "--port 10000" in err
+
+
+def test_banner_is_flushed_and_carries_a_well_formed_url(tmp_path, capsys, monkeypatch):
+    from cc_insights import config as config_mod, db, serve as serve_mod
+
+    cfg = config_mod.load(tmp_path)
+    db.migrate(db.connect(cfg.db_path))
+
+    server = serve_mod.make_server(cfg, port=0)
+    monkeypatch.setattr(serve_mod, "make_server", lambda *a, **k: server)
+    monkeypatch.setattr(server, "serve_forever", lambda *a, **k: None)
+
+    assert serve_mod.run(cfg, open_browser=False) == 0
+    out = capsys.readouterr().out
+    assert "CC-Insights is running at" in out
+    assert "/api/summary" in out
+    assert "//api/" not in out, "double slash: server.url already ends in /"
