@@ -381,7 +381,7 @@
   {
    "date": "2026-04-07",
    "activeMs": 2971124,
-   "wallMs": 2971124,
+   "wallMs": 2835037,
    "bySource": {
     "codex": 2971124
    }
@@ -469,7 +469,7 @@
   {
    "date": "2026-04-20",
    "activeMs": 1107105,
-   "wallMs": 1107105,
+   "wallMs": 1103387,
    "bySource": {
     "codex": 1107105
    }
@@ -893,7 +893,7 @@
   {
    "date": "2026-06-24",
    "activeMs": 4892596,
-   "wallMs": 4892596,
+   "wallMs": 3524725,
    "bySource": {
     "claude_code": 4892596
    }
@@ -1027,7 +1027,7 @@
   {
    "date": "2026-07-15",
    "activeMs": 4866956,
-   "wallMs": 4866956,
+   "wallMs": 4630031,
    "bySource": {
     "codex": 4866956
    }
@@ -1035,7 +1035,7 @@
   {
    "date": "2026-07-16",
    "activeMs": 24240660,
-   "wallMs": 24240660,
+   "wallMs": 11910253,
    "bySource": {
     "claude_code": 15714490,
     "codex": 8526170
@@ -1150,7 +1150,7 @@
   {
    "date": "2026-08-02",
    "activeMs": 26215307,
-   "wallMs": 26215307,
+   "wallMs": 14607561,
    "bySource": {
     "claude_code": 26215307
    }
@@ -1158,7 +1158,7 @@
   {
    "date": "2026-08-03",
    "activeMs": 4600219,
-   "wallMs": 4600219,
+   "wallMs": 3995827,
    "bySource": {
     "claude_code": 4600219
    }
@@ -1202,7 +1202,7 @@
   {
    "date": "2026-08-09",
    "activeMs": 5772435,
-   "wallMs": 5772435,
+   "wallMs": 4045189,
    "bySource": {
     "codex": 5772435
    }
@@ -1264,7 +1264,7 @@
   {
    "date": "2026-08-18",
    "activeMs": 3213599,
-   "wallMs": 3213599,
+   "wallMs": 2120160,
    "bySource": {
     "claude_code": 3213599
    }
@@ -1286,7 +1286,7 @@
   {
    "date": "2026-08-21",
    "activeMs": 14211971,
-   "wallMs": 14211971,
+   "wallMs": 6688145,
    "bySource": {
     "claude_code": 14211971
    }
@@ -1294,7 +1294,7 @@
   {
    "date": "2026-08-22",
    "activeMs": 3353215,
-   "wallMs": 3353215,
+   "wallMs": 3237730,
    "bySource": {
     "claude_code": 3353215
    }
@@ -1302,7 +1302,7 @@
   {
    "date": "2026-08-23",
    "activeMs": 23949755,
-   "wallMs": 23949755,
+   "wallMs": 15528439,
    "bySource": {
     "claude_code": 4082197,
     "codex": 19867558
@@ -1311,7 +1311,7 @@
   {
    "date": "2026-08-24",
    "activeMs": 11739325,
-   "wallMs": 11739325,
+   "wallMs": 6029006,
    "bySource": {
     "claude_code": 7056605,
     "codex": 4682720
@@ -1320,7 +1320,7 @@
   {
    "date": "2026-08-25",
    "activeMs": 10289741,
-   "wallMs": 10289741,
+   "wallMs": 4976462,
    "bySource": {
     "claude_code": 8462586,
     "codex": 1827155
@@ -1329,7 +1329,7 @@
   {
    "date": "2026-08-26",
    "activeMs": 31025564,
-   "wallMs": 31025564,
+   "wallMs": 18093715,
    "bySource": {
     "claude_code": 25384108,
     "codex": 5641456
@@ -1338,7 +1338,7 @@
   {
    "date": "2026-08-27",
    "activeMs": 12693408,
-   "wallMs": 12693408,
+   "wallMs": 9913879,
    "bySource": {
     "claude_code": 7135066,
     "codex": 5558342
@@ -1347,7 +1347,7 @@
   {
    "date": "2026-08-28",
    "activeMs": 2526854,
-   "wallMs": 2526854,
+   "wallMs": 2024473,
    "bySource": {
     "claude_code": 1463631,
     "codex": 1063223
@@ -1356,7 +1356,7 @@
   {
    "date": "2026-08-29",
    "activeMs": 18930255,
-   "wallMs": 18930255,
+   "wallMs": 13264600,
    "bySource": {
     "claude_code": 17405080,
     "codex": 1525175
@@ -1365,7 +1365,7 @@
   {
    "date": "2026-08-30",
    "activeMs": 15591544,
-   "wallMs": 15591544,
+   "wallMs": 10823913,
    "bySource": {
     "claude_code": 13632724,
     "codex": 1958820
@@ -1374,7 +1374,7 @@
   {
    "date": "2026-08-31",
    "activeMs": 7829756,
-   "wallMs": 7829756,
+   "wallMs": 5181328,
    "bySource": {
     "claude_code": 7010550,
     "codex": 819206
@@ -1383,7 +1383,7 @@
   {
    "date": "2026-09-01",
    "activeMs": 12414738,
-   "wallMs": 12414738,
+   "wallMs": 9892434,
    "bySource": {
     "claude_code": 11423706,
     "codex": 991032
@@ -1392,7 +1392,7 @@
   {
    "date": "2026-09-02",
    "activeMs": 75729193,
-   "wallMs": 75729193,
+   "wallMs": 29359095,
    "bySource": {
     "claude_code": 68061536,
     "codex": 7667657
@@ -1401,7 +1401,7 @@
   {
    "date": "2026-09-03",
    "activeMs": 38864561,
-   "wallMs": 38864561,
+   "wallMs": 19531336,
    "bySource": {
     "claude_code": 37795255,
     "codex": 1069306
@@ -1410,7 +1410,7 @@
   {
    "date": "2026-09-04",
    "activeMs": 16576176,
-   "wallMs": 16576176,
+   "wallMs": 13394861,
    "bySource": {
     "claude_code": 15321721,
     "codex": 1254455
@@ -1419,7 +1419,7 @@
   {
    "date": "2026-09-05",
    "activeMs": 1759676,
-   "wallMs": 1759676,
+   "wallMs": 1204516,
    "bySource": {
     "claude_code": 1503752,
     "codex": 255924
@@ -1428,7 +1428,7 @@
   {
    "date": "2026-09-06",
    "activeMs": 32080370,
-   "wallMs": 32080370,
+   "wallMs": 14367737,
    "bySource": {
     "claude_code": 28989746,
     "codex": 3090624
@@ -1437,7 +1437,7 @@
   {
    "date": "2026-09-07",
    "activeMs": 14252121,
-   "wallMs": 14252121,
+   "wallMs": 6916830,
    "bySource": {
     "claude_code": 14252121
    }
@@ -1445,7 +1445,7 @@
   {
    "date": "2026-09-08",
    "activeMs": 9147697,
-   "wallMs": 9147697,
+   "wallMs": 7128233,
    "bySource": {
     "claude_code": 9147697
    }
@@ -1453,7 +1453,7 @@
   {
    "date": "2026-09-09",
    "activeMs": 31468279,
-   "wallMs": 31468279,
+   "wallMs": 13537791,
    "bySource": {
     "claude_code": 31468279
    }
@@ -1461,7 +1461,7 @@
   {
    "date": "2026-09-10",
    "activeMs": 6694983,
-   "wallMs": 6694983,
+   "wallMs": 4383483,
    "bySource": {
     "claude_code": 4419398,
     "codex": 2275585
@@ -1470,7 +1470,7 @@
   {
    "date": "2026-09-11",
    "activeMs": 27540338,
-   "wallMs": 27540338,
+   "wallMs": 16738139,
    "bySource": {
     "claude_code": 26527582,
     "codex": 1012756
@@ -1505,7 +1505,7 @@
   {
    "date": "2026-09-16",
    "activeMs": 51817549,
-   "wallMs": 51817549,
+   "wallMs": 23078352,
    "bySource": {
     "claude_code": 49399179,
     "codex": 2418370
@@ -1514,7 +1514,7 @@
   {
    "date": "2026-09-17",
    "activeMs": 37074278,
-   "wallMs": 37074278,
+   "wallMs": 22332661,
    "bySource": {
     "claude_code": 34295592,
     "codex": 2778686
@@ -1523,7 +1523,7 @@
   {
    "date": "2026-09-18",
    "activeMs": 12533617,
-   "wallMs": 12533617,
+   "wallMs": 11710310,
    "bySource": {
     "claude_code": 12533617
    }
@@ -1531,7 +1531,7 @@
   {
    "date": "2026-09-19",
    "activeMs": 11045324,
-   "wallMs": 11045324,
+   "wallMs": 6860046,
    "bySource": {
     "codex": 2449167,
     "claude_code": 8596157

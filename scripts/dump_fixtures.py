@@ -69,10 +69,17 @@ def summary(conn):
     tok = one(conn, """SELECT coalesce(sum(input_tokens),0) input,
         coalesce(sum(output_tokens),0) output, coalesce(sum(cache_read_tokens),0) cacheRead,
         coalesce(sum(cache_write_tokens),0) cacheWrite FROM event""")
+    # Counts are of rows REACHABLE FROM THE SURVIVING SPANS, not global counts
+    # (docs/API.md). Under role=subagent a global session total would describe
+    # none of the numbers printed beside it. Costs one row each today: the
+    # corpus holds exactly one thread with a single event, which correctly
+    # yields no span.
     return {
-        "sessions": one(conn, "SELECT count(*) v FROM session")["v"],
-        "threads": one(conn, "SELECT count(*) v FROM thread")["v"],
-        "events": one(conn, "SELECT count(*) v FROM event")["v"],
+        "sessions": one(conn, "SELECT count(DISTINCT session_id) v FROM span")["v"],
+        "threads": one(conn, "SELECT count(DISTINCT thread_id) v FROM span")["v"],
+        "events": one(conn, """SELECT count(*) v FROM event e WHERE EXISTS (
+            SELECT 1 FROM span sp WHERE sp.thread_id = e.thread_id
+              AND e.ts >= sp.started_at AND e.ts <= sp.ended_at)""")["v"],
         "spans": one(conn, "SELECT count(*) v FROM span")["v"],
         "activeMs": one(conn, "SELECT coalesce(sum(ended_at - started_at),0) v FROM span")["v"],
         "bySource": rows(conn, """SELECT s.source, coalesce(sum(sp.ended_at - sp.started_at),0) activeMs
@@ -143,8 +150,41 @@ class _Hour:
     def label(dt): return (dt.weekday(), dt.hour)
 
 
+def _union_ms(intervals: list[tuple[int, int]]) -> int:
+    """Length of the union of intervals -- overlapping work counted once."""
+    total = 0
+    cur_a = cur_b = None
+    for a, b in sorted(intervals):
+        if cur_b is None or a > cur_b:
+            if cur_b is not None:
+                total += cur_b - cur_a
+            cur_a, cur_b = a, b
+        else:
+            cur_b = max(cur_b, b)
+    if cur_b is not None:
+        total += cur_b - cur_a
+    return total
+
+
 def daily(conn):
     acc, per_src = _slice_by(conn, _Day)
+    # wallMs is the UNION of that day's spans, not the sum: on a day with two
+    # agents running at once, active time exceeds elapsed time. Emitting the sum
+    # for both makes the parallelism invisible, which is the one thing this
+    # tool exists to show.
+    per_day_iv = collections.defaultdict(list)
+    for r in conn.execute("SELECT started_at a, ended_at b FROM span"):
+        a, b = r["a"], r["b"]
+        cur = a
+        while cur < b:
+            dt = datetime.fromtimestamp(cur / 1000)
+            nxt = min(b, int(_Day.next_boundary(dt).timestamp() * 1000))
+            if nxt <= cur:
+                break
+            per_day_iv[_Day.label(dt)].append((cur, nxt))
+            cur = nxt
+    wall = {k: _union_ms(v) for k, v in per_day_iv.items()}
+
     if not acc:
         return {"days": []}
     lo = datetime.strptime(min(acc), "%Y-%m-%d").date()
@@ -152,7 +192,7 @@ def daily(conn):
     out, d = [], lo
     while d <= hi:  # fill gaps so the chart has no invisible holes
         k = d.strftime("%Y-%m-%d")
-        out.append({"date": k, "activeMs": acc.get(k, 0), "wallMs": acc.get(k, 0),
+        out.append({"date": k, "activeMs": acc.get(k, 0), "wallMs": wall.get(k, 0),
                     "bySource": dict(per_src.get(k, {}))})
         d += timedelta(days=1)
     return {"days": out}

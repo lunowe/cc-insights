@@ -48,6 +48,10 @@ type Meta = {
 
 // GET /api/summary
 type Summary = {
+  // sessions/threads/events count rows REACHABLE FROM THE SURVIVING SPANS, not
+  // global table counts -- a global total under role=subagent would describe
+  // none of the numbers beside it. A thread with a single event yields no span
+  // and so is absent here by design.
   sessions: number; threads: number; events: number; spans: number;
   activeMs: number;
   bySource: { source: Source; activeMs: number }[];
@@ -78,8 +82,12 @@ type Timeline = {
 
 // GET /api/daily — one row per local calendar day in range, gaps filled with 0.
 type Daily = {
+  // activeMs = sum of that day's span time. wallMs = the UNION of that day's
+  // spans, so concurrent work is counted once: activeMs > wallMs exactly when
+  // agents ran in parallel that day. bySource OMITS a source with no activity,
+  // so it is Partial, not a total Record.
   days: { date: string; activeMs: number; wallMs: number;
-          bySource: Record<Source, number> }[];
+          bySource: Partial<Record<Source, number>> }[];
 };
 
 // GET /api/concurrency — sweep-line over the filtered spans.

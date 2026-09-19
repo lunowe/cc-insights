@@ -1,7 +1,7 @@
 {
- "sessions": 306,
- "threads": 714,
- "events": 180454,
+ "sessions": 305,
+ "threads": 713,
+ "events": 180453,
  "spans": 1370,
  "activeMs": 667128309,
  "bySource": [
