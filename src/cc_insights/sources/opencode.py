@@ -70,7 +70,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Sequence
 
-from cc_insights.config import DEFAULT_SOURCE_GLOBS, Config
+from cc_insights.config import Config, default_source_globs, expand_glob
 from cc_insights.sources.base import EventKind, RawEvent
 
 log = logging.getLogger(__name__)
@@ -146,7 +146,7 @@ class OpencodeAdapter:
         elif config is not None:
             patterns = [str(p) for p in config.source_globs.get(SOURCE, [])]
         else:
-            patterns = list(DEFAULT_SOURCE_GLOBS[SOURCE])
+            patterns = list(default_source_globs()[SOURCE])
         self.globs: list[str] = patterns
 
     # -- discovery ---------------------------------------------------------
@@ -158,7 +158,7 @@ class OpencodeAdapter:
         """
         found: dict[str, Path] = {}
         for pattern in self.globs:
-            expanded = os.path.expanduser(str(pattern))
+            expanded = expand_glob(pattern)
             for hit in _glob.glob(expanded, recursive=True):
                 if os.path.isfile(hit):
                     found.setdefault(os.path.realpath(hit), Path(hit))

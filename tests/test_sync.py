@@ -401,15 +401,41 @@ def test_every_declared_column_exists(mac):
         assert set(table.key) <= set(table.columns)
 
 
-def test_the_transfer_covers_every_table_that_carries_insight():
-    """A new table must be added here consciously, not forgotten silently."""
-    synced = {t.name for t in sync.TABLES}
-    known = {"host", "project", "project_group", "project_probe",
-             "session", "thread", "event", "span"}
-    assert synced == known, (
-        "sync.TABLES drifted from the schema. Add the table, or add it to the "
-        "deliberately-excluded list with a reason."
+def test_every_table_is_either_synced_or_excluded_on_purpose(mac):
+    """A new table must be ruled on, not forgotten silently.
+
+    The first version of this compared `sync.TABLES` to a hardcoded copy of
+    itself, which is a tautology: it passed happily through a merge that added
+    three tables it had never heard of. This reads the live schema, so the only
+    way to satisfy it is to look at the new table.
+    """
+    schema = {
+        r[0]
+        for r in mac.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+    ruled_on = {t.name for t in sync.TABLES} | set(sync.EXCLUDED)
+    assert schema - ruled_on == set(), (
+        "new table(s) in the schema that sync has no opinion about. Add them to "
+        "sync.TABLES, or to sync.EXCLUDED with a reason."
     )
+
+
+def test_nothing_is_excluded_without_a_reason():
+    for table, why in sync.EXCLUDED.items():
+        assert len(why) > 25, f"{table} needs a reason someone can argue with"
+
+
+def test_the_excluded_tables_still_exist(mac):
+    """A stale exclusion is a table nobody is checking any more."""
+    schema = {
+        r[0]
+        for r in mac.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+    assert set(sync.EXCLUDED) <= schema, set(sync.EXCLUDED) - schema
 
 
 # ------------------------------------------------------------------------ cli --

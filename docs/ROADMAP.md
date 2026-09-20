@@ -49,129 +49,152 @@ derivation engine, static HTML dashboard, CSV export.
 
 ## v2 — Multi-machine, then teams
 
-The schema already carries `host_id` on every row and every id is a
-content hash, so the same logical row computes the same id on any machine.
-That was deliberate: this is a backend swap plus a sync path, not a migration.
+**Status: multi-machine is done; teams are not started, but nothing about
+privacy blocks them any more.**
+
+The schema already carried `host_id` on every row and every id is a content
+hash, so the same logical row computes the same id on any machine. That was
+deliberate, and it held: this was a backend swap plus a sync path, not a
+migration.
 
 ### Windows support — done
 
-Needed before "multi-machine" means anything, since the second box is often
-not a Mac.
-
-- **Path handling no longer assumes POSIX separators.** `src/cc_insights/paths.py`
-  takes the flavor from the path string, not from `os.name`, and `grouping.py`,
+- **Path handling no longer assumes POSIX separators.** `paths.py` takes the
+  flavor from the path *string*, not from `os.name`; `grouping.py`,
   `ingest.py` and `cli.py` read paths only through it.
-- Config dir is `%APPDATA%\cc-insights` on Windows; `CC_INSIGHTS_HOME` still
-  overrides. Source globs expand `%APPDATA%`-style variables and ship extra
-  Windows candidates alongside the `~`-relative ones.
-- `scripts/install-task.ps1` registers the Task Scheduler job: same cadence,
-  same commands, same log files as the launchd one. A long-running `cci watch`
-  is still the nicer answer and belongs with v1's watch mode.
-- Fixed on the way: a Windows `db_path` written into `config.toml` unescaped is
-  not valid TOML (`\U`, `\A` are escape sequences), so the file the tool had
-  just written was unreadable on the next run — and an unreadable `host_id` is
-  a regenerated `host_id`, which forks the whole history.
+- Config dir is `%APPDATA%\cc-insights`; `CC_INSIGHTS_HOME` still overrides.
+  Globs expand `%APPDATA%`-style variables and ship extra Windows candidates
+  alongside the `~`-relative ones, for all three adapters.
+- `scripts/install-task.ps1` registers the Task Scheduler job at parity with
+  the launchd one. **Not execution-verified** — see the gaps below.
+- Fixed on the way: a Windows `db_path` written into `config.toml` unescaped
+  is not valid TOML (`\U` and `\A` are escape sequences), so the file the tool
+  had just written was unreadable on the next run — and an unreadable
+  `host_id` is a regenerated `host_id`, which forks the whole history.
 
-**What this turned out to be about.** The framing above said "run on Windows".
-The real requirement is that *any* machine can reason about *any* other
-machine's paths, because after sync the box rendering the dashboard is usually
-not the box the path came from. On a Mac, `os.path.basename` of a Windows path
-returns the whole string, `os.path.isdir` calls a live remote worktree dead,
-and `$HOME` cannot be looked up for a host you are not on. So the flavor lives
-in the path, comparison is flavor-aware (Windows folds case, POSIX does not),
-and stored paths are never rewritten — `project_id = hash(root_path)`, so
+**What this turned out to be about.** The framing was "run on Windows"; the
+real requirement is that *any* machine can reason about *any* other machine's
+paths, because after sync the box rendering the dashboard is usually not the
+box the path came from. On a Mac, `os.path.basename` of a Windows path returns
+the whole string, `os.path.isdir` calls a live remote worktree dead, and
+`$HOME` cannot be looked up for a host you are not on. So the flavor lives in
+the path, comparison is flavor-aware (Windows folds case, POSIX does not), and
+stored paths are never rewritten — `project_id = hash(root_path)`, so
 normalizing in place would fork the history rather than fix it. See
 docs/GROUPING.md § "Paths belong to a machine, not to this one".
 
-### Postgres + sync
+### Per-machine probe cache — done (migration 004)
 
-Same migrations, same portable SQL. Each machine ingests locally and pushes
-normalized rows; local stays the source of truth and sync is append-only.
-Because ids are content hashes, a row pushed twice from two machines collapses
-rather than duplicating.
+The cached `git_remote` / `git_common_dir` / `path_exists` used to live on
+`project`. But `project_id = hash(root_path)`, so a laptop and a desktop that
+both keep work at `/Users/you/Coding/X` are **one** project row describing two
+different disks, and whichever machine ran `cci group auto` last overwrote the
+other. The symptom: delete a checkout on the laptop and the desktop marks the
+project you are working in right now `(gone)`.
 
-Two prerequisites are done, both of them things that had to be settled before
-the first sync writes rather than after:
+It now lives in `project_probe (project_id, host_id)`, and every reader says
+which machine it means — the ladder prefers the local answer and falls back to
+the freshest other one, while "is this path gone" is `MAX` across hosts,
+because live on any machine means not gone.
 
-- **Paths are flavor-aware**, so a row pulled from another host groups
-  correctly instead of poisoning the ladder.
-- **The probe cache is per-machine** (migration 004). It used to live on
-  `project`, but `project_id = hash(root_path)`, so a laptop and a desktop
-  that both keep work at `/Users/you/Coding/X` are one project row describing
-  two different disks — whichever machine ran `cci group auto` last overwrote
-  the other. It now lives in `project_probe (project_id, host_id)`, and the
-  readers are explicit: the ladder prefers the local machine's answer and
-  falls back to the freshest other one, while "is this path gone" is answered
-  across all of them, because live on any machine means not gone.
+### Postgres + sync — done
 
-**Done.** `cci sync push` / `pull` / `status`, over a shared PostgreSQL.
+`cci sync push | pull | status`, over a shared PostgreSQL. Postgres is a
+meeting point, not a replacement: each machine pushes the rows it owns and
+pulls everyone else's back into its own SQLite file, so the dashboard,
+`metrics`, `stats` and `derive` keep reading SQLite and never learn it
+happened. That is why the read path needed no porting at all.
 
-The shape follows from what was already true. Every id is a content hash, so
-the transfer is an upsert with no coordination and no merge — a row pushed
-twice collapses. Local stays the source of truth: Postgres is a meeting point,
-each machine pushes the rows it owns and pulls everyone else's back into its
-own SQLite file, and the dashboard, `metrics`, `stats` and `derive` keep
-reading SQLite without knowing any of it happened. That is why the read path
-needed no porting at all.
-
-- The migrations stayed one source of truth. The only thing the `.sql` files
+- The migrations stay one source of truth. The only thing the `.sql` files
   cannot express is integer width — SQLite's INTEGER is 64-bit, PostgreSQL's
-  is int4 (max 2.1e9), and epoch-ms is ~1.79e12 — so `db.translate_ddl`
-  widens every INTEGER to BIGINT on the way out. No second schema to drift.
+  is int4 (max 2.1e9), epoch-ms is ~1.79e12 — so `db.translate_ddl` widens
+  every INTEGER to BIGINT on the way out. No second schema to drift.
 - **Conflicts have explicit rules, not last-writer-wins.** A pin is a human
   saying where a project belongs, so a push from a machine that never heard
   about it must not unpin it. `host.first_seen` only ever moves backwards.
-- **`ingest_file` is never synced**: bookkeeping about how far this machine
-  read each local log, whose only content is a full local path. No analytical
-  value, pure leakage.
-- psycopg is an optional extra (`pip install 'cc-insights[postgres]'`). The
-  base install stays dependency-free.
+- **`sync.EXCLUDED` says what stays behind and why** — `ingest_file` (local
+  paths, no analytical value) and the three cost tables (rates are resolved
+  locally; v1 deliberately made `cci price set` a layer no sync touches).
+- psycopg is an optional extra. The base install stays dependency-free.
 
-Still one person's several machines. Sharing beyond that is the next section,
-and it is blocked on redaction, not on transport.
+Measured: 191,475 rows push in 5.5 s, pull in 8.9 s, peak RSS 44 MB, re-push
+idempotent, headline total round-trips exactly.
 
-### Accounts and teams
+### Redaction — done (the design gate for teams)
 
-The goal: several people, each with several machines, sharing insight across a
-team's projects.
+`docs/REDACTION.md`, `redact.py`, `cci privacy`.
+
+**The finding that shaped it: publishing `project_id` publishes `root_path`.**
+The id *is* `sha256(root_path)`, so a colleague can hash a guess. 555 guesses
+built only from a username, eight conventional directory names and the repo
+names in the remotes recovered **20% of this corpus outright**
+(`docs/probes/leakage.py`). Hashing is therefore not redaction, and salting
+would break the cross-machine identity the whole schema rests on — so
+published rows are re-keyed on the normalized remote, which the viewer already
+has.
+
+**The boundary is repo access**, which is where the auth plan below already
+pointed: a row may be published only if it belongs to a repo, and only to
+people who can already see that repo. Work with no remote has nothing to
+derive permission from and stays local — 8% of active time here, withheld
+*and counted*, because a view that quietly omits your hours is not private, it
+is wrong.
+
+**Redaction happens on the laptop.** The shared database never receives a
+path. Filtering at query time fails the first time anything goes wrong and
+there is no un-leaking; this is the discipline that has kept prompt text out
+of the schema, for the same reason.
+
+`redact.FIELDS` classifies all 110 schema columns closed-by-default, with a
+test that fails when a migration adds one nobody has ruled on. It fired for
+real on v1's three cost tables during the merge.
+
+### Accounts and teams — not started
+
+What is left is auth and scoping, not privacy plumbing.
 
 - **GitHub OAuth is the right front door**, and not only for convenience:
-  groups already carry `forge`/`owner`/`repo` from the git remote, so a
-  team's scope can be *derived* from repo access rather than hand-maintained.
-  If you can see the repo, you can see the agent time spent on it.
+  groups already carry `forge`/`owner`/`repo`, so a team's scope can be
+  *derived* from repo access rather than hand-maintained.
 - `host_id` becomes a child of an account; an account belongs to teams.
+  `redact.publication()` already takes `actor` as a parameter for this.
 - Needs a tenant column and row-level scoping on every query.
+- **No publish transport exists.** `redact` builds the projection and `cci
+  privacy` shows it; nothing sends it anywhere yet.
 
-**Redaction is designed and implemented** — `docs/REDACTION.md`,
-`src/cc_insights/redact.py`, `cci privacy`. The finding that shaped it:
-publishing `project_id` publishes `root_path`, because `project_id` IS
-`sha256(root_path)` and a colleague can hash a guess. 555 guesses built from a
-username, eight conventional directory names and the repo names in the remotes
-recovered 20% of this corpus outright. So hashing is not redaction, salting
-would break the cross-machine identity the schema depends on, and published
-rows are re-keyed on the normalized git remote instead.
+Two constraints that the projection cannot enforce and the API must, from its
+first commit:
 
-The boundary is repo access, which is the same answer this section already
-reached from the auth direction: a row may be published only if it belongs to
-a repo, and only to people who can already see that repo. Work with no remote
-has nothing to derive permission from and stays local — 8% of active time
-here, withheld *and counted*, because a view that quietly omits your hours is
-not private, it is wrong. The projection runs on the laptop; the shared
-database never receives a path.
+- **Aggregates must be computed inside the viewer's scope.** A precomputed
+  "Alice: 40 h this week" spanning repos Bob cannot see leaks their existence
+  the moment Bob reads the total.
+- **Branch names need a per-repo opt-out.** They are publishable under the
+  rule above — repo access shows the branch list — but they are still free
+  text, and `feat/restricted-org-dbs` may say more than its author meant.
 
-What remains for teams is auth and scoping, not privacy plumbing: `actor` is
-already a parameter, and `redact.FIELDS` classifies all 110 schema columns
-closed-by-default with a test that fails when a migration adds one nobody has
-ruled on.
+### Known gaps in what shipped
 
-**The problem this section used to open with, kept for the record.** `cwd` is the join key for
-grouping, and it leaks local detail: usernames, client names, unreleased
-project names. `~/Coding/atlas-chat/.claude/worktrees/tenant-restricted`
-tells a colleague more than its owner may intend. Sharing beyond one person
-needs a redaction layer — publish the group, withhold the path — and that has
-to be designed before any data leaves a laptop, not bolted on after.
-Metadata-only already rules out the worst of it: no prompt or response text
-has ever been stored, which is the only reason this version is viable at all.
+- **`install-task.ps1` has never run on Windows.** No Windows box, no `pwsh`.
+  A review caught three real defects (missing `cmd /c` outer quotes,
+  `[TimeSpan]::MaxValue` rejected as a repetition duration, `.Source` throwing
+  under `Set-StrictMode`); all are fixed, and the file still needs one real
+  run before anyone trusts it.
+- **The read path is SQLite-only.** `db.to_dialect` is deliberately naive — it
+  covers the DDL and the sync statements and is not a general query
+  translator. Pointing the dashboard at Postgres is a separate piece of work.
+- **`sync push` sends everything this host owns, every time.** Idempotent and
+  fast enough at 191 k rows, but there is no `--since`.
+- **Cost is published nowhere.** Excluded from sync by design and classified
+  closed for publication. A per-repo cost aggregate is a reasonable thing for
+  a team to see and there is no field for it yet.
+- **An old `config.toml` stores an absolute `db_path`.** Commit `d41f374` made
+  new configs relative so that copying a config directory is safe, but it did
+  not rewrite existing ones — so on a config predating it, `--config-dir
+  <copy>` still silently writes to the *original* database. This has now
+  caused damage twice: the two corrupted fixture rows that motivated
+  `d41f374`, and a migration applied to the live database during this work.
+  `cci init` could rewrite the path in place; until it does, check the file
+  before trusting a copy.
 
 ## v3 — Outcomes and agentic access
 

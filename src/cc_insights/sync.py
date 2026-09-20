@@ -17,15 +17,15 @@ Ownership is explicit. A host pushes the sessions, threads, events, spans and
 probe rows that are *its own*; `project` and `project_group` are shared by
 nature and pushed whole. Nothing is ever deleted remotely.
 
-`ingest_file` is deliberately NOT synced. It records how far this machine got
-through each local log file -- bookkeeping about a disk nobody else can see,
-whose only content is a full local path. It has no analytical value, so
-shipping it would be pure leakage.
+Not everything travels. `EXCLUDED` lists what stays behind and why, and a test
+reads the live schema so a new table has to be ruled on rather than quietly
+forgotten -- the first version of that test compared this module to a hardcoded
+copy of itself and sailed through a merge that added three tables.
 
-SCOPE: this is one person's several machines. Sharing beyond that needs the
-path-redaction layer in docs/ROADMAP.md § v2, which does not exist yet -- a
-`root_path` still says `~/Coding/<client-name>` and that has to be solved
-before anyone else's eyes are on the database, not after.
+SCOPE: this is one person's several machines, and paths travel because it is
+all the same disk. Sharing with OTHER PEOPLE is a different pipe with different
+rules -- see `redact.py` and docs/REDACTION.md. Do not widen this one to reach
+them: a `root_path` here still says `~/Coding/<client-name>`.
 """
 
 from __future__ import annotations
@@ -162,6 +162,31 @@ TABLES: tuple[Table, ...] = (
         owner_filter="session_id IN (SELECT id FROM session WHERE host_id = ?)",
     ),
 )
+
+
+#: Tables deliberately NOT synced, and why. `test_sync` reads the live schema
+#: and fails when a table is in neither this list nor TABLES, so a migration
+#: has to answer the question rather than be quietly forgotten.
+EXCLUDED: dict[str, str] = {
+    "schema_migrations": "about one database's own schema, not about any work",
+    "ingest_file": (
+        "how far this machine read each local log file. Bookkeeping about a "
+        "disk nobody else can see, whose only content is a full local path."
+    ),
+    "model_price": (
+        "rates are resolved locally from the committed catalog, the shipped "
+        "overrides and `cci price set` -- which v1 deliberately keeps as a "
+        "layer no sync touches, so that a human's correction is owned by the "
+        "human and not by whichever machine pushed last."
+    ),
+    "event_cost": (
+        "derived from events and the local price table, both of which the "
+        "other machine already has. Recomputing costs one `cci cost` and "
+        "keeps each machine's prices authoritative for its own view; shipping "
+        "it would silently impose this machine's rates on every other."
+    ),
+    "event_unpriced": "derived alongside event_cost, for the same reason",
+}
 
 
 @dataclass

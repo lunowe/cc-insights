@@ -8,10 +8,12 @@ already write, so you can answer: when do I actually use agents and for how
 long, how often do I run them in parallel, which projects consume the time, and
 how much of it is me driving versus agents running on their own.
 
-## Status — Stage 2 complete, v1 under way
+## Status — Stage 2 complete, v1 and v2 under way
 
 The pipeline works end to end: three source adapters, incremental ingest, span
-derivation, cost, a dashboard and a CLI. 511 tests.
+derivation, cost, a dashboard and a CLI. It runs on Windows, syncs between your
+machines through PostgreSQL, and knows what it may and may not share with
+anyone else. 859 tests.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e . pytest
@@ -208,8 +210,10 @@ scripts/        launchd jobs (interval and watch) + installer (macOS),
 
 ## Roadmap
 
-`docs/ROADMAP.md`. v1 has landed its first three: the opencode adapter, real
-cost tracking, and watch mode. Next in v1 is session annotation (tagging a
-session client/ticket/billable after the fact). Then Postgres and
-multi-machine, then outcome correlation. "Time saved" is explicitly deferred,
-and the roadmap explains why.
+`docs/ROADMAP.md`. v1 has landed the opencode adapter, real cost tracking and
+watch mode; session annotation (tagging a session client/ticket/billable after
+the fact) is what remains. v2 is done bar teams: Windows, a per-machine probe
+cache, PostgreSQL sync, and the redaction layer that had to be designed before
+any data left a laptop. Teams need auth and scoping, not privacy plumbing.
+Then outcome correlation. "Time saved" is explicitly deferred, and the roadmap
+explains why.

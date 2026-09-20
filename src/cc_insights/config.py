@@ -77,6 +77,12 @@ WINDOWS_EXTRA_GLOBS: dict[str, list[str]] = {
         "%LOCALAPPDATA%/codex/sessions/*/*/*/*.jsonl",
         "%LOCALAPPDATA%/codex/archived_sessions/**/*.jsonl",
     ],
+    # `~/.local/share` is an XDG path, and Windows has no XDG. opencode's
+    # store lands under one of the AppData roots there instead.
+    "opencode": [
+        "%LOCALAPPDATA%/opencode/opencode.db",
+        "%APPDATA%/opencode/opencode.db",
+    ],
 }
 
 
