@@ -403,3 +403,78 @@ def test_the_row_digest_separates_null_from_empty_string():
     matching."""
     assert remote._row_bytes([None, "a"]) != remote._row_bytes(["", "a"])
     assert remote._row_bytes(["a", "b"]) != remote._row_bytes(["ab", ""])
+
+
+# ------------------------------------------- an empty CA store is not the server --
+
+
+def test_a_verify_failure_on_an_empty_store_blames_the_right_thing(monkeypatch):
+    """The first real sign-in failed here, and the message sent me to the server.
+
+    A python.org macOS build ships with an EMPTY trust store until its
+    post-install script is run, and this package is deliberately
+    dependency-free -- so `remote.py` uses stdlib `urllib`, which then has
+    nothing to verify against. `curl` on the same machine succeeds, because
+    it uses the system store, which makes it look like a client/server
+    disagreement about a certificate.
+
+    Measured on the machine this was found on: `ssl.create_default_context()
+    .get_ca_certs()` returned 0, and `get_default_verify_paths().cafile` was
+    None. Raw, the user sees `[SSL: CERTIFICATE_VERIFY_FAILED] unable to get
+    local issuer certificate (_ssl.c:1006)` and reasonably concludes the
+    server has a bad certificate. It does not -- the client cannot check any
+    certificate at all.
+    """
+    monkeypatch.setattr(remote, "_empty_ca_store", lambda: True)
+    text = remote._unreachable(
+        "https://acct.example",
+        "[SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer certificate",
+    )
+
+    assert "Install Certificates.command" in text
+    assert "pip install --upgrade certifi" in text
+    assert "no CA certificates loaded" in text
+    # It must still say the thing that matters most: nothing was lost.
+    assert "local capture is unaffected" in text
+
+
+def test_the_hint_stays_out_of_the_way_when_the_store_is_fine(monkeypatch):
+    """A genuine certificate problem must not be explained away.
+
+    If the store has anchors and verification still failed, the server (or a
+    proxy) really is presenting something untrusted, and telling the user to
+    reinstall their certificates would send them down the wrong path.
+    """
+    monkeypatch.setattr(remote, "_empty_ca_store", lambda: False)
+    text = remote._unreachable(
+        "https://acct.example",
+        "[SSL: CERTIFICATE_VERIFY_FAILED] self signed certificate",
+    )
+
+    assert "Install Certificates.command" not in text
+    # NOT a bare "certifi" check: it is a prefix of "certificate", which the
+    # reason string contains, so that assertion passes for the wrong reason.
+    assert "pip install --upgrade certifi" not in text
+
+
+def test_an_ordinary_connection_failure_is_unchanged(monkeypatch):
+    """Connection refused is not a certificate story."""
+    monkeypatch.setattr(remote, "_empty_ca_store", lambda: True)
+    text = remote._unreachable("https://acct.example", "[Errno 61] Connection refused")
+
+    assert "Connection refused" in text
+    assert "pip install --upgrade certifi" not in text, (
+        "an empty store is irrelevant when nothing answered"
+    )
+
+
+def test_empty_ca_store_reports_the_real_interpreter():
+    """It asks the live context rather than guessing from a platform string.
+
+    This suite runs on a machine whose store has since been repaired, so the
+    honest assertion is that the function agrees with `ssl`, whichever way
+    that goes -- not that it returns a particular value.
+    """
+    import ssl as _ssl
+
+    assert remote._empty_ca_store() == (not _ssl.create_default_context().get_ca_certs())

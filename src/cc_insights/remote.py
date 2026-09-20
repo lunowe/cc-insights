@@ -38,6 +38,8 @@ import hashlib
 import json
 import os
 import sqlite3
+import ssl
+import sys
 import tempfile
 import time
 import urllib.error
@@ -443,9 +445,55 @@ class Client:
         return self.request("GET", "/v1/teams")["teams"]
 
 
+#: The remedy the python.org macOS installer ships and does not run for you.
+_MACOS_CERT_COMMAND = "/Applications/Python 3.x/Install Certificates.command"
+
+
+def _empty_ca_store() -> bool:
+    """True when this interpreter can verify no certificate at all.
+
+    Not a guess about one host: it asks whether the default context has any
+    trust anchors loaded, which is a property of the installation.
+    """
+    try:
+        return not ssl.create_default_context().get_ca_certs()
+    except Exception:                                    # pragma: no cover
+        return False
+
+
 def _unreachable(base_url: str, reason: Any) -> str:
-    return (f"cannot reach the account server at {base_url}: {reason}\n"
+    """Why the server could not be reached, and what to do about it.
+
+    The certificate branch exists because of a real first-run failure that
+    had nothing to do with the server. A python.org macOS build ships with
+    an EMPTY trust store until somebody runs its post-install script, and
+    this package is deliberately dependency-free -- so `remote.py` uses
+    stdlib `urllib`, which has nothing to verify against. `curl` on the same
+    machine succeeds, because it uses the system store instead.
+
+    What the user sees without this is
+    `[SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer
+    certificate (_ssl.c:1006)`, which reads like the server has a bad
+    certificate. It does not; the client has no way to check one. Everybody
+    installing on macOS from python.org hits this, so the error has to name
+    the fix rather than the symptom.
+    """
+    text = (f"cannot reach the account server at {base_url}: {reason}\n"
             "    local capture is unaffected; this only delays sharing.")
+
+    if "CERTIFICATE_VERIFY" in str(reason) and _empty_ca_store():
+        text += (
+            "\n\n    This is your Python, not the server: it has no CA "
+            "certificates loaded\n"
+            "    at all, so it cannot verify ANY site. A python.org macOS "
+            "build ships\n"
+            "    that way until its post-install script is run.\n\n"
+            f"      \"{_MACOS_CERT_COMMAND}\"\n\n"
+            "    or, for any platform:  pip install --upgrade certifi\n"
+            f"    (verify with: {sys.executable} -c \"import ssl; "
+            "print(len(ssl.create_default_context().get_ca_certs()))\")"
+        )
+    return text
 
 
 def _decode(resp) -> Any:
