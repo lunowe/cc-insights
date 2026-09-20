@@ -795,7 +795,7 @@ def test_a_broken_glob_for_one_source_does_not_stop_the_other(tmp_path: Path):
 def test_build_adapters_defaults_to_every_known_source(tmp_path: Path):
     cfg = make_config(tmp_path)
     built = ingest.build_adapters(cfg)
-    assert sorted(a.name for a in built) == ["claude_code", "codex"]
+    assert sorted(a.name for a in built) == ["claude_code", "codex", "opencode"]
 
 
 def test_build_adapters_can_select_one_source(tmp_path: Path):

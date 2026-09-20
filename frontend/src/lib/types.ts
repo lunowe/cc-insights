@@ -7,7 +7,7 @@
  *     timestamp in UTC**. Convert to local time only at the point of display.
  */
 
-export type Source = "claude_code" | "codex"
+export type Source = "claude_code" | "codex" | "opencode"
 export type Role = "all" | "root" | "subagent"
 
 /** GET /api/meta — populates the filter controls. Not affected by filters. */

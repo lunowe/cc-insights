@@ -27,7 +27,7 @@ import type {
   Summary,
 } from "./types"
 
-const SOURCES: Source[] = ["claude_code", "codex"]
+const SOURCES: Source[] = ["claude_code", "codex", "opencode"]
 
 const durationOf = (s: Span) => s.end - s.start
 
@@ -391,14 +391,15 @@ export function deriveAgents(spans: Span[]): Agents {
 
 /**
  * Codex names each thread after a random scientist or philosopher; Claude Code
- * records a real agent *type*. Listing "Aristotle" beside "general-purpose"
- * would imply a taxonomy that does not exist, so every Codex row collapses into
- * one. Exported for whoever renders the agent breakdown.
+ * and opencode record a real agent *type* ("Explore", "general"). Listing
+ * "Aristotle" beside "general-purpose" would imply a taxonomy that does not
+ * exist, so every Codex row collapses into one. Exported for whoever renders
+ * the agent breakdown.
  */
 export function groupAgentsForDisplay(agents: Agents["agents"]) {
-  const claude = agents.filter((a) => a.source === "claude_code")
+  const typed = agents.filter((a) => a.source !== "codex")
   const codex = agents.filter((a) => a.source === "codex")
-  const rows = claude.map((a) => ({
+  const rows = typed.map((a) => ({
     label: a.agentName,
     source: a.source,
     threads: a.threads,

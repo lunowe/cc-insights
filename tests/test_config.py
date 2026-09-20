@@ -20,7 +20,7 @@ def test_config_round_trips(tmp_path):
 def test_defaults(tmp_path):
     cfg = config_mod.load(tmp_path)
     assert cfg.idle_threshold_s == 300
-    assert set(cfg.source_globs) == {"claude_code", "codex"}
+    assert set(cfg.source_globs) == {"claude_code", "codex", "opencode"}
     assert cfg.globs_for("codex") and all(not str(p).startswith("~") for p in cfg.globs_for("codex"))
 
 
@@ -58,3 +58,19 @@ def test_a_database_deliberately_outside_the_config_dir_stays_absolute(tmp_path)
     cfg.save()
     assert f'db_path = "{elsewhere}"' in cfg.path.read_text()
     assert config_mod.load(tmp_path / "cfg", create=False).db_path == elsewhere
+
+
+def test_a_config_written_before_a_source_existed_still_finds_it(tmp_path):
+    """Adding an adapter must not require editing every config on disk.
+
+    Without the merge the new source discovers nothing and says nothing about
+    it, which is the worst failure mode available.
+    """
+    (tmp_path / "config.toml").write_text(
+        'host_id = "h"\nhostname = "H"\ndb_path = "x.db"\n\n'
+        '[source_globs]\nclaude_code = ["~/custom/*.jsonl"]\n'
+    )
+    cfg = config_mod.load(tmp_path)
+    assert cfg.source_globs["claude_code"] == ["~/custom/*.jsonl"]  # the file wins
+    assert cfg.source_globs["opencode"] == config_mod.DEFAULT_SOURCE_GLOBS["opencode"]
+    assert set(cfg.source_globs) == set(config_mod.DEFAULT_SOURCE_GLOBS)

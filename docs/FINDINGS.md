@@ -120,6 +120,46 @@ events — genuinely parallel work, not replay.
 one whose `payload.id` is the root session id rather than the thread id; taking
 the last, or re-resolving per line, corrupts the thread count.
 
+## 3b. opencode keeps everything in one SQLite database
+
+No log files. opencode 1.18 writes `~/.local/share/opencode/opencode.db` (WAL)
+with `session` / `message` / `part` tables, each row's payload a JSON blob in a
+`data` column. The `storage/**.json` layout older releases used is gone; only
+`session_diff` and `migration` remain under `storage/`.
+
+Measured on this machine (2026-09-20): **18 sessions — 9 roots and 9
+subagents — 614 messages, 2,434 parts of which 728 are tool calls**, from
+2026-02-16. The adapter turns that into **2,649 events across 9 sessions and
+18 threads**, 2.56 h active.
+
+Three consequences that shaped the adapter:
+
+- **A subagent is a session row with `parent_id` set**, spawned by the `task`
+  tool, with `agent` naming its type ("general", "explore"). Same shape as
+  Codex, reached differently: the root's id is the session id for the whole
+  tree, each row's own id is the thread id.
+- **There is no byte offset to resume from**, and a WAL database's size and
+  mtime sit unchanged while `-wal` accumulates, so any watermark keyed on them
+  would skip real work. The adapter reports `byte_end = 0` on every event and
+  the store is re-read in full each run — 2,649 events in 60 ms, with dedup
+  collapsing what was already stored.
+- **Two rows carry two real timestamps each.** A tool part has
+  `state.time.start` / `state.time.end`; an assistant message has
+  `time.created` / `time.completed` (580 of 583 assistant messages record the
+  second). Taking only the first would end a session when its last turn
+  *began*. Both halves are emitted; only the first carries tokens.
+
+⚠️ **`message.data` for a user turn embeds file contents** — `summary.diffs`
+carries the complete `before` text of every file touched — and `part.data`
+holds prompts, tool arguments and command output. This is the one source where
+the no-content rule needs a test rather than a convention, and it has one:
+`tests/test_opencode.py::test_no_message_content_reaches_a_raw_event`.
+
+opencode's own `session.cost` / `message.cost` columns are **0 on every row**
+here: subscription and free-tier routes report no per-call price. Cost comes
+from token counts and one pricing table for every source, never from this
+column.
+
 ## 4. Dedup keys — different per source, both traps fatal
 
 `native_event_id` must be unique **within its session**.

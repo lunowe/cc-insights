@@ -7,6 +7,7 @@ import {
   ChartTooltip,
   type ChartConfig,
 } from "@/components/ui/chart"
+import { ALL_SOURCES } from "@/lib/filters"
 import { SOURCE_LABEL, formatHours, formatMultiplier } from "@/lib/format"
 import type { Daily, Source } from "@/lib/types"
 
@@ -121,6 +122,13 @@ export function DailyActiveChart({
     null,
   )
 
+  // One column per source that actually contributed. A fixed column list
+  // shows an empty "opencode" column to everyone who has never run it.
+  const usedSources = useMemo(
+    () => ALL_SOURCES.filter((s) => rows.some((r) => (r.bySource[s] ?? 0) > 0)),
+    [rows],
+  )
+
   const table = useMemo<TableView>(
     () => ({
       columns: [
@@ -128,8 +136,11 @@ export function DailyActiveChart({
         { key: "active", label: "Active", align: "right" },
         { key: "wall", label: "Elapsed", align: "right" },
         { key: "ratio", label: "Ratio", align: "right" },
-        { key: "claude", label: "Claude Code", align: "right" },
-        { key: "codex", label: "Codex", align: "right" },
+        ...usedSources.map((s) => ({
+          key: s,
+          label: SOURCE_LABEL[s],
+          align: "right" as const,
+        })),
       ],
       rows: rows
         .filter((r) => r.activeMs > 0)
@@ -138,12 +149,13 @@ export function DailyActiveChart({
           active: `${formatHours(r.activeMs)} h`,
           wall: `${formatHours(r.wallMs)} h`,
           ratio: r.wallMs > 0 ? formatMultiplier(r.activeMs / r.wallMs) : "—",
-          claude: `${formatHours(r.bySource.claude_code ?? 0)} h`,
-          codex: `${formatHours(r.bySource.codex ?? 0)} h`,
+          ...Object.fromEntries(
+            usedSources.map((s) => [s, `${formatHours(r.bySource[s] ?? 0)} h`]),
+          ),
         })),
       note: "Hours per local calendar day. Elapsed is the union of that day's spans; active is their sum.",
     }),
-    [rows, weekly],
+    [rows, usedSources, weekly],
   )
 
   const tickEvery = Math.max(1, Math.ceil(rows.length / (width < 480 ? 4 : 7)))

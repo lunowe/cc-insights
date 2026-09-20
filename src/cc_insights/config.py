@@ -31,6 +31,10 @@ DEFAULT_SOURCE_GLOBS: dict[str, list[str]] = {
     # together hold 52% of all Claude Code events. See sources/claude_code.py.
     "claude_code": ["~/.claude/projects/*/*.jsonl", "~/.claude/projects/*/*/subagents/**/*.jsonl"],
     "codex": ["~/.codex/sessions/*/*/*/*.jsonl", "~/.codex/archived_sessions/**/*.jsonl"],
+    # Not a log file: one SQLite store holding every session. `-wal`/`-shm` are
+    # read through the database handle, so only the main file is matched.
+    # See sources/opencode.py.
+    "opencode": ["~/.local/share/opencode/opencode.db"],
 }
 
 
@@ -92,6 +96,22 @@ class Config:
         return self.path
 
 
+def _merge_source_globs(raw: object) -> dict[str, list[str]]:
+    """Stored globs, with the defaults filling in for any source not mentioned.
+
+    A config written before a source adapter existed has no entry for it, and
+    without this merge that user's new adapter would quietly discover nothing
+    for as long as the file sits on disk -- the failure mode is silence, which
+    is the worst kind. The file still wins wherever it says something, so a
+    customized glob is never overridden. To *exclude* a source, narrow the run
+    (`cci ingest --source ...`) rather than deleting its table entry.
+    """
+    merged = {k: list(v) for k, v in DEFAULT_SOURCE_GLOBS.items()}
+    if isinstance(raw, dict):
+        merged.update({k: list(v) for k, v in raw.items()})
+    return merged
+
+
 def _resolve_db_path(raw: str, config_dir: Path) -> Path:
     """A relative db_path belongs to the directory its config was read from."""
     p = Path(raw).expanduser()
@@ -110,8 +130,7 @@ def load(config_dir: Path | None = None, *, create: bool = True) -> Config:
             hostname=raw.get("hostname", socket.gethostname()),
             db_path=_resolve_db_path(raw["db_path"], config_dir),
             idle_threshold_s=int(raw.get("idle_threshold_s", DEFAULT_IDLE_THRESHOLD_S)),
-            source_globs={k: list(v) for k, v in (raw.get("source_globs") or {}).items()}
-            or dict(DEFAULT_SOURCE_GLOBS),
+            source_globs=_merge_source_globs(raw.get("source_globs")),
             config_dir=config_dir,
         )
 

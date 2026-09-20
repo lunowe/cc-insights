@@ -69,7 +69,7 @@ export function FilterBar({
   const unionActive = filters.groups.length > 0 && strays.length > 0
   const noProjectsYet = meta !== null && meta.groups.length === 0
 
-  // Empty means "all": both sources render lit, and switching one off narrows
+  // Empty means "all": every source renders lit, and switching one off narrows
   // to the other. Turning the last one off returns to all rather than to zero.
   const sourceValue: string[] =
     filters.sources.length === 0 ? [...ALL_SOURCES] : filters.sources

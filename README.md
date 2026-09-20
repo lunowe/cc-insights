@@ -96,7 +96,7 @@ an implementer who refused an acceptance number they could not reproduce. See
 
 ```
 src/cc_insights/
-  sources/      adapters: claude_code.py, codex.py (contract in base.py)
+  sources/      adapters: claude_code.py, codex.py, opencode.py (contract in base.py)
   ingest.py     adapters -> DB, incremental and idempotent
   derive.py     active spans, attendance, concurrency
   stats.py      read-only summary queries

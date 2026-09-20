@@ -3,6 +3,7 @@ import type { Daily, GroupOrigin, Source } from "./types"
 export const SOURCE_LABEL: Record<Source, string> = {
   claude_code: "Claude Code",
   codex: "Codex",
+  opencode: "opencode",
 }
 
 const HOUR = 3_600_000

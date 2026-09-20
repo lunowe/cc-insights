@@ -92,8 +92,9 @@ def summarize(conn: sqlite3.Connection) -> Summary:
         )
     ]
 
-    # Claude records a real agent TYPE; Codex records a random per-thread
-    # nickname, which would otherwise flood this list with one-offs.
+    # Claude Code and opencode both record a real agent TYPE ("Explore",
+    # "general"); Codex records a random per-thread nickname, which would
+    # otherwise flood this list with one-offs.
     s.agents = [
         (r[0], r[1], r[2] / _H)
         for r in conn.execute(
@@ -101,7 +102,8 @@ def summarize(conn: sqlite3.Connection) -> Summary:
                FROM thread t
                JOIN span sp ON sp.thread_id = t.id
                JOIN session s ON s.id = t.session_id
-               WHERE t.agent_name IS NOT NULL AND s.source = 'claude_code'
+               WHERE t.agent_name IS NOT NULL
+                 AND s.source IN ('claude_code', 'opencode')
                GROUP BY 1 ORDER BY 3 DESC LIMIT 8"""
         )
     ]

@@ -248,7 +248,7 @@ export function TimelineSwimlane({
     if (host === null || drag.current?.moved) return
     const p = localPoint(host, e)
     const kind = s.isSubagent
-      ? `Subagent · ${s.source === "claude_code" && s.agentName ? s.agentName : SOURCE_LABEL[s.source]}`
+      ? `Subagent · ${s.source !== "codex" && s.agentName ? s.agentName : SOURCE_LABEL[s.source]}`
       : s.attended === 0
         ? "Root thread · resumed with no human turn"
         : "Root thread · human-initiated"
@@ -289,7 +289,7 @@ export function TimelineSwimlane({
             path: g.projectName ?? "—",
             thread: lane.isSubagent
               ? `subagent${lane.depth > 1 ? ` (depth ${lane.depth})` : ""} · ${
-                  s.source === "claude_code" && s.agentName
+                  s.source !== "codex" && s.agentName
                     ? s.agentName
                     : SOURCE_LABEL[s.source]
                 }`
@@ -789,7 +789,7 @@ function SessionRows({
         const y = SESSION_H + i * LANE_H
         const indent = 8 + lane.depth * 10
         const label = lane.isSubagent
-          ? lane.source === "claude_code" && lane.agentName
+          ? lane.source !== "codex" && lane.agentName
             ? lane.agentName
             : "subagent"
           : "root"

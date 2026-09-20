@@ -230,7 +230,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
             print(f"  {name[:28]:<28} {_hours(h):>9}  {_bar(h / top, 18)}")
 
     if s.agents:
-        print("\nSUBAGENT TYPES \u00b7 claude_code")
+        print("\nSUBAGENT TYPES \u00b7 claude_code, opencode")
         top = s.agents[0][2] or 1
         for name, n, h in s.agents:
             print(f"  {name[:22]:<22} {_hours(h):>9}  {n:>4} threads  {_bar(h / top, 14)}")
@@ -490,7 +490,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ing = sub.add_parser("ingest", help="read agent logs into the database")
     ing.add_argument("--source", action="append",
-                     help="limit to a source (repeatable): claude_code, codex")
+                     help="limit to a source (repeatable): claude_code, codex, opencode")
     ing.set_defaults(fn=cmd_ingest)
 
     der = sub.add_parser("derive", help="recompute active spans from ingested events")

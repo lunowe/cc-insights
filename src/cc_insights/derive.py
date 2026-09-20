@@ -463,7 +463,8 @@ def concurrency_from_db(
 ) -> Concurrency:
     """Concurrency over the persisted spans, optionally filtered.
 
-    `source` ('claude_code' | 'codex') filters through the owning session, so
+    `source` ('claude_code' | 'codex' | 'opencode') filters through the owning
+    session, so
     the two tools can be measured separately -- mixing them would report a
     concurrency no single tool ever reached.
     """

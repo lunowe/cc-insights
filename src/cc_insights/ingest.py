@@ -114,6 +114,7 @@ from cc_insights.config import Config
 from cc_insights.sources.base import RawEvent, SourceAdapter
 from cc_insights.sources.claude_code import ClaudeCodeAdapter
 from cc_insights.sources.codex import CodexAdapter
+from cc_insights.sources.opencode import OpencodeAdapter
 
 log = logging.getLogger(__name__)
 
@@ -128,6 +129,7 @@ _ID_CHUNK = 400
 ADAPTERS: dict[str, type] = {
     ClaudeCodeAdapter.name: ClaudeCodeAdapter,
     CodexAdapter.name: CodexAdapter,
+    OpencodeAdapter.name: OpencodeAdapter,
 }
 
 T = TypeVar("T")

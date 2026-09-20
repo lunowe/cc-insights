@@ -22,7 +22,7 @@ changed name, type or meaning.
 | --- | --- | --- |
 | `project` | repeated | `project_id`; repeat to include several. Omitted = all |
 | `group` | repeated | `group_id`; repeat to include several. Omitted = all |
-| `source` | repeated | `claude_code` \| `codex`. Omitted = all |
+| `source` | repeated | `claude_code` \| `codex` \| `opencode`. Omitted = all |
 | `from` | epoch ms | inclusive lower bound on span start |
 | `to` | epoch ms | exclusive upper bound on span start |
 | `role` | string | `all` (default) \| `root` \| `subagent` |
@@ -54,7 +54,7 @@ usual: `?group=G&project=P&source=codex` is "(G or P) and codex".
 ## Types
 
 ```ts
-type Source = "claude_code" | "codex";
+type Source = "claude_code" | "codex" | "opencode";
 type Role = "all" | "root" | "subagent";
 
 // GET /api/meta  — everything needed to populate the filter controls.
