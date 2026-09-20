@@ -21,4 +21,5 @@ def test_status_reports_empty_tables(tmp_path, capsys):
     capsys.readouterr()
     assert cli.main(["--config-dir", str(tmp_path), "status"]) == 0
     out = capsys.readouterr().out
-    assert "session" in out and "[1]" in out
+    assert "session" in out
+    assert "schema versions" in out

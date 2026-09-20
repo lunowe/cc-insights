@@ -19,12 +19,14 @@ def test_migrate_creates_all_tables(conn):
 
 def test_migrate_is_idempotent(conn, tmp_path):
     assert db.migrate(conn) == []  # already applied by the fixture
-    assert sorted(db.applied_versions(conn)) == [1]
+    # Version-agnostic on purpose: a new migration must not break this test.
+    assert sorted(db.applied_versions(conn)) == [v for v, _ in db.discover_migrations()]
 
 
 def test_migrate_records_versions(conn):
-    rows = list(conn.execute("SELECT version, applied_at FROM schema_migrations"))
-    assert [r["version"] for r in rows] == [1]
+    rows = list(conn.execute("SELECT version, applied_at FROM schema_migrations ORDER BY version"))
+    assert [r["version"] for r in rows] == [v for v, _ in db.discover_migrations()]
+    assert rows, "at least one migration must exist"
     assert all(r["applied_at"] > 1_600_000_000_000 for r in rows)  # epoch MS, not seconds
 
 
