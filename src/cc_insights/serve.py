@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlparse
 
-from cc_insights import metrics
+from cc_insights import assets, metrics
 from cc_insights.config import Config
 from cc_insights.live import HEARTBEAT_S, LiveState
 
@@ -65,9 +65,11 @@ ALLOWED_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 #: docstring.
 LIVE_PATH = "/api/live"
 
-# Where `npm run build` puts the dashboard in a source checkout. Absent in an
-# installed wheel, and absent before the frontend is built; both are fine.
-DIST_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+# The built dashboard: the copy inside the wheel if there is one, otherwise
+# `frontend/dist` in a source checkout. Resolved through `assets` rather than
+# from `__file__` here, because walking up to the checkout finds nothing when
+# the package was pip-installed -- see that module's docstring.
+DIST_DIR = assets.frontend_dir()
 
 _NO_FRONTEND_HTML = """<!doctype html>
 <html lang="en"><meta charset="utf-8"><title>CC-Insights</title>

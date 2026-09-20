@@ -14,10 +14,17 @@ from pathlib import Path
 
 import pytest
 
+from cc_insights import assets
+
+# The templates are package data, not repo scripts: `cci install` has to
+# write a launchd job on a machine that only ever ran `pipx install`, so they
+# live beside the code and ship in the wheel. `assets.JOBS` is the one place
+# that knows where -- reading them from `scripts/` here would let the package
+# and the test drift apart in exactly the way that hid the missing dashboard.
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
-PLIST = SCRIPTS / "com.cc-insights.plist"
+PLIST = assets.JOBS / "com.cc-insights.plist"
 INSTALL = SCRIPTS / "install-launchd.sh"
-INSTALL_TASK = SCRIPTS / "install-task.ps1"
+INSTALL_TASK = assets.JOBS / "install-task.ps1"
 
 
 def test_template_carries_both_placeholders():
@@ -95,7 +102,7 @@ def test_the_windows_task_never_asks_for_elevation():
 # --------------------------------------------------------------------------
 # the watch job
 # --------------------------------------------------------------------------
-WATCH_PLIST = SCRIPTS / "com.cc-insights.watch.plist"
+WATCH_PLIST = assets.JOBS / "com.cc-insights.watch.plist"
 
 
 def test_the_watch_template_carries_both_placeholders():

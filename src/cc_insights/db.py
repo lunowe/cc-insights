@@ -19,7 +19,13 @@ import sqlite3
 import time
 from pathlib import Path
 
-MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
+from cc_insights import assets
+
+#: Resolved through `assets` so a pip-installed copy finds the migrations
+#: it shipped with. Walking up to the source checkout finds nothing in a
+#: wheel, and an empty directory used to mean "no migrations to apply" --
+#: `cci init` then created a database with no tables and reported success.
+MIGRATIONS_DIR = assets.migrations_dir()
 _MIGRATION_RE = re.compile(r"^(\d+)_.*\.sql$")
 
 SQLITE = "sqlite"
@@ -72,6 +78,15 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 
 def discover_migrations(directory: Path | None = None) -> list[tuple[int, Path]]:
+    """The numbered .sql files in order, refusing to find none.
+
+    "No migrations here" is never a legitimate answer for the shipped
+    directory: it means the package was built without them, and the caller
+    would go on to create an empty database and call it a success. A test can
+    still pass an explicitly empty `directory` -- the check is about the
+    default, which is the one nobody chose on purpose.
+    """
+    explicit = directory is not None
     directory = directory or MIGRATIONS_DIR
     found: list[tuple[int, Path]] = []
     for p in sorted(directory.glob("*.sql")):
@@ -83,6 +98,12 @@ def discover_migrations(directory: Path | None = None) -> list[tuple[int, Path]]
     versions = [v for v, _ in found]
     if len(set(versions)) != len(versions):
         raise RuntimeError(f"duplicate migration version in {directory}")
+    if not found and not explicit:
+        raise RuntimeError(
+            f"no schema migrations found in {directory}. This is a packaging "
+            "bug: the installed package is missing its .sql files, and "
+            "continuing would create an empty database."
+        )
     return found
 
 

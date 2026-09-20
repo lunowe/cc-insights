@@ -40,7 +40,7 @@ lost for good:
 On Windows the same job runs through Task Scheduler:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install-task.ps1   # -Uninstall to remove
+powershell -ExecutionPolicy Bypass -File src\cc_insights\jobs\install-task.ps1   # -Uninstall to remove
 ```
 
 Same cadence, same two commands, same log files under the config directory —
@@ -208,9 +208,13 @@ src/cc_insights/
   paths.py      path reasoning that takes the OS from the path, not the host
   sync.py       push/pull between local SQLite and a shared PostgreSQL
   redact.py     what may cross a team boundary, and in what shape
+  assets.py     where the shipped dashboard, migrations and job templates are
+  jobs/         launchd + Task Scheduler templates, package data so `cci`
+                can install a job on a machine with no checkout
   model_prices.json   the price catalog snapshot (scripts/sync_prices.py)
-frontend/       Vite + React dashboard, built into frontend/dist
-migrations/     numbered SQL, applied in order
+frontend/       Vite + React dashboard, built into frontend/dist -- the wheel
+                force-includes it as cc_insights/web
+migrations/     numbered SQL, applied in order; also force-included
 docs/           FINDINGS.md (ground truth), API.md (frozen contract),
                 REDACTION.md (what may be shared), ROADMAP.md, probes/
 scripts/        launchd jobs (interval and watch) + installer (macOS),

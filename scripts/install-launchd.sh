@@ -37,7 +37,7 @@ if [[ "$MODE" == "watch" ]]; then
 else
     THIS_LABEL="$LABEL"; OTHER_LABEL="$WATCH_LABEL"
 fi
-PLIST_SRC="${SCRIPT_DIR}/${THIS_LABEL}.plist"
+PLIST_SRC="$(cd "${SCRIPT_DIR}/.." && pwd)/src/cc_insights/jobs/${THIS_LABEL}.plist"
 PLIST_DST="${AGENTS}/${THIS_LABEL}.plist"
 
 unload() {

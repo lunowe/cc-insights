@@ -14,12 +14,40 @@ dependencies = []
 # install dependency-free is a feature, not an accident.
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.1"]
+# Only for building and checking a release. `test_packaging.py` skips without
+# them rather than failing, but then it is not checking anything -- so CI and
+# anyone cutting a release installs this.
+dev = ["build>=1.2", "hatchling>=1.25", "pytest>=8"]
 
 [project.scripts]
 cci = "cc_insights.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cc_insights"]
+# The scheduler templates are package data, not repo scripts: `cci install`
+# has to write a launchd job on a machine that has never seen this checkout.
+artifacts = ["src/cc_insights/jobs/*"]
+
+# The built dashboard. It lives at `frontend/dist` because that is where Vite
+# writes it, and it is gitignored because it is a build artifact -- so without
+# this it is in neither the sdist nor the wheel, and a pip-installed `cci
+# serve` has no dashboard at all. That was the state of things until now.
+#
+# Release order therefore matters: build the frontend, THEN build the wheel.
+# `test_packaging.py` fails the build rather than shipping half a product.
+[tool.hatch.build.targets.wheel.force-include]
+"frontend/dist" = "cc_insights/web"
+# Tracked source, unlike the dashboard, but it lives outside the package
+# directory -- and without it `cci init` builds a database with no tables.
+"migrations" = "cc_insights/migrations"
+
+# The sdist carries the whole repo including `migrations/`, so a build from
+# it works. `frontend/dist` is the exception: it is gitignored, so `pip
+# install` from an sdist yields the JSON API with no dashboard. Acceptable --
+# the wheel is the supported path and that is what PyPI serves.
+[tool.hatch.build.targets.sdist]
+include = ["src", "migrations", "scripts", "frontend", "docs", "tests",
+           "README.md", "PROMPT.md", "pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -64,7 +64,7 @@ migration.
 - Config dir is `%APPDATA%\cc-insights`; `CC_INSIGHTS_HOME` still overrides.
   Globs expand `%APPDATA%`-style variables and ship extra Windows candidates
   alongside the `~`-relative ones, for all three adapters.
-- `scripts/install-task.ps1` registers the Task Scheduler job at parity with
+- `src/cc_insights/jobs/install-task.ps1` registers the Task Scheduler job at parity with
   the launchd one. **Not execution-verified** — see the gaps below.
 - Fixed on the way: a Windows `db_path` written into `config.toml` unescaped
   is not valid TOML (`\U` and `\A` are escape sequences), so the file the tool
