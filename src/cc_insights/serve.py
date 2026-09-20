@@ -49,7 +49,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from cc_insights import metrics
 from cc_insights.config import Config
-from cc_insights.watch import HEARTBEAT_S, LiveState
+from cc_insights.live import HEARTBEAT_S, LiveState
 
 __all__ = ["DEFAULT_PORT", "HOST", "LIVE_PATH", "InsightsServer", "make_server", "run"]
 

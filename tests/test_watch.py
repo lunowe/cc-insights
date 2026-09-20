@@ -12,6 +12,7 @@ piles up beside it.
 """
 
 import json
+import pathlib
 import sqlite3
 import threading
 import time
@@ -19,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from cc_insights import db, watch
+from cc_insights import db, live as live_mod, watch
 from cc_insights.config import Config
 
 CLAUDE = "claude_code"
@@ -309,6 +310,14 @@ def test_a_scan_failure_does_not_stop_the_loop(corpus):
 
 
 # --- the live tick ------------------------------------------------------
+
+
+def test_the_tick_is_defined_outside_the_pipeline():
+    """`serve.py` is a read-only server; it must not have to import ingest and
+    every source adapter just to learn that something changed."""
+    assert watch.LiveState is live_mod.LiveState
+    source = (pathlib.Path(live_mod.__file__)).read_text()
+    assert "import ingest" not in source and "cc_insights" not in source
 
 
 def test_publish_bumps_the_generation():

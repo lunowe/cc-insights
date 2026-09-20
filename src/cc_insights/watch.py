@@ -48,16 +48,13 @@ from typing import Any, Callable, Protocol, Sequence
 
 from cc_insights import cost as cost_mod, db, derive, ingest
 from cc_insights.config import Config
+from cc_insights.live import HEARTBEAT_S, LiveState
 
 log = logging.getLogger(__name__)
 
 #: Seconds between scans. Two is comfortably under the pace at which a human
 #: notices staleness, and 50 ms of stat per scan is affordable at that rate.
 DEFAULT_INTERVAL_S = 2.0
-
-#: Seconds a listening dashboard waits before being sent a keep-alive. Under
-#: the 60 s that proxies and browsers use to decide a stream is dead.
-HEARTBEAT_S = 20.0
 
 #: (size, mtime_ns). Both, because a file can be rewritten to the same length
 #: and an editor can preserve mtime; together they miss almost nothing, and
@@ -176,59 +173,6 @@ class Cycle:
             "durationS": round(self.duration_s, 3),
             "errors": self.errors,
         }
-
-
-class LiveState:
-    """The tick an open dashboard listens for.
-
-    One counter and one condition variable. A reader blocks on `wait_after`
-    until the generation moves or its timeout expires; the writer bumps it
-    once per cycle that changed something. No queue, because a listener that
-    missed three ticks does not want three refreshes, it wants the latest
-    state -- so the generation number *is* the message, and the payload is
-    whatever was true at the last tick.
-    """
-
-    def __init__(self) -> None:
-        self._cv = threading.Condition()
-        self._generation = 0
-        self._payload: dict[str, Any] = {}
-        self._started = db.now_ms()
-
-    @property
-    def generation(self) -> int:
-        with self._cv:
-            return self._generation
-
-    def publish(self, payload: dict[str, Any]) -> int:
-        with self._cv:
-            self._generation += 1
-            self._payload = payload
-            self._cv.notify_all()
-            return self._generation
-
-    def snapshot(self) -> tuple[int, dict[str, Any]]:
-        with self._cv:
-            return self._generation, dict(self._payload)
-
-    def wait_after(self, generation: int, timeout: float) -> tuple[int, dict[str, Any]] | None:
-        """Block until the generation passes `generation`, or time out.
-
-        Returns None on timeout, which the caller turns into a keep-alive
-        rather than a reconnect.
-        """
-        deadline = time.monotonic() + timeout
-        with self._cv:
-            while self._generation <= generation:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return None
-                self._cv.wait(remaining)
-            return self._generation, dict(self._payload)
-
-    def status(self) -> dict[str, Any]:
-        gen, payload = self.snapshot()
-        return {"watching": True, "generation": gen, "since": self._started, "last": payload}
 
 
 def run_cycle(
@@ -371,6 +315,9 @@ def _report(
         live.publish(cycle.as_dict())
 
 
+#: Re-exported so `from cc_insights.watch import LiveState` keeps working:
+#: the tick is part of watch mode's surface even though it is defined in
+#: `live.py`, which `serve.py` imports without dragging in the pipeline.
 __all__ = [
     "DEFAULT_INTERVAL_S",
     "HEARTBEAT_S",
