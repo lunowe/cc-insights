@@ -223,6 +223,41 @@ The pattern: every number here is only as good as the script that produced it.
    reaches February. Unrecorded history is lost permanently — which is why
    ingest is urgent and dashboards are not.
 
+## 6b. Cost: the cheapest token is most of the bill
+
+Measured 2026-09-20 over the whole corpus, at published API rates:
+
+| component | tokens | list-price equivalent | share |
+| --- | --- | --- | --- |
+| cache read | 11,130 M | $7,824 | **59%** |
+| cache write | 358 M | $3,448 | 26% |
+| output | 50 M | $1,872 | 14% |
+| fresh input | 59 M | $216 | 2% |
+
+**Cache reads outnumber fresh input tokens roughly 190 to 1** and are the
+majority of the cost despite being the cheapest component per token. Two
+consequences, both load-bearing:
+
+- Pricing all input at the input rate overstates the total by more than an
+  order of magnitude; ignoring cache entirely understates it by 85%. The four
+  components must be priced separately, which is why `model_price` has four
+  rate columns and `event_cost` four cost columns.
+- Any future "reduce my spend" advice that starts with output tokens is
+  looking at 14% of the bill.
+
+Three further facts a total has to disclose, all of them measured here:
+
+1. **138 M tokens could not be priced at all** — `gpt-6-astra` (113 M) and
+   opencode's free-tier routes. Reported, never counted as zero.
+2. **12,304 Codex events record usage without naming a model.** The model is
+   carried forward from earlier in the same thread; 46 have nothing to inherit
+   and stay unpriced.
+3. **The price catalog prices `claude-fable-5-1` as `claude-fable-5`**, whose
+   cache reads cost four times as much. On this corpus that single
+   substitution is **$2,752** — 21% of the total. A near relative is a
+   defensible default and an indefensible secret, which is why
+   `pricing.approximations()` exists and every surface prints it.
+
 ## 7. Scale
 
 ~180k events for the combined corpus. A full year of both stays under 1M rows.
