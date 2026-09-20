@@ -112,7 +112,29 @@ team's projects.
 - `host_id` becomes a child of an account; an account belongs to teams.
 - Needs a tenant column and row-level scoping on every query.
 
-**The unsolved problem is not auth, it is paths.** `cwd` is the join key for
+**Redaction is designed and implemented** — `docs/REDACTION.md`,
+`src/cc_insights/redact.py`, `cci privacy`. The finding that shaped it:
+publishing `project_id` publishes `root_path`, because `project_id` IS
+`sha256(root_path)` and a colleague can hash a guess. 555 guesses built from a
+username, eight conventional directory names and the repo names in the remotes
+recovered 20% of this corpus outright. So hashing is not redaction, salting
+would break the cross-machine identity the schema depends on, and published
+rows are re-keyed on the normalized git remote instead.
+
+The boundary is repo access, which is the same answer this section already
+reached from the auth direction: a row may be published only if it belongs to
+a repo, and only to people who can already see that repo. Work with no remote
+has nothing to derive permission from and stays local — 8% of active time
+here, withheld *and counted*, because a view that quietly omits your hours is
+not private, it is wrong. The projection runs on the laptop; the shared
+database never receives a path.
+
+What remains for teams is auth and scoping, not privacy plumbing: `actor` is
+already a parameter, and `redact.FIELDS` classifies all 110 schema columns
+closed-by-default with a test that fails when a migration adds one nobody has
+ruled on.
+
+**The problem this section used to open with, kept for the record.** `cwd` is the join key for
 grouping, and it leaks local detail: usernames, client names, unreleased
 project names. `~/Coding/atlas-chat/.claude/worktrees/tenant-restricted`
 tells a colleague more than its owner may intend. Sharing beyond one person

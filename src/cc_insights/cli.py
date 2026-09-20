@@ -20,6 +20,7 @@ from cc_insights import (
     grouping,
     ingest,
     paths,
+    redact,
     serve,
     stats,
     sync,
@@ -485,6 +486,72 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return serve.run(cfg, port=args.port, open_browser=not args.no_open)
 
 
+# ------------------------------------------------------------------ privacy --
+
+#: `publication()` wants the actor from auth, which does not exist yet. The
+#: report only needs the shape, and a placeholder that cannot be mistaken for a
+#: real identity is better here than inventing one.
+PLACEHOLDER_ACTOR = "<actor from auth>"
+
+
+def cmd_privacy(args: argparse.Namespace) -> int:
+    """Show what would and would not cross a team boundary. Sends nothing."""
+    _, conn = _open_db(args)
+    try:
+        unclassified = redact.unclassified(conn)
+        pub = redact.publication(conn, PLACEHOLDER_ACTOR)
+        checked = redact.audit(pub, redact.local_secrets(conn))
+        samples = (pub.repos[:3], pub.sessions[:3]) if args.show else ((), ())
+    finally:
+        conn.close()
+
+    total = pub.total_ms or 1
+    print("\nPUBLISHABLE — behind a git remote, so repo access answers who may see it")
+    print(f"  {len(pub.repos)} repos · {len(pub.sessions):,} sessions · "
+          f"{_hours(pub.published_ms / 3_600_000)} · {pub.published_ms / total:.0%}")
+
+    print("\nWITHHELD — no remote, so nothing in the data can answer 'may they see this?'")
+    print(f"  {pub.withheld_projects} projects · "
+          f"{_hours(pub.withheld_ms / 3_600_000)} · {pub.withheld_ms / total:.0%}")
+    print("  Counted, not dropped: a view that quietly omits your time is not")
+    print("  private, it is wrong, and the reader cannot tell the difference.")
+
+    counts: dict[str, int] = {}
+    for f in redact.FIELDS:
+        counts[f.verdict] = counts.get(f.verdict, 0) + 1
+    print(f"\nFIELDS  {counts.get(redact.PUBLIC, 0)} public · "
+          f"{counts.get(redact.PRIVATE, 0)} private · "
+          f"{counts.get(redact.DERIVED, 0)} re-keyed   "
+          f"({len(redact.FIELDS)} columns)")
+    if unclassified:
+        print("  UNCLASSIFIED COLUMNS — publication is unsafe until these are ruled on:",
+              file=sys.stderr)
+        for table, column in unclassified:
+            print(f"    {table}.{column}", file=sys.stderr)
+
+    if checked.leaks:
+        print(f"\nAUDIT   {len(checked.leaks)} LEAK(S) — this must be empty", file=sys.stderr)
+        for line in checked.leaks[:10]:
+            print(f"    {line}", file=sys.stderr)
+    else:
+        print("\nAUDIT   clean — no local path, path-derived id, username or")
+        print("        hostname reaches the projection")
+    if checked.warnings:
+        print(f"        {len(checked.warnings)} to glance at (ordinary words collide; "
+              f"see docs/REDACTION.md §5):")
+        for line in checked.warnings[:5]:
+            print(f"          {line}")
+
+    for repo in samples[0]:
+        print(f"\n  repo    {repo.repo_id}  {repo.remote_url}")
+    for s in samples[1]:
+        print(f"  session {s.session_id}  repo={s.repo_id}  {s.source}  "
+              f"branch={s.git_branch!r}  {_hours(s.active_ms / 3_600_000)}")
+
+    print("\nNothing was sent. See docs/REDACTION.md.\n")
+    return 1 if (checked.leaks or unclassified) else 0
+
+
 # --------------------------------------------------------------------- sync --
 
 
@@ -636,6 +703,14 @@ def build_parser() -> argparse.ArgumentParser:
     srv.add_argument("--no-open", action="store_true",
                      help="do not open a browser window")
     srv.set_defaults(fn=cmd_serve)
+    priv = sub.add_parser(
+        "privacy", help="show what would and would not cross a team boundary"
+    )
+    priv.add_argument(
+        "--show", action="store_true", help="also print a few sample published rows"
+    )
+    priv.set_defaults(fn=cmd_privacy)
+
     syn = sub.add_parser("sync", help="share this machine's data with your others")
     ssub = syn.add_subparsers(dest="sync_command", required=True)
     for name, helptext, fn in (

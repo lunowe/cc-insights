@@ -65,9 +65,23 @@ Re-running either is safe: every id is a content hash, so a row that crosses
 twice collapses instead of duplicating. `ingest_file` is deliberately never
 sent — it is bookkeeping about local paths with no analytical value.
 
-This is **your** machines, not your team's. A `root_path` still reads
-`~/Coding/<client-name>`, and sharing beyond one person needs the redaction
-layer described in `docs/ROADMAP.md`.
+### Sharing with other people
+
+`sync` moves paths, because it is all your own disk. Sharing beyond one person
+goes through a different pipe, and a different set of rules:
+
+```bash
+cci privacy        # what would and would not cross a team boundary. Sends nothing.
+```
+
+`docs/REDACTION.md` has the design. The short version: publishing `project_id`
+publishes `root_path`, because the id *is* `sha256(root_path)` and a colleague
+can hash a guess — 555 guesses recovered 20% of this corpus. So published rows
+are re-keyed on the repo's remote, the boundary is repo access, and work with
+no remote stays local, counted rather than silently dropped. The projection
+runs on your laptop; the shared database never receives a path.
+
+Teams and auth follow. The privacy plumbing is in place for them.
 
 ## What it found on this machine
 
@@ -136,6 +150,7 @@ src/cc_insights/
   cli.py        cci init | ingest | derive | stats | status | config
   paths.py      path reasoning that takes the OS from the path, not the host
   sync.py       push/pull between local SQLite and a shared PostgreSQL
+  redact.py     what may cross a team boundary, and in what shape
 migrations/     numbered SQL, applied in order
 docs/           FINDINGS.md (ground truth), ROADMAP.md, probes/
 scripts/        launchd job + installer (macOS), Task Scheduler job (Windows)
