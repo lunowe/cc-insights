@@ -1,0 +1,228 @@
+"""Publishing a projection: what is accepted, what is refused, and why.
+
+`redact.publication()` builds this on the laptop. The server's job is to be
+the second place that says no -- to a mis-stamped actor, to a fourth
+`thread_role`, to a span attached to somebody else's session, and to anything
+that looks like a path.
+"""
+
+from __future__ import annotations
+
+from cci_server.repoid import github_remote, repo_id
+
+R1 = repo_id(github_remote("github.com", "acme/app"))
+T0 = 1_789_000_000_000
+
+
+def repos(actor, rid=R1, name="app"):
+    return {"kind": "repos", "actor": actor,
+            "rows": [{"repoId": rid, "remoteUrl": f"https://github.com/acme/{name}",
+                      "forge": "github", "owner": "acme", "repo": name,
+                      "webUrl": f"https://github.com/acme/{name}", "name": name}]}
+
+
+def sessions(actor, sid="s1", rid=R1, branch="main"):
+    return {"kind": "sessions", "actor": actor,
+            "rows": [{"sessionId": sid, "repoId": rid, "actor": actor,
+                      "source": "codex", "gitBranch": branch, "startedAt": T0,
+                      "endedAt": T0 + 60_000, "activeMs": 60_000, "eventCount": 4}]}
+
+
+def spans(actor, span_id="sp1", sid="s1", role="human"):
+    return {"kind": "spans", "actor": actor,
+            "rows": [{"spanId": span_id, "sessionId": sid, "threadRole": role,
+                      "startedAt": T0, "endedAt": T0 + 60_000, "eventCount": 4}]}
+
+
+def test_publishing_the_same_projection_twice_is_a_no_op(client, alice):
+    """Span ids hash a thread id and a timestamp, so a re-publish must collapse.
+
+    `cci privacy` and a scheduled publish will both run over the same corpus.
+    If either duplicated rows, every team total would climb on a schedule.
+    """
+    for _ in range(2):
+        assert client.post("/v1/team/publish", json=repos(alice.actor),
+                           headers=alice.auth).status_code == 200
+        assert client.post("/v1/team/publish", json=sessions(alice.actor),
+                           headers=alice.auth).status_code == 200
+        assert client.post("/v1/team/publish", json=spans(alice.actor),
+                           headers=alice.auth).status_code == 200
+
+    body = client.get("/v1/team/summary", headers=alice.auth).json()
+    assert body["spans"] == 1
+    assert body["sessions"] == 1
+    assert body["activeMs"] == 60_000
+
+
+def test_publishing_under_somebody_elses_name_is_refused(client, alice, bob):
+    """The team view's central claim is that it says who did the work.
+
+    If a client could choose the actor, that claim is unenforced and a week
+    of somebody's time could be filed under a colleague.
+    """
+    client.post("/v1/team/publish", json=repos(alice.actor), headers=alice.auth)
+    r = client.post("/v1/team/publish", json=sessions("bob"), headers=alice.auth)
+    assert r.status_code == 403
+    assert r.json()["error"] == "actor_mismatch"
+
+    # And the batch-level actor is checked too, not only the row-level one.
+    body = sessions(alice.actor)
+    body["actor"] = "bob"
+    assert client.post("/v1/team/publish", json=body,
+                       headers=alice.auth).status_code == 403
+
+
+def test_the_stored_actor_comes_from_the_token(client, alice, migrated_db):
+    """Even the accepted value is re-stamped from the account, not copied.
+
+    A client that sends the right name still must not be the source of it:
+    the row is written from `account.actor`, so there is one authority.
+    """
+    client.post("/v1/team/publish", json=repos(alice.actor), headers=alice.auth)
+    client.post("/v1/team/publish", json=sessions(alice.actor), headers=alice.auth)
+    with migrated_db.connection() as conn:
+        row = conn.execute(
+            "SELECT actor, account_id FROM published_session"
+        ).fetchone()
+    assert row["actor"] == "alice"
+    assert row["account_id"] == alice.account_id
+
+
+def test_a_span_cannot_be_attached_to_another_accounts_session(client, alice, bob):
+    """Session ids are unguessable, so this should never fire.
+
+    It is checked anyway, because "should never" is exactly how the
+    confirmation attack in docs/REDACTION.md §0 survived into a design. Bob
+    naming Alice's session must not write a span into her data.
+    """
+    client.post("/v1/team/publish", json=repos(alice.actor), headers=alice.auth)
+    client.post("/v1/team/publish", json=sessions(alice.actor), headers=alice.auth)
+
+    r = client.post("/v1/team/publish", json=spans(bob.actor, span_id="sp-bob"),
+                    headers=bob.auth)
+    assert r.status_code == 200
+    assert r.json()["applied"] == 0
+    assert r.json()["rejected"] == 1
+
+    assert client.get("/v1/team/summary", headers=alice.auth).json()["spans"] == 0
+
+
+def test_a_session_already_published_by_someone_else_is_refused_not_merged(
+    client, alice, bob, migrated_db
+):
+    """Silently taking the newer write is how one account's row becomes another's."""
+    client.post("/v1/team/publish", json=repos(alice.actor), headers=alice.auth)
+    client.post("/v1/team/publish", json=sessions(alice.actor), headers=alice.auth)
+
+    r = client.post("/v1/team/publish", json=sessions(bob.actor, sid="s1"),
+                    headers=bob.auth)
+    assert r.json()["rejected"] == 1
+    with migrated_db.connection() as conn:
+        row = conn.execute("SELECT actor FROM published_session").fetchone()
+    assert row["actor"] == "alice"
+
+
+def test_publishing_out_of_order_is_a_409_naming_what_is_missing(client, alice):
+    """A client that gets the order wrong needs the remedy, not a stack trace."""
+    r = client.post("/v1/team/publish", json=sessions(alice.actor), headers=alice.auth)
+    assert r.status_code == 409
+    assert r.json()["error"] == "foreign_key_violation"
+    assert "repos" in r.json()["message"]
+
+    client.post("/v1/team/publish", json=repos(alice.actor), headers=alice.auth)
+    late = client.post("/v1/team/publish", json=spans(alice.actor, sid="s-nope"),
+                       headers=alice.auth)
+    assert late.status_code == 409
+    assert "sessions" in late.json()["message"]
+
+
+def test_a_fourth_thread_role_is_refused(client, alice):
+    """The three buckets partition active time; a fourth makes totals stop adding up.
+
+    `stats.py` computes exactly `human` / `autonomous` / `unattended_root`,
+    and the label travels so the partition survives aggregation. A typo in a
+    client would otherwise create a bucket nothing sums.
+    """
+    client.post("/v1/team/publish", json=repos(alice.actor), headers=alice.auth)
+    client.post("/v1/team/publish", json=sessions(alice.actor), headers=alice.auth)
+    r = client.post("/v1/team/publish", json=spans(alice.actor, role="human_ish"),
+                    headers=alice.auth)
+    assert r.status_code == 400
+    assert r.json()["error"] == "invalid_thread_role"
+
+
+def test_the_role_breakdown_partitions_the_total(client, alice):
+    """`byRole` must add up to `activeMs`, or the three-bucket label bought nothing."""
+    client.post("/v1/team/publish", json=repos(alice.actor), headers=alice.auth)
+    client.post("/v1/team/publish", json=sessions(alice.actor), headers=alice.auth)
+    for i, role in enumerate(("human", "autonomous", "unattended_root")):
+        client.post("/v1/team/publish", json=spans(alice.actor, f"sp{i}", role=role),
+                    headers=alice.auth)
+    body = client.get("/v1/team/summary", headers=alice.auth).json()
+    assert sum(body["byRole"].values()) == body["activeMs"]
+    assert body["activeMs"] == 3 * 60_000
+
+
+def test_a_publish_body_carrying_a_path_field_is_simply_dropped(client, alice,
+                                                                migrated_db):
+    """There is nowhere for a path to go, which is the point of migration 003.
+
+    A client bug -- or a future version that forgot the projection -- sending
+    `rootPath` alongside a session must not result in it being stored. The
+    schema has no column, so the field has no destination, and the row lands
+    without it.
+    """
+    client.post("/v1/team/publish", json=repos(alice.actor), headers=alice.auth)
+    body = sessions(alice.actor)
+    body["rows"][0]["rootPath"] = "/Users/alice/Coding/AcmeCorp-Unreleased"
+    body["rows"][0]["cwd"] = "/Users/alice/Coding/AcmeCorp-Unreleased/api"
+    assert client.post("/v1/team/publish", json=body,
+                       headers=alice.auth).status_code == 200
+
+    with migrated_db.connection() as conn:
+        for table in ("published_session", "published_repo",
+                      "published_session_branch", "published_span"):
+            rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+            assert "AcmeCorp-Unreleased" not in str(rows), table
+
+
+def test_dropping_a_branch_name_on_republish_removes_the_stored_one(client, alice,
+                                                                    migrated_db):
+    """A client that stops sending branches must actually stop publishing them.
+
+    Freezing the last value sent would mean turning the feature off locally
+    left the old names in the store, visible forever.
+    """
+    client.post("/v1/team/publish", json=repos(alice.actor), headers=alice.auth)
+    client.post("/v1/team/publish", json=sessions(alice.actor, branch="feat/x"),
+                headers=alice.auth)
+    client.post("/v1/team/publish", json=sessions(alice.actor, branch=None),
+                headers=alice.auth)
+
+    with migrated_db.connection() as conn:
+        assert conn.execute(
+            "SELECT count(*) AS n FROM published_session_branch"
+        ).fetchone()["n"] == 0
+
+
+def test_an_unknown_publish_kind_is_refused(client, alice):
+    """Silently accepting an unknown kind would report success for nothing sent."""
+    r = client.post("/v1/team/publish", json={"kind": "events", "rows": []},
+                    headers=alice.auth)
+    assert r.status_code == 400
+    assert r.json()["error"] == "unknown_kind"
+
+
+def test_a_publish_above_the_cap_is_refused(client, alice):
+    """Re-sending an overlapping range costs nothing, so splitting is always safe."""
+    from cci_server.config import MAX_BATCH_ROWS
+
+    body = repos(alice.actor)
+    body["rows"] = body["rows"] * (MAX_BATCH_ROWS + 1)
+    r = client.post("/v1/team/publish", json=body, headers=alice.auth)
+    assert r.status_code == 413
+
+
+def test_publishing_requires_a_token(client, alice):
+    """The whole endpoint, not merely its contents."""
+    assert client.post("/v1/team/publish", json=repos("alice")).status_code == 401

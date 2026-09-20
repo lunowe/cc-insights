@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# A SEPARATE PACKAGE, on purpose.
+#
+# The root `cc-insights` package installs with zero dependencies, and its
+# pyproject says that is "a feature, not an accident" -- the whole claim of the
+# tool is that it works on one machine with nothing installed. FastAPI,
+# uvicorn and psycopg are three dependencies nobody running `cci ingest` needs,
+# and folding them in would trade the tested property for a directory layout.
+#
+# The client's side of this transport is an HTTP call and belongs in
+# `cc_insights`; nothing in this package is imported by it.
+[project]
+name = "cc-insights-server"
+version = "0.1.0"
+description = "Account server for CC-Insights: personal store, team store, sign-in"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "psycopg[binary]>=3.1",
+    "psycopg-pool>=3.2",
+    # The device flow's server half. Not optional: without it there is no
+    # sign-in, and with no sign-in there is no server.
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+cci-server = "cci_server.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cci_server"]
+
+# Same reason the client force-includes its own: `migrations/` lives outside
+# the package directory, and an installed copy that cannot find its .sql files
+# creates an empty database and reports success.
+[tool.hatch.build.targets.wheel.force-include]
+"migrations" = "cci_server/migrations"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
