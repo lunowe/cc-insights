@@ -333,6 +333,42 @@ def test_a_pin_survives_a_push_from_a_machine_that_never_heard_of_it(mac, shared
     assert (row[0], row[1]) == ("g-manual", 1)
 
 
+def test_a_signed_out_machine_does_not_un_claim_the_others(mac, shared):
+    """`account_id` only ever moves forward from NULL.
+
+    Same shape as the pin rule above, arriving by a different route. One
+    laptop runs `cci login` and is claimed by an account; a desktop that
+    never did pushes its own host row with `account_id = NULL`. A blind
+    overwrite would un-claim whichever machines the shared database already
+    knew about, and the next `cci sync` from any of them would look like a
+    spontaneous sign-out with no error anywhere to explain it.
+    """
+    mac.execute("UPDATE host SET account_id = 'acct_1' WHERE host_id = ?", (MAC,))
+    push(mac, shared, MAC)
+    assert shared.execute(
+        "SELECT account_id FROM host WHERE host_id = ?", (MAC,)
+    ).fetchone()[0] == "acct_1"
+
+    # The same machine, now with no credential on disk, pushes again.
+    mac.execute("UPDATE host SET account_id = NULL WHERE host_id = ?", (MAC,))
+    push(mac, shared, MAC)
+
+    assert shared.execute(
+        "SELECT account_id FROM host WHERE host_id = ?", (MAC,)
+    ).fetchone()[0] == "acct_1", "a NULL push un-claimed the host"
+
+
+def test_a_claim_still_propagates_to_the_shared_database(mac, shared):
+    """Forward-only must not mean never: signing in has to actually travel."""
+    push(mac, shared, MAC)
+    mac.execute("UPDATE host SET account_id = 'acct_2' WHERE host_id = ?", (MAC,))
+    push(mac, shared, MAC)
+
+    assert shared.execute(
+        "SELECT account_id FROM host WHERE host_id = ?", (MAC,)
+    ).fetchone()[0] == "acct_2"
+
+
 def test_an_unpinned_group_still_follows_detection(mac, shared):
     add_group(mac, "g-auto", "repo", origin="git_remote", match_key="https://x/repo")
     push(mac, shared, MAC)
@@ -399,6 +435,40 @@ def test_every_declared_column_exists(mac):
         actual = {r[1] for r in mac.execute(f"PRAGMA table_info({table.name})")}
         assert set(table.columns) <= actual, f"{table.name}: {set(table.columns) - actual}"
         assert set(table.key) <= set(table.columns)
+
+
+def test_no_column_is_silently_left_behind(mac):
+    """The other direction, which is the one that loses data quietly.
+
+    A subset check catches sync naming a column the schema does not have --
+    a loud crash on the next push. It does NOT catch the schema growing a
+    column sync never learned to send, and that failure is silent: the row
+    arrives, the column is absent, and the receiving machine fills it with a
+    default that looks like a real measurement.
+
+    It had already happened. Migration 005 added `event.cache_write_1h_tokens`
+    to tell a one-hour cache write from a five-minute one -- 41% of the
+    author's cache-write tokens and $956 of the corpus total -- and
+    `sync.TABLES` was never updated, so every synced machine repriced those
+    tokens at the cheaper rate. Exactly the bug 005 existed to fix, restored
+    by the transport.
+
+    An omission may still be deliberate; it just has to be stated here, the
+    same way `EXCLUDED` states a whole table.
+    """
+    #: column -> why it does not travel. Nothing is in here yet, and the
+    #: default must stay "everything travels" rather than "list what does".
+    DELIBERATE: dict[str, set[str]] = {}
+
+    for table in sync.TABLES:
+        actual = {r[1] for r in mac.execute(f"PRAGMA table_info({table.name})")}
+        missing = actual - set(table.columns) - DELIBERATE.get(table.name, set())
+        assert not missing, (
+            f"{table.name} has {sorted(missing)} in the schema but sync does not "
+            f"send it. Add it to sync.TABLES, or add it to DELIBERATE here with "
+            f"a reason. Silently dropping a column loses data on every machine "
+            f"that pulls."
+        )
 
 
 def test_every_table_is_either_synced_or_excluded_on_purpose(mac):

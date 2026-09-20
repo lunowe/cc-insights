@@ -1,6 +1,8 @@
 # Accounts and teams — design
 
-> Status: design only. Nothing in here is built yet.
+> Status: built. The server lives in `server/`; its wire contract is
+> `docs/SERVER_API.md` and that document is frozen. §4 carries a list of
+> four things this design got wrong, found by implementing it.
 > `docs/REDACTION.md` is the prerequisite and is done; this document is what
 > consumes it.
 
@@ -106,7 +108,7 @@ measured 5.5 s push is preserved for free.
 **Option B — an HTTP transport with a bearer token.** `sync.py` grows a
 second backend; the batched upserts become a wire protocol.
 
-**Recommendation: B.** Three reasons, in order of weight:
+**Decision: B**, implemented. Three reasons, in order of weight:
 
 1. **An RLS misconfiguration is a silent total leak.** One policy missing
    from one table, and every account reads every other account's paths.
@@ -168,6 +170,39 @@ that. A host is *claimed by* an account; it keeps its identity.
 `identity` is a separate table rather than columns on `account` because the
 decision is "GitHub now, email later". One account, two ways to sign in, no
 migration when the second arrives.
+
+### Four things this section got wrong
+
+Found while building the server against it. Recorded rather than quietly
+corrected, because each one is a hole somebody could reopen.
+
+1. **`ALTER TABLE host ADD COLUMN account_id` is not sufficient for the
+   server.** It is right for the *client*, where there is one account. On
+   the server, `project_id = sha256(root_path)` — so two CI boxes that both
+   build in `/home/ci/work` compute the **same id for different accounts**.
+   With the client's single-column primary key those collapse into one row,
+   and the `UNIQUE` on `root_path` turns a coincidence into an error that
+   tells one account something true about another's disk. Every key and
+   every foreign key in the personal store is therefore composite on
+   `account_id`.
+
+2. **Nothing said who may add a repo to a team roster,** and "any admin, any
+   `repo_id`" is a hole straight through the boundary. REDACTION.md §0 says
+   publishing `repo_id` is safe *because* the remote is public — which is
+   exactly what makes the id computable by anyone who can guess the remote.
+   An admin may only roster a repo already in their own scope.
+
+3. **§1 and §6 contradicted each other.** Scope is derived from repo access,
+   but the client never holds a GitHub token — leaving nothing in the system
+   able to ask GitHub the question. Resolved by listing accessible repos
+   during the one request where the token exists, then discarding it. The
+   cost is real and is stated in the contract: **repo access is only as
+   fresh as the last `cci login`.**
+
+4. **`account` had no name, but `redact.Session.actor` must be
+   attributable.** Added `account.actor`, stamped once and never following a
+   GitHub rename — a display name that moves would silently re-attribute
+   history. A batch whose actor does not match is a 403, not an overwrite.
 
 Every table in the personal store gains `account_id` and every query filters
 on it. `redact.FIELDS` must classify the new columns, or its

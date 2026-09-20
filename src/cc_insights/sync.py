@@ -90,16 +90,24 @@ class Table:
 TABLES: tuple[Table, ...] = (
     Table(
         "host",
-        ("host_id", "hostname", "os", "first_seen", "last_seen"),
+        ("host_id", "hostname", "os", "first_seen", "last_seen", "account_id"),
         ("host_id",),
         # first_seen is the earliest this machine was ever seen; a later push
         # must not move it forward.
+        #
+        # account_id travels, and only ever forward from NULL. Sync is one
+        # person's own machines, so learning which account a host was claimed
+        # by is not a disclosure. But a machine that has not run `cci login`
+        # pushes NULL, and a blind overwrite would then un-claim every other
+        # machine from the account they are signed in to -- the same shape of
+        # bug as a push unpinning a project the pusher never heard about.
         set_clause=(
             "hostname = excluded.hostname, os = excluded.os, "
             "first_seen = CASE WHEN host.first_seen < excluded.first_seen "
             "THEN host.first_seen ELSE excluded.first_seen END, "
             "last_seen = CASE WHEN host.last_seen > excluded.last_seen "
-            "THEN host.last_seen ELSE excluded.last_seen END"
+            "THEN host.last_seen ELSE excluded.last_seen END, "
+            "account_id = coalesce(excluded.account_id, host.account_id)"
         ),
     ),
     Table(
@@ -150,7 +158,7 @@ TABLES: tuple[Table, ...] = (
         "event",
         ("id", "session_id", "thread_id", "native_event_id", "ts", "ordinal", "kind",
          "model", "tool_name", "tool_use_id", "input_tokens", "output_tokens",
-         "cache_read_tokens", "cache_write_tokens"),
+         "cache_read_tokens", "cache_write_tokens", "cache_write_1h_tokens"),
         ("id",),
         owner_filter="session_id IN (SELECT id FROM session WHERE host_id = ?)",
     ),
