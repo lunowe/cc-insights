@@ -22,6 +22,12 @@ export type Meta = {
     rootPath: string
     activeMs: number
   }[]
+  /**
+   * The group filter's roster — a group with no time yet is still a choice, at
+   * 0 ms. `[]` until `cci group auto` has run, which is the normal first state
+   * and not an error. See `docs/GROUPING.md`.
+   */
+  groups: { groupId: string; name: string; activeMs: number }[]
   agents: { agentName: string; source: Source }[]
   models: string[]
   /** Gap above which a span breaks. Every duration in this app depends on it. */
@@ -105,12 +111,24 @@ export type Concurrency = {
   multiplier: number
 }
 
-/** GET /api/projects */
+/** GET /api/projects — one row per on-disk path.
+ *
+ *  A project row is one path; the *logical* project it belongs to is the group
+ *  (`docs/GROUPING.md`). `groupId`/`groupName` are null for an ungrouped
+ *  project, which is legal, not an error. `groupPinned` means a human placed
+ *  this project in that group, so detection must never move it.
+ *
+ *  NOTE: the wire carries no "does this path still exist on disk" flag. The DB
+ *  has `project.path_exists`, but neither `API.md` nor `/api/projects` exposes
+ *  it, so the UI cannot honestly mark a path as gone. See `isWorktreePath()`. */
 export type Projects = {
   projects: {
     projectId: string
     name: string
     rootPath: string
+    groupId: string | null
+    groupName: string | null
+    groupPinned: boolean
     activeMs: number
     sessions: number
     threads: number
@@ -120,6 +138,45 @@ export type Projects = {
 }
 
 export type ProjectRow = Projects["projects"][number]
+
+/** How a group was detected. Strongest evidence first; `manual` is a human. */
+export type GroupOrigin =
+  | "git_remote"
+  | "git_common_dir"
+  | "path_worktree"
+  | "path_ancestor"
+  | "manual"
+
+/** GET /api/groups — one row per LOGICAL project.
+ *
+ *  A ranking, not a roster: a group no surviving span reaches is absent rather
+ *  than present with zeros (`meta.groups` is the roster). `ungrouped` is the
+ *  exact complement, so under ANY filter:
+ *
+ *      sum(groups[].activeMs) + ungrouped.activeMs === summary.activeMs
+ */
+export type Groups = {
+  groups: {
+    groupId: string
+    name: string
+    origin: GroupOrigin
+    forge: string | null
+    owner: string | null
+    repo: string | null
+    webUrl: string | null
+    activeMs: number
+    sessions: number
+    threads: number
+    /** Members the surviving spans reach — not membership on paper. */
+    projects: number
+    pinnedProjects: number
+    firstTs: number
+    lastTs: number
+  }[]
+  ungrouped: { projects: number; activeMs: number }
+}
+
+export type GroupRow = Groups["groups"][number]
 
 /** GET /api/agents */
 export type Agents = {

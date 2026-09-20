@@ -532,6 +532,7 @@ def projects(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
         SELECT p.project_id AS projectId, p.name AS name, p.root_path AS rootPath,
                p.group_id AS groupId, g.name AS groupName,
                p.group_pinned AS groupPinned,
+               p.path_exists AS pathExists,
                coalesce(sum(sp.ended_at - sp.started_at), 0) AS activeMs,
                count(DISTINCT s.id) AS sessions, count(DISTINCT sp.thread_id) AS threads,
                min(sp.started_at) AS firstTs, max(sp.ended_at) AS lastTs
@@ -542,6 +543,9 @@ def projects(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
         GROUP BY 1, 2, 3, 4, 5, 6 ORDER BY activeMs DESC""", params)
     for r in rows:
         r["groupPinned"] = bool(r["groupPinned"])
+        # Tri-state on purpose: None means detection has not probed this path
+        # yet, which is not the same as "the directory is gone".
+        r["pathExists"] = None if r["pathExists"] is None else bool(r["pathExists"])
     return {"projects": rows}
 
 

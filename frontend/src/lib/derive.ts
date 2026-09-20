@@ -17,6 +17,8 @@ import type {
   Agents,
   Concurrency,
   Daily,
+  GroupRow,
+  Groups,
   Heatmap,
   Meta,
   Projects,
@@ -29,17 +31,83 @@ const SOURCES: Source[] = ["claude_code", "codex"]
 
 const durationOf = (s: Span) => s.end - s.start
 
+/* ── the project roster ──────────────────────────────────────────────────────
+   A span carries a `projectId` and nothing about groups, so every group-aware
+   recomputation needs the project → group mapping alongside it. `/api/projects`
+   is where that mapping lives on the wire, so the unfiltered capture of it is
+   the index the rest of this file joins against.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+export type ProjectInfo = {
+  projectId: string
+  name: string
+  rootPath: string
+  groupId: string | null
+  groupName: string | null
+  groupPinned: boolean
+}
+
+export type ProjectIndex = Map<string, ProjectInfo>
+
+/**
+ * Build the index from the two unfiltered captures. `projects.json` is
+ * authoritative for group membership; `meta.json` fills in any project it
+ * somehow lacks, so an id seen on a span is never dropped for want of a name.
+ */
+export function buildProjectIndex(meta: Meta, base: Projects): ProjectIndex {
+  const index: ProjectIndex = new Map()
+  for (const p of meta.projects) {
+    index.set(p.projectId, {
+      projectId: p.projectId,
+      name: p.name,
+      rootPath: p.rootPath,
+      groupId: null,
+      groupName: null,
+      groupPinned: false,
+    })
+  }
+  for (const p of base.projects) {
+    index.set(p.projectId, {
+      projectId: p.projectId,
+      name: p.name,
+      rootPath: p.rootPath,
+      groupId: p.groupId,
+      groupName: p.groupName,
+      groupPinned: p.groupPinned,
+    })
+  }
+  return index
+}
+
 /**
  * Narrow the span list. Matches `docs/API.md`: `from` is an inclusive lower
  * bound and `to` an exclusive upper bound **on span start**, not on overlap.
+ *
+ * `project` and `group` **union** with each other — `?group=G&project=P` keeps
+ * the spans of G *plus* the spans of P, never their intersection. A span that
+ * satisfies both is still one span, so a group and one of its own members
+ * select exactly the group. That union then intersects with `source`, `from`,
+ * `to` and `role`. `index` supplies the project → group mapping; without it a
+ * group filter can match nothing, so it is required whenever one is set.
  */
-export function filterSpans(spans: Span[], f: Filters): Span[] {
+export function filterSpans(
+  spans: Span[],
+  f: Filters,
+  index?: ProjectIndex,
+): Span[] {
   const projects = f.projects.length > 0 ? new Set(f.projects) : null
+  const groups = f.groups.length > 0 ? new Set(f.groups) : null
   const sources = f.sources.length > 0 ? new Set<string>(f.sources) : null
 
   return spans.filter((s) => {
-    if (projects !== null && (s.projectId === null || !projects.has(s.projectId)))
-      return false
+    if (projects !== null || groups !== null) {
+      const inProject =
+        projects !== null && s.projectId !== null && projects.has(s.projectId)
+      const groupId =
+        s.projectId === null ? null : (index?.get(s.projectId)?.groupId ?? null)
+      const inGroup = groups !== null && groupId !== null && groups.has(groupId)
+      if (!inProject && !inGroup) return false
+    }
     if (sources !== null && !sources.has(s.source)) return false
     if (f.from !== null && s.start < f.from) return false
     if (f.to !== null && s.start >= f.to) return false
@@ -137,7 +205,7 @@ export function deriveConcurrency(spans: Span[]): Concurrency {
   }
 }
 
-export function deriveProjects(spans: Span[], meta: Meta): Projects {
+export function deriveProjects(spans: Span[], index: ProjectIndex): Projects {
   type Acc = {
     activeMs: number
     sessions: Set<string>
@@ -169,19 +237,119 @@ export function deriveProjects(spans: Span[], meta: Meta): Projects {
     if (s.end > a.lastTs) a.lastTs = s.end
   }
 
-  const known = new Map(meta.projects.map((p) => [p.projectId, p]))
-  const projects = [...acc.entries()].map(([projectId, a]) => ({
-    projectId,
-    name: known.get(projectId)?.name ?? a.name ?? projectId.slice(0, 8),
-    rootPath: known.get(projectId)?.rootPath ?? "",
-    activeMs: a.activeMs,
-    sessions: a.sessions.size,
-    threads: a.threads.size,
-    firstTs: a.firstTs,
-    lastTs: a.lastTs,
-  }))
+  const projects = [...acc.entries()].map(([projectId, a]) => {
+    const known = index.get(projectId)
+    return {
+      projectId,
+      name: known?.name ?? a.name ?? projectId.slice(0, 8),
+      rootPath: known?.rootPath ?? "",
+      groupId: known?.groupId ?? null,
+      groupName: known?.groupName ?? null,
+      groupPinned: known?.groupPinned ?? false,
+      activeMs: a.activeMs,
+      sessions: a.sessions.size,
+      threads: a.threads.size,
+      firstTs: a.firstTs,
+      lastTs: a.lastTs,
+    }
+  })
   projects.sort((a, b) => b.activeMs - a.activeMs)
   return { projects }
+}
+
+/**
+ * `/api/groups` recomputed from a filtered span list.
+ *
+ * A ranking, not a roster: a group no surviving span reaches is absent.
+ * `ungrouped` is the exact complement — every surviving span whose project has
+ * no group, *including* the rare span carrying no project at all — which is
+ * what makes `sum(groups) + ungrouped === summary.activeMs` hold under any
+ * filter. `base` supplies the per-group metadata (origin, forge, web URL) that
+ * a span list cannot know.
+ */
+export function deriveGroups(
+  spans: Span[],
+  index: ProjectIndex,
+  base: Groups,
+): Groups {
+  type Acc = {
+    name: string
+    activeMs: number
+    sessions: Set<string>
+    threads: Set<string>
+    projects: Set<string>
+    pinned: Set<string>
+    firstTs: number
+    lastTs: number
+  }
+  const acc = new Map<string, Acc>()
+  const ungroupedProjects = new Set<string>()
+  let ungroupedMs = 0
+
+  for (const s of spans) {
+    const d = durationOf(s)
+    const info = s.projectId === null ? undefined : index.get(s.projectId)
+    const groupId = info?.groupId ?? null
+
+    if (groupId === null) {
+      // A span with no project at all still belongs to nothing, so its time
+      // lands here; it just cannot raise the ungrouped *project* count.
+      ungroupedMs += d
+      if (s.projectId !== null) ungroupedProjects.add(s.projectId)
+      continue
+    }
+
+    let a = acc.get(groupId)
+    if (a === undefined) {
+      a = {
+        name: info?.groupName ?? groupId.slice(0, 8),
+        activeMs: 0,
+        sessions: new Set(),
+        threads: new Set(),
+        projects: new Set(),
+        pinned: new Set(),
+        firstTs: s.start,
+        lastTs: s.end,
+      }
+      acc.set(groupId, a)
+    }
+    a.activeMs += d
+    a.sessions.add(s.sessionId)
+    a.threads.add(s.threadId)
+    if (s.projectId !== null) {
+      a.projects.add(s.projectId)
+      if (info?.groupPinned === true) a.pinned.add(s.projectId)
+    }
+    if (s.start < a.firstTs) a.firstTs = s.start
+    if (s.end > a.lastTs) a.lastTs = s.end
+  }
+
+  const meta = new Map(base.groups.map((g) => [g.groupId, g]))
+  const groups: GroupRow[] = [...acc.entries()].map(([groupId, a]) => {
+    const m = meta.get(groupId)
+    return {
+      groupId,
+      name: m?.name ?? a.name,
+      origin: m?.origin ?? "manual",
+      forge: m?.forge ?? null,
+      owner: m?.owner ?? null,
+      repo: m?.repo ?? null,
+      webUrl: m?.webUrl ?? null,
+      activeMs: a.activeMs,
+      sessions: a.sessions.size,
+      threads: a.threads.size,
+      projects: a.projects.size,
+      pinnedProjects: a.pinned.size,
+      firstTs: a.firstTs,
+      lastTs: a.lastTs,
+    }
+  })
+  groups.sort((a, b) => b.activeMs - a.activeMs)
+
+  return {
+    groups,
+    ungrouped: { projects: ungroupedProjects.size, activeMs: ungroupedMs },
+  }
 }
 
 export function deriveAgents(spans: Span[]): Agents {

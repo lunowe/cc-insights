@@ -12,19 +12,23 @@
  */
 
 import {
+  buildProjectIndex,
   deriveAgents,
   deriveConcurrency,
   deriveDaily,
+  deriveGroups,
   deriveHeatmap,
   deriveProjects,
   deriveSummary,
   filterSpans,
+  type ProjectIndex,
 } from "./derive"
-import { isUnfiltered, toSearchParams, type Filters } from "./filters"
+import { EMPTY_FILTERS, isUnfiltered, toSearchParams, type Filters } from "./filters"
 import type {
   Agents,
   Concurrency,
   Daily,
+  Groups,
   Heatmap,
   Meta,
   Projects,
@@ -102,6 +106,22 @@ const fixture = {
     import("../fixtures/agents.json").then((m) => m.default as unknown as Agents),
   heatmap: () =>
     import("../fixtures/heatmap.json").then((m) => m.default as unknown as Heatmap),
+  groups: () =>
+    import("../fixtures/groups.json").then((m) => m.default as unknown as Groups),
+}
+
+/**
+ * Spans carry a `projectId` and nothing about groups, so the fixtures path has
+ * to join them against the unfiltered `/api/projects` capture before a group
+ * filter can mean anything. Memoised: it is the same map on every keystroke.
+ */
+let indexPromise: Promise<ProjectIndex> | null = null
+
+function projectIndex(): Promise<ProjectIndex> {
+  indexPromise ??= Promise.all([fixture.meta(), fixture.projects()]).then(
+    ([meta, base]) => buildProjectIndex(meta, base),
+  )
+  return indexPromise
 }
 
 /* ── the eight endpoints ─────────────────────────────────────────────────── */
@@ -109,15 +129,15 @@ const fixture = {
 /** GET /api/meta. Never filtered — it is what populates the filter controls. */
 export async function getMeta(signal?: AbortSignal): Promise<Meta> {
   if (API_URL === null) return fixture.meta()
-  return request<Meta>("/api/meta", { projects: [], sources: [], from: null, to: null, role: "all" }, signal)
+  return request<Meta>("/api/meta", EMPTY_FILTERS, signal)
 }
 
 export async function getSummary(f: Filters, signal?: AbortSignal): Promise<Summary> {
   if (API_URL === null) {
     const base = await fixture.summary()
     if (isUnfiltered(f)) return base
-    const { spans } = await fixture.timeline()
-    return deriveSummary(filterSpans(spans, f), base)
+    const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
+    return deriveSummary(filterSpans(spans, f, index), base)
   }
   return request<Summary>("/api/summary", f, signal)
 }
@@ -126,7 +146,8 @@ export async function getTimeline(f: Filters, signal?: AbortSignal): Promise<Tim
   if (API_URL === null) {
     const tl = await fixture.timeline()
     if (isUnfiltered(f)) return tl
-    return { ...tl, spans: filterSpans(tl.spans, f) }
+    const index = await projectIndex()
+    return { ...tl, spans: filterSpans(tl.spans, f, index) }
   }
   return request<Timeline>("/api/timeline", f, signal)
 }
@@ -134,8 +155,8 @@ export async function getTimeline(f: Filters, signal?: AbortSignal): Promise<Tim
 export async function getProjects(f: Filters, signal?: AbortSignal): Promise<Projects> {
   if (API_URL === null) {
     if (isUnfiltered(f)) return fixture.projects()
-    const [{ spans }, meta] = await Promise.all([fixture.timeline(), fixture.meta()])
-    return deriveProjects(filterSpans(spans, f), meta)
+    const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
+    return deriveProjects(filterSpans(spans, f, index), index)
   }
   return request<Projects>("/api/projects", f, signal)
 }
@@ -146,8 +167,8 @@ export async function getConcurrency(
 ): Promise<Concurrency> {
   if (API_URL === null) {
     if (isUnfiltered(f)) return fixture.concurrency()
-    const { spans } = await fixture.timeline()
-    return deriveConcurrency(filterSpans(spans, f))
+    const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
+    return deriveConcurrency(filterSpans(spans, f, index))
   }
   return request<Concurrency>("/api/concurrency", f, signal)
 }
@@ -155,8 +176,8 @@ export async function getConcurrency(
 export async function getDaily(f: Filters, signal?: AbortSignal): Promise<Daily> {
   if (API_URL === null) {
     if (isUnfiltered(f)) return fixture.daily()
-    const { spans } = await fixture.timeline()
-    return deriveDaily(filterSpans(spans, f), f)
+    const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
+    return deriveDaily(filterSpans(spans, f, index), f)
   }
   return request<Daily>("/api/daily", f, signal)
 }
@@ -164,8 +185,8 @@ export async function getDaily(f: Filters, signal?: AbortSignal): Promise<Daily>
 export async function getAgents(f: Filters, signal?: AbortSignal): Promise<Agents> {
   if (API_URL === null) {
     if (isUnfiltered(f)) return fixture.agents()
-    const { spans } = await fixture.timeline()
-    return deriveAgents(filterSpans(spans, f))
+    const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
+    return deriveAgents(filterSpans(spans, f, index))
   }
   return request<Agents>("/api/agents", f, signal)
 }
@@ -173,10 +194,20 @@ export async function getAgents(f: Filters, signal?: AbortSignal): Promise<Agent
 export async function getHeatmap(f: Filters, signal?: AbortSignal): Promise<Heatmap> {
   if (API_URL === null) {
     if (isUnfiltered(f)) return fixture.heatmap()
-    const { spans } = await fixture.timeline()
-    return deriveHeatmap(filterSpans(spans, f))
+    const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
+    return deriveHeatmap(filterSpans(spans, f, index))
   }
   return request<Heatmap>("/api/heatmap", f, signal)
+}
+
+export async function getGroups(f: Filters, signal?: AbortSignal): Promise<Groups> {
+  if (API_URL === null) {
+    const base = await fixture.groups()
+    if (isUnfiltered(f)) return base
+    const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
+    return deriveGroups(filterSpans(spans, f, index), index, base)
+  }
+  return request<Groups>("/api/groups", f, signal)
 }
 
 /* ── one call for the whole page ─────────────────────────────────────────── */
@@ -185,6 +216,8 @@ export type DashboardData = {
   meta: Meta
   summary: Summary
   projects: Projects
+  /** One row per logical project. `sum(groups) + ungrouped === summary.activeMs`. */
+  groups: Groups
   concurrency: Concurrency
   timeline: Timeline
   daily: Daily
@@ -208,21 +241,32 @@ export async function fetchDashboard(
   const filtered = !isUnfiltered(f)
 
   if (API_URL !== null) {
-    const [meta, summary, projects, concurrency, timeline, daily, agents, heatmap] =
-      await Promise.all([
-        getMeta(signal),
-        getSummary(f, signal),
-        getProjects(f, signal),
-        getConcurrency(f, signal),
-        getTimeline(f, signal),
-        getDaily(f, signal),
-        getAgents(f, signal),
-        getHeatmap(f, signal),
-      ])
+    const [
+      meta,
+      summary,
+      projects,
+      groups,
+      concurrency,
+      timeline,
+      daily,
+      agents,
+      heatmap,
+    ] = await Promise.all([
+      getMeta(signal),
+      getSummary(f, signal),
+      getProjects(f, signal),
+      getGroups(f, signal),
+      getConcurrency(f, signal),
+      getTimeline(f, signal),
+      getDaily(f, signal),
+      getAgents(f, signal),
+      getHeatmap(f, signal),
+    ])
     return {
       meta,
       summary,
       projects,
+      groups,
       concurrency,
       timeline,
       daily,
@@ -235,10 +279,12 @@ export async function fetchDashboard(
   }
 
   // Fixtures: load once, filter once, derive the rest from the same span list.
-  const [meta, baseSummary, baseTimeline] = await Promise.all([
+  const [meta, baseSummary, baseTimeline, baseGroups, index] = await Promise.all([
     fixture.meta(),
     fixture.summary(),
     fixture.timeline(),
+    fixture.groups(),
+    projectIndex(),
   ])
 
   if (!filtered) {
@@ -253,6 +299,7 @@ export async function fetchDashboard(
       meta,
       summary: baseSummary,
       projects,
+      groups: baseGroups,
       concurrency,
       timeline: baseTimeline,
       daily,
@@ -264,11 +311,12 @@ export async function fetchDashboard(
     }
   }
 
-  const spans = filterSpans(baseTimeline.spans, f)
+  const spans = filterSpans(baseTimeline.spans, f, index)
   return {
     meta,
     summary: deriveSummary(spans, baseSummary),
-    projects: deriveProjects(spans, meta),
+    projects: deriveProjects(spans, index),
+    groups: deriveGroups(spans, index, baseGroups),
     concurrency: deriveConcurrency(spans),
     timeline: { ...baseTimeline, spans },
     daily: deriveDaily(spans, f),

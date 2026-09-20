@@ -273,6 +273,13 @@ def _dropped(expected, actual, path: str = "") -> list[str]:
         if not isinstance(actual, list) or not actual:
             return [f"{here}[]: a populated list became {actual}"]
         return _dropped(expected[0], actual[0], f"{path}[]")
+    # A nullable field is null in one sample and populated in another purely
+    # because of DB state -- `pathExists` is null until `cci group auto` has
+    # probed, `groupId` until projects are grouped. That is the contract
+    # working, not a field changing type, so NoneType is compatible either way.
+    # A field genuinely disappearing, or turning from str into int, still fails.
+    if "NoneType" in (str(expected), str(actual)):
+        return []
     return [] if expected == actual else [f"{here}: {expected} became {actual}"]
 
 

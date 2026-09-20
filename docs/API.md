@@ -136,6 +136,14 @@ type Projects = {
   projects: { projectId: string; name: string; rootPath: string;
               groupId: string | null; groupName: string | null;
               groupPinned: boolean;
+              // false = the directory is gone (a finished worktree, a deleted
+              // checkout). Ten such paths hold real recorded time on the
+              // author's corpus, so the UI must be able to mark them historical
+              // rather than imply they are still live. null = detection has not
+              // probed this path yet; that is NOT the same as gone, and the UI
+              // must not render it as such. Path shape is not a substitute:
+              // inferring it that way mislabels 5 live worktrees out of 15.
+              pathExists: boolean | null;
               activeMs: number; sessions: number; threads: number;
               firstTs: number; lastTs: number }[];
 };

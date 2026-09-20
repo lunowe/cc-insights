@@ -238,6 +238,7 @@ def projects(conn):
     out = rows(conn, """
         SELECT p.project_id projectId, p.name, p.root_path rootPath,
                p.group_id groupId, g.name groupName, p.group_pinned groupPinned,
+               p.path_exists pathExists,
                coalesce(sum(sp.ended_at - sp.started_at),0) activeMs,
                count(DISTINCT s.id) sessions, count(DISTINCT sp.thread_id) threads,
                min(sp.started_at) firstTs, max(sp.ended_at) lastTs
@@ -248,6 +249,7 @@ def projects(conn):
         GROUP BY 1,2,3,4,5,6 ORDER BY activeMs DESC""")
     for r in out:
         r["groupPinned"] = bool(r["groupPinned"])
+        r["pathExists"] = None if r["pathExists"] is None else bool(r["pathExists"])
     return {"projects": out}
 
 

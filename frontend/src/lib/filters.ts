@@ -7,8 +7,19 @@ import type { Role, Source } from "./types"
  * backend request carry the same bytes.
  */
 export type Filters = {
-  /** project ids; empty = all */
+  /** project ids — one on-disk path each; empty = all */
   projects: string[]
+  /**
+   * group ids — one logical project each; empty = all.
+   *
+   * **`project` + `group` is a UNION**, not an intersection: `?group=G&project=P`
+   * selects the spans of G *plus* the spans of P. Both select spans by which
+   * project the span's session belongs to, so ticking one more stray project
+   * after narrowing to a group widens the view rather than emptying it. That
+   * union then intersects with `source`, `from`, `to` and `role` as usual.
+   * See the "`project` + `group` is a UNION" section of `docs/API.md`.
+   */
+  groups: string[]
   /** empty = all */
   sources: Source[]
   /** inclusive lower bound on span start, epoch ms */
@@ -20,6 +31,7 @@ export type Filters = {
 
 export const EMPTY_FILTERS: Filters = {
   projects: [],
+  groups: [],
   sources: [],
   from: null,
   to: null,
@@ -33,6 +45,7 @@ export const ALL_ROLES: Role[] = ["all", "root", "subagent"]
 export function isUnfiltered(f: Filters): boolean {
   return (
     f.projects.length === 0 &&
+    f.groups.length === 0 &&
     f.sources.length === 0 &&
     f.from === null &&
     f.to === null &&
@@ -43,6 +56,7 @@ export function isUnfiltered(f: Filters): boolean {
 export function activeFilterCount(f: Filters): number {
   return (
     (f.projects.length > 0 ? 1 : 0) +
+    (f.groups.length > 0 ? 1 : 0) +
     (f.sources.length > 0 ? 1 : 0) +
     (f.from !== null || f.to !== null ? 1 : 0) +
     (f.role !== "all" ? 1 : 0)
@@ -70,6 +84,7 @@ export function fromSearchParams(search: string | URLSearchParams): Filters {
   const role = p.get("role")
   return {
     projects: p.getAll("project").filter(Boolean),
+    groups: p.getAll("group").filter(Boolean),
     sources: p.getAll("source").filter(isSource),
     from: readInt(p.get("from")),
     to: readInt(p.get("to")),
@@ -83,12 +98,18 @@ export function fromSearchParams(search: string | URLSearchParams): Filters {
  */
 export function toSearchParams(f: Filters): URLSearchParams {
   const p = new URLSearchParams()
-  for (const id of [...f.projects].sort()) p.append("project", id)
+  // Sorted and de-duplicated so two equivalent selections serialise byte-identically.
+  for (const id of uniqueSorted(f.projects)) p.append("project", id)
+  for (const id of uniqueSorted(f.groups)) p.append("group", id)
   for (const s of ALL_SOURCES) if (f.sources.includes(s)) p.append("source", s)
   if (f.from !== null) p.set("from", String(f.from))
   if (f.to !== null) p.set("to", String(f.to))
   if (f.role !== "all") p.set("role", f.role)
   return p
+}
+
+function uniqueSorted(ids: string[]): string[] {
+  return [...new Set(ids)].sort()
 }
 
 export function toSearchString(f: Filters): string {

@@ -61,7 +61,12 @@ export function App() {
                   />
                   <OriginTiles summary={data.summary} />
                   <ChartSlots data={data} loading={loading} />
-                  <ProjectsTable projects={data.projects.projects} />
+                  <ProjectsTable
+                    groups={data.groups}
+                    projects={data.projects.projects}
+                    totalActiveMs={data.summary.activeMs}
+                    newestTs={data.meta.lastTs}
+                  />
                 </>
               )}
             </>

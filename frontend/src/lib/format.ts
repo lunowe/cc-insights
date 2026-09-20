@@ -1,4 +1,4 @@
-import type { Daily, Source } from "./types"
+import type { Daily, GroupOrigin, Source } from "./types"
 
 export const SOURCE_LABEL: Record<Source, string> = {
   claude_code: "Claude Code",
@@ -118,4 +118,37 @@ export function formatRange(from: number | null, to: number | null): string {
   const left =
     a.getFullYear() === b.getFullYear() ? formatDateShort(from) : formatDate(from)
   return `${left} – ${formatDate(to)}`
+}
+
+/** How a group was detected, in words. See `docs/GROUPING.md`. */
+export const GROUP_ORIGIN_LABEL: Record<GroupOrigin, string> = {
+  git_remote: "same git remote",
+  git_common_dir: "same git repo",
+  path_worktree: "worktree path shape",
+  path_ancestor: "inside another project",
+  manual: "placed by hand",
+}
+
+/**
+ * Known worktree path shapes, from the rule-3 ladder in `docs/GROUPING.md`.
+ *
+ * This is the *shape* of the path, and nothing more. The database has
+ * `project.path_exists`, but `/api/projects` does not carry it, so the
+ * frontend cannot tell a live checkout from one that was deleted months ago.
+ * Label these rows for what they demonstrably are — a scratch worktree, whose
+ * time is almost always history — and never as "gone", which would be a claim
+ * this page has no evidence for.
+ */
+export function isWorktreePath(rootPath: string): boolean {
+  return (
+    /\/\.claude\/worktrees\//.test(rootPath) ||
+    /\/\.t3\/worktrees\//.test(rootPath) ||
+    /\/conductor\/workspaces\//.test(rootPath)
+  )
+}
+
+/** Days between a row's last activity and the newest activity anywhere. */
+export function daysStale(lastTs: number, newestTs: number | null): number {
+  if (newestTs === null) return 0
+  return Math.max(0, Math.floor((newestTs - lastTs) / 86_400_000))
 }

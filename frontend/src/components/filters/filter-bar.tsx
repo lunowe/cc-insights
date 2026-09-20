@@ -1,7 +1,8 @@
-import { RotateCcw, X } from "lucide-react"
+import { Boxes, FolderGit2, RotateCcw, Sigma, X } from "lucide-react"
 import { cn } from "cn"
 
 import { DateRangeFilter } from "@/components/filters/date-range-filter"
+import { GroupFilter } from "@/components/filters/group-filter"
 import { ProjectFilter } from "@/components/filters/project-filter"
 import { Button } from "@/components/ui/button"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -43,9 +44,16 @@ export function FilterBar({
   loading: boolean
 }) {
   const active = activeFilterCount(filters)
-  const selectedNames = new Map(
+  const projectNames = new Map(
     (meta?.projects ?? []).map((p) => [p.projectId, p.name] as const),
   )
+  const groupNames = new Map(
+    (meta?.groups ?? []).map((g) => [g.groupId, g.name] as const),
+  )
+  // Both kinds of chip are on screen at once: say which is which, because the
+  // two do not narrow each other — see `unionActive` below.
+  const unionActive = filters.groups.length > 0 && filters.projects.length > 0
+  const noGroupsYet = meta !== null && meta.groups.length === 0
 
   // Empty means "all": both sources render lit, and switching one off narrows
   // to the other. Turning the last one off returns to all rather than to zero.
@@ -56,6 +64,12 @@ export function FilterBar({
     <div className="border-b">
       <div className="mx-auto max-w-[110rem] px-4 py-2.5 sm:px-6 lg:px-8">
         <div className="flex flex-wrap items-center gap-2">
+          <GroupFilter
+            groups={meta?.groups ?? []}
+            selected={filters.groups}
+            onChange={(groups) => setFilters((f) => ({ ...f, groups }))}
+          />
+
           <ProjectFilter
             projects={meta?.projects ?? []}
             selected={filters.projects}
@@ -163,29 +177,98 @@ export function FilterBar({
           </div>
         </div>
 
-        {filters.projects.length > 0 ? (
+        {filters.groups.length > 0 || filters.projects.length > 0 ? (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {filters.groups.map((id) => (
+              <Chip
+                key={`g:${id}`}
+                icon={Boxes}
+                label={groupNames.get(id) ?? id.slice(0, 8)}
+                title="Group — every on-disk path of this logical project"
+                onRemove={() =>
+                  setFilters((f) => ({
+                    ...f,
+                    groups: f.groups.filter((x) => x !== id),
+                  }))
+                }
+              />
+            ))}
             {filters.projects.map((id) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() =>
+              <Chip
+                key={`p:${id}`}
+                icon={FolderGit2}
+                label={projectNames.get(id) ?? id.slice(0, 8)}
+                title="Project — one on-disk path"
+                onRemove={() =>
                   setFilters((f) => ({
                     ...f,
                     projects: f.projects.filter((x) => x !== id),
                   }))
                 }
-                className="group inline-flex max-w-52 items-center gap-1 rounded-full border border-primary/35 bg-primary/8 py-0.5 pr-1.5 pl-2.5 text-[0.75rem] transition-colors hover:border-primary/60"
-              >
-                <span className="truncate">
-                  {selectedNames.get(id) ?? id.slice(0, 8)}
-                </span>
-                <X className="size-3 shrink-0 text-muted-foreground group-hover:text-foreground" />
-              </button>
+              />
             ))}
+
+            {/* The number above is larger than the group alone, on purpose. */}
+            {unionActive ? (
+              <span className="inline-flex items-center gap-1.5 py-0.5 pl-1 text-[0.75rem] text-muted-foreground">
+                <Sigma className="size-3.5 shrink-0 text-primary" />
+                <span>
+                  Union:{" "}
+                  <span className="text-foreground">
+                    {filters.groups.length === 1
+                      ? "the group"
+                      : `all ${filters.groups.length} groups`}
+                  </span>{" "}
+                  <span className="text-foreground">plus</span>{" "}
+                  <span className="text-foreground">
+                    {filters.projects.length === 1
+                      ? "the extra project"
+                      : `${filters.projects.length} extra projects`}
+                  </span>
+                  , not the overlap.
+                </span>
+              </span>
+            ) : null}
           </div>
+        ) : null}
+
+        {noGroupsYet ? (
+          <p className="mt-2 text-[0.75rem] text-muted-foreground">
+            No groups yet — one row per on-disk path, so a repo&rsquo;s
+            worktrees and subdirectories each read as a separate project. Run{" "}
+            <code className="num rounded bg-muted px-1 py-0.5 text-foreground">
+              cci group auto
+            </code>{" "}
+            to fold them together.
+          </p>
         ) : null}
       </div>
     </div>
+  )
+}
+
+function Chip({
+  icon: Icon,
+  label,
+  title,
+  onRemove,
+}: {
+  icon: typeof Boxes
+  label: string
+  title: string
+  onRemove: () => void
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={`Remove filter: ${label}`}
+      onClick={onRemove}
+      className="group inline-flex max-w-52 items-center gap-1 rounded-full border border-primary/35 bg-primary/8 py-0.5 pr-1.5 pl-2 text-[0.75rem] transition-colors hover:border-primary/60"
+    >
+      <Icon className="size-3 shrink-0 text-primary" />
+      <span className="truncate">{label}</span>
+      <X className="size-3 shrink-0 text-muted-foreground group-hover:text-foreground" />
+    </button>
   )
 }
