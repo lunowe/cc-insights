@@ -140,10 +140,27 @@ def test_the_two_jobs_have_different_labels_and_logs():
     assert interval["StandardOutPath"] != watch["StandardOutPath"]
 
 
-def test_the_installer_knows_both_jobs_and_removes_both():
+def test_the_installer_forwards_every_mode_to_cci_install():
+    """The script is a wrapper now; the logic lives in `cci install`.
+
+    It had to move: someone who ran `pipx install cc-insights` has no
+    checkout to run a script from, and two implementations of "which job is
+    loaded" would eventually disagree about the one thing that must not be
+    wrong. What is left here is finding `cci` when PATH does not have it,
+    which in a checkout it usually does not.
+
+    "--uninstall removes BOTH jobs" is still enforced, one layer down --
+    see test_scheduler.py::test_uninstall_removes_both_jobs.
+    """
     text = INSTALL.read_text()
-    assert "--watch" in text and "com.cc-insights.watch" in text
-    # --uninstall must take out whichever is loaded, not just the one it was
-    # asked about, or an upgrade leaves two writers behind.
-    branch = text.split('== "--uninstall" ]]', 1)[1].split("exit 0", 1)[0]
-    assert 'unload "$LABEL"' in branch and 'unload "$WATCH_LABEL"' in branch
+    for mode, forwarded in (
+        ("--uninstall", '"$CCI" install --uninstall'),
+        ("--watch", '"$CCI" install --watch'),
+    ):
+        assert mode in text and forwarded in text, f"{mode} is not forwarded"
+
+    # The bare case must not silently become a no-op.
+    assert '"")          exec "$CCI" install ;;' in text
+
+    # And it must still find a venv's cci, which is the only reason it exists.
+    assert ".venv/bin/cci" in text

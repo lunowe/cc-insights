@@ -1,56 +1,26 @@
 #!/bin/bash
-# Install (or remove) the CC-Insights background job.
+# Install (or remove) the CC-Insights background job, from a source checkout.
 #
 #   ./scripts/install-launchd.sh             every 15 minutes (the default)
 #   ./scripts/install-launchd.sh --watch     a process that follows the logs
 #   ./scripts/install-launchd.sh --uninstall stop and remove both
 #
+# This is a wrapper. The install logic lives in `cci install`, because it has
+# to work for someone who ran `pipx install cc-insights` and has no checkout
+# to run a script from -- and two implementations of "which job is loaded"
+# would eventually disagree about the one thing that must not be wrong.
+#
+# What the wrapper adds is finding `cci` when it is not on PATH, which in a
+# checkout it usually is not: `pip install -e .` puts it in .venv/bin and
+# nothing has activated that venv.
+#
 # Either way the point is the same: agent log directories are pruned on a
-# rolling basis, so history that is not captured is lost permanently. The
-# interval job runs `cci ingest && cci derive` every 15 minutes and exits;
-# --watch leaves one `cci watch` running, which keeps the database seconds
-# behind the agents instead of minutes.
+# rolling basis, so history that is not captured is lost permanently.
 #
-# INSTALL ONE OR THE OTHER. Both at once means two writers on one database;
-# --uninstall removes whichever is loaded, and installing either removes the
-# other first.
-#
-# It touches nothing outside ~/Library/LaunchAgents and your CC-Insights config
-# directory, and it reads your agent logs read-only.
+# It touches nothing outside ~/Library/LaunchAgents and your CC-Insights
+# config directory, and it reads your agent logs read-only.
 
 set -euo pipefail
-
-MODE="interval"
-case "${1:-}" in
-    --watch) MODE="watch" ;;
-esac
-
-LABEL="com.cc-insights"
-WATCH_LABEL="com.cc-insights.watch"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONFIG_DIR="${CC_INSIGHTS_HOME:-${HOME}/.config/cc-insights}"
-LOG_DIR="${CONFIG_DIR}/logs"
-AGENTS="${HOME}/Library/LaunchAgents"
-
-if [[ "$MODE" == "watch" ]]; then
-    THIS_LABEL="$WATCH_LABEL"; OTHER_LABEL="$LABEL"
-else
-    THIS_LABEL="$LABEL"; OTHER_LABEL="$WATCH_LABEL"
-fi
-PLIST_SRC="$(cd "${SCRIPT_DIR}/.." && pwd)/src/cc_insights/jobs/${THIS_LABEL}.plist"
-PLIST_DST="${AGENTS}/${THIS_LABEL}.plist"
-
-unload() {
-    launchctl unload "${AGENTS}/${1}.plist" 2>/dev/null || true
-    rm -f "${AGENTS}/${1}.plist"
-}
-
-if [[ "${1:-}" == "--uninstall" ]]; then
-    unload "$LABEL"
-    unload "$WATCH_LABEL"
-    echo "removed ${LABEL} and ${WATCH_LABEL}"
-    exit 0
-fi
 
 CCI="$(command -v cci || true)"
 if [[ -z "$CCI" ]]; then
@@ -63,25 +33,12 @@ if [[ -z "$CCI" ]]; then
     exit 1
 fi
 
-"$CCI" init >/dev/null
-mkdir -p "$LOG_DIR" "$(dirname "$PLIST_DST")"
-
-sed -e "s|__CCI__|${CCI}|g" -e "s|__LOGDIR__|${LOG_DIR}|g" "$PLIST_SRC" > "$PLIST_DST"
-plutil -lint "$PLIST_DST" >/dev/null
-
-# Two writers on one database is the failure this prevents.
-unload "$OTHER_LABEL"
-launchctl unload "$PLIST_DST" 2>/dev/null || true
-launchctl load "$PLIST_DST"
-
-echo "installed ${THIS_LABEL}"
-if [[ "$MODE" == "watch" ]]; then
-    echo "  runs    : ${CCI} watch --quiet, restarted if it exits"
-    echo "  cadence : follows the logs, ~2s behind"
-    echo "  logs    : ${LOG_DIR}/watch.log"
-else
-    echo "  runs    : ${CCI} ingest && ${CCI} derive"
-    echo "  every   : 15 minutes (and once now)"
-    echo "  logs    : ${LOG_DIR}/ingest.log"
-fi
-echo "  remove  : $0 --uninstall"
+case "${1:-}" in
+    --uninstall) exec "$CCI" install --uninstall ;;
+    --watch)     exec "$CCI" install --watch ;;
+    "")          exec "$CCI" install ;;
+    *)
+        echo "usage: $0 [--watch | --uninstall]" >&2
+        exit 2
+        ;;
+esac

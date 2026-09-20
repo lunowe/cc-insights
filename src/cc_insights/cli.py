@@ -20,11 +20,13 @@ from cc_insights import (
     cost as cost_mod,
     db,
     derive,
+    doctor as doctor_mod,
     grouping,
     ingest,
     paths,
     pricing,
     redact,
+    scheduler,
     serve,
     stats,
     sync,
@@ -746,6 +748,109 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return serve.run(cfg, port=args.port, open_browser=not args.no_open)
 
 
+# ------------------------------------------------------- install and doctor --
+
+#: Symbols, not colour. This output gets pasted into issues and read over
+#: SSH, and a red dot that renders as nothing is a check nobody sees failed.
+_MARK = {doctor_mod.OK: "ok  ", doctor_mod.WARN: "warn", doctor_mod.FAIL: "FAIL"}
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Report whether this installation is actually capturing anything.
+
+    Exit code is the point: 0 clean, 1 if anything failed. That makes it
+    usable from the installer and from a cron guard, not just by eye.
+    Warnings do not fail -- an unbuilt dashboard is not a broken capture.
+    """
+    cfg = config_mod.load(args.config_dir, create=False)
+    checks = doctor_mod.run(cfg)
+
+    print(f"config  {cfg.path}")
+    print(f"db      {cfg.db_path}")
+    print()
+    width = max(len(c.name) for c in checks)
+    for c in checks:
+        print(f"  {_MARK[c.level]}  {c.name:<{width}}  {c.detail}")
+        if c.fix:
+            print(f"        {'':<{width}}  -> {c.fix}")
+
+    level = doctor_mod.worst(checks)
+    print()
+    if level == doctor_mod.OK:
+        print("everything is working.")
+    elif level == doctor_mod.WARN:
+        print("working, with notes above.")
+    else:
+        print("something is wrong — the arrows above say what to run.")
+    return 1 if level == doctor_mod.FAIL else 0
+
+
+def cmd_install(args: argparse.Namespace) -> int:
+    """Set the tool up to run by itself, in one command.
+
+    This does the whole first-run sequence rather than only the scheduler
+    part -- init, a first ingest, then the job -- because every one of those
+    was previously a separate thing to remember, and forgetting the last one
+    is unrecoverable: agent logs are pruned on a rolling basis, so a gap in
+    capture is a permanent gap in history.
+
+    The first ingest runs in the foreground on purpose. It is the slow one
+    (~11 s cold on the author's corpus) and running it here means the
+    dashboard has data the first time it is opened, instead of looking
+    broken until a scheduled run happens to fire.
+    """
+    mode = scheduler.WATCH if args.watch else scheduler.INTERVAL
+
+    if args.uninstall:
+        try:
+            removed = scheduler.uninstall()
+        except scheduler.Unsupported as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        print("removed " + (", ".join(removed) if removed else "nothing — no job was installed"))
+        return 0
+
+    rc = cmd_init(args)
+    if rc != 0:
+        return rc
+    cfg = config_mod.load(args.config_dir, create=False)
+
+    if not args.no_ingest:
+        print()
+        print("reading your agent logs for the first time...")
+        rc = cmd_ingest(args)
+        if rc == 0:
+            rc = cmd_derive(args)
+        if rc != 0:
+            # The job is still worth installing: a first ingest can fail on
+            # one malformed log and every run after it succeed.
+            print("\nfirst ingest did not finish cleanly — installing the job anyway",
+                  file=sys.stderr)
+
+    print()
+    try:
+        job_file, cci = scheduler.install(mode, log_dir=cfg.config_dir / "logs")
+    except (scheduler.Unsupported, RuntimeError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    label = scheduler.WATCH_LABEL if mode == scheduler.WATCH else scheduler.LABEL
+    print(f"installed {label}")
+    runs = f"{cci} watch --quiet" if mode == scheduler.WATCH \
+        else f"{cci} ingest && {cci} derive"
+    print(f"  runs     {runs}")
+    print("  cadence  " + ("follows the logs, ~2s behind" if mode == scheduler.WATCH
+                           else "every 15 minutes, and once now"))
+    if job_file is not None:
+        print(f"  job      {job_file}")
+    print(f"  logs     {cfg.config_dir / 'logs'}")
+    print("  remove   cci install --uninstall")
+    print()
+    print("You are done. It keeps itself current from here — `cci serve` to look,")
+    print("`cci doctor` if you ever want to check it is still running.")
+    return 0
+
+
 # ------------------------------------------------------------------ privacy --
 
 #: `publication()` wants the actor from auth, which does not exist yet. The
@@ -1091,6 +1196,25 @@ def build_parser() -> argparse.ArgumentParser:
     srv.add_argument("--no-open", action="store_true",
                      help="do not open a browser window")
     srv.set_defaults(fn=cmd_serve)
+    ins = sub.add_parser(
+        "install",
+        help="set up everything and keep it running in the background",
+        description="Init, a first ingest, and a background job. The one "
+                    "command a new machine needs.",
+    )
+    ins.add_argument("--watch", action="store_true",
+                     help="follow the logs live instead of every 15 minutes")
+    ins.add_argument("--no-ingest", action="store_true",
+                     help="skip the first ingest; install the job only")
+    ins.add_argument("--uninstall", action="store_true",
+                     help="remove the background job (both kinds). Keeps your data.")
+    # cmd_install delegates to cmd_ingest and cmd_derive, which read these.
+    ins.set_defaults(fn=cmd_install, source=None, threshold=None, no_cost=False)
+
+    sub.add_parser(
+        "doctor", help="check that this installation is capturing anything"
+    ).set_defaults(fn=cmd_doctor)
+
     priv = sub.add_parser(
         "privacy", help="show what would and would not cross a team boundary"
     )

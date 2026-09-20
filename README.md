@@ -13,14 +13,50 @@ how much of it is me driving versus agents running on their own.
 The pipeline works end to end: three source adapters, incremental ingest, span
 derivation, cost, a dashboard and a CLI. It runs on Windows, syncs between your
 machines through PostgreSQL, and knows what it may and may not share with
-anyone else. 859 tests.
+anyone else. 935 tests.
+
+## Install
+
+One command, and then it looks after itself:
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e . pytest
-.venv/bin/cci init
-.venv/bin/cci ingest      # ~11s cold, ~0.4s warm
-.venv/bin/cci derive
-.venv/bin/cci stats
+pip install -e .      # from a checkout; see Releasing for the wheel
+cci install
+```
+
+`cci install` does the whole first run — config, database, a first ingest, and
+a background job — because every one of those used to be a separate thing to
+remember and forgetting the last one is unrecoverable: **agent log directories
+are pruned on a rolling basis, so a gap in capture is a permanent gap in
+history.** That is the point of the project, not a footnote.
+
+It installs a launchd job on macOS and a Task Scheduler job on Windows; on
+anything else it prints the equivalent cron line rather than failing. To
+follow the logs live instead of every 15 minutes, `cci install --watch` — one
+or the other, never both, since two writers on one SQLite database is the one
+way to make this contend with itself. The installer enforces that rather than
+documenting it. `cci install --uninstall` removes either, and keeps your data.
+
+To check it is still working, at any point:
+
+```bash
+cci doctor
+```
+
+It reports the job, how long since the last ingest, the schema, and what to
+run for anything that is not right — and exits non-zero on a real failure, so
+it works from a script too. It measures freshness from when the tool last
+*looked*, not from the newest event: no events for three days is a quiet week,
+no ingest for three days is a broken install, and only the second is urgent.
+
+Config and database live in `~/.config/cc-insights`, or
+`%APPDATA%\cc-insights` on Windows. `CC_INSIGHTS_HOME` overrides both.
+
+## Looking at it
+
+```bash
+cci stats     # the summary, in the terminal
+cci serve     # the dashboard
 ```
 
 `cci serve` opens the dashboard: filter by project, source, thread role and
@@ -29,36 +65,18 @@ reads the live database through the API it is served from; if it is opened
 from somewhere with no API behind it, it falls back to the bundled sample and
 says so on the badge rather than passing the sample off as your data.
 
-To keep it current automatically — **this is the point of the project**, since
-agent log directories are pruned on a rolling basis and uncaptured history is
-lost for good:
-
-```bash
-./scripts/install-launchd.sh              # macOS; --uninstall to remove
-```
-
-On Windows the same job runs through Task Scheduler:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File src\cc_insights\jobs\install-task.ps1   # -Uninstall to remove
-```
-
-Same cadence, same two commands, same log files under the config directory —
-which is `%APPDATA%\cc-insights` on Windows and `~/.config/cc-insights`
-everywhere else. `CC_INSIGHTS_HOME` overrides both.
-
 To watch it happen instead, `cci watch` follows the logs and keeps the database
 current as the agents write it, ~0.15 s per cycle because ingest resumes at
 each file's byte offset and only the sessions that moved are re-derived:
 
 ```bash
-.venv/bin/cci watch                  # follow the logs, print a line per change
-.venv/bin/cci watch --serve          # ...and a dashboard that refreshes itself
-./scripts/install-launchd.sh --watch # ...or leave it running in the background
+cci watch                 # follow the logs, print a line per change
+cci watch --serve         # ...and a dashboard that refreshes itself
+cci install --watch       # ...or leave it running in the background
 ```
 
 Install one background job or the other, not both: two writers on one database
-is the one way to make this contend with itself. The installer unloads the
+is the one way to make this contend with itself. `cci install` unloads the
 other before it loads either, and `--uninstall` removes both.
 
 ### Several machines
@@ -203,8 +221,10 @@ src/cc_insights/
   metrics.py    filter-aware queries, one per API endpoint
   serve.py      the read-only localhost server
   stats.py      read-only summary queries
-  cli.py        cci init | ingest | derive | cost | price | watch | serve |
-                sync | privacy | ...
+  cli.py        cci install | doctor | ingest | derive | cost | price |
+                watch | serve | sync | privacy | ...
+  scheduler.py  installing the background job, from the installed package
+  doctor.py     is this installation actually capturing anything
   paths.py      path reasoning that takes the OS from the path, not the host
   sync.py       push/pull between local SQLite and a shared PostgreSQL
   redact.py     what may cross a team boundary, and in what shape
