@@ -251,6 +251,44 @@ def unclassified(conn: sqlite3.Connection) -> list[tuple[str, str]]:
     return sorted(missing)
 
 
+def schema_columns(conn: sqlite3.Connection) -> set[tuple[str, str]]:
+    """Every (table, column) the database actually has right now."""
+    out: set[tuple[str, str]] = set()
+    for (name,) in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    ):
+        out |= {(name, row[1]) for row in conn.execute(f"PRAGMA table_info({name})")}
+    return out
+
+
+def stale(conn: sqlite3.Connection) -> list[tuple[str, str]]:
+    """Entries in FIELDS for columns the schema no longer has. Must be empty.
+
+    `unclassified` checks one direction. This is the other, and it is the one
+    that fails quietly, because a stale entry does not go missing -- it
+    *answers*.
+
+    The scenario is a rename, which is the ordinary case and not an exotic
+    one. A migration renames `session.cwd` to `session.working_dir`.
+    `unclassified` goes red, somebody adds `"working_dir": (PUBLIC, ...)` to
+    make it green, and nothing removes the `cwd` entry. Every check that asks
+    "is the path column private?" by name keeps reading the dead entry and
+    keeps passing, while the live column is whatever the person in a hurry
+    wrote. The suite is green and a path is classified public.
+
+    `sync.py` learned this in the other pipe and covers both directions --
+    `test_every_declared_column_exists` plus `test_no_column_is_silently_
+    left_behind`. One direction is half a guard.
+
+    Test-time only, deliberately: an entry for a column that is gone cannot
+    leak anything at runtime, so refusing to publish over it would block a
+    person for a bookkeeping error that costs them nothing. What it can do is
+    make the *next* reviewer believe a false thing, and that is caught before
+    the code ships, not on the machine it ships to.
+    """
+    return sorted({(f.table, f.column) for f in FIELDS} - schema_columns(conn))
+
+
 # --------------------------------------------------------------------------
 # published identity
 # --------------------------------------------------------------------------
@@ -318,6 +356,114 @@ def thread_role(is_subagent: int, attended: int | None) -> str:
     if is_subagent:
         return AUTONOMOUS
     return HUMAN if attended == 1 else UNATTENDED
+
+
+@dataclass(frozen=True)
+class Origin:
+    """Where one published field comes from, stated in terms of `FIELDS`.
+
+    `sources` are the classified columns it is built out of. `why` is empty
+    for a straight copy and required for anything computed, and the two are
+    held to different rules on purpose: a copy may only come from a PUBLIC
+    column, while a computed field may read a DERIVED one, because deriving
+    is exactly how a DERIVED column is meant to cross. Neither may touch a
+    PRIVATE one.
+
+    `sources` may be empty, which means "not from this database at all" --
+    true of `actor`, and it has to be sayable or the one field whose entire
+    job is to NOT come from the schema would have no honest entry.
+    """
+
+    sources: tuple[tuple[str, str], ...]
+    why: str = ""
+
+
+#: Every field of the projection, and the classified columns behind it.
+#:
+#: This exists because `publication()` is hand-written SELECTs building
+#: hand-written dataclasses: nothing in it reads `FIELDS`, so classifying a
+#: column PRIVATE does not, by itself, stop that column being emitted. The
+#: classification table and the thing that ships had no mechanical link at
+#: all, which made the whole of `FIELDS` a document rather than a control.
+#:
+#: This is that link, and it is checked in both directions -- every attribute
+#: of `Repo`/`Session`/`Span` must appear here, and every source must be a
+#: column that still exists and is cleared to cross. So adding a field to the
+#: projection without saying where it came from is a test failure, and
+#: sourcing one from a PRIVATE column is a test failure naming the column.
+#:
+#: It is a declaration, not machinery `publication()` runs on, and a
+#: declaration can lie about which SELECT a value really came from. That
+#: residue is covered from the other side, by seeding every PRIVATE column in
+#: the database with a marker and asserting none of them reaches the output --
+#: see `test_no_private_column_reaches_the_projection`. The two together are
+#: the guard: this one says what is allowed, that one says what happened.
+PROVENANCE: dict[type, dict[str, Origin]] = {
+    Repo: {
+        "repo_id": Origin(
+            (("project_group", "remote_url"),),
+            "sha256 of the normalized remote, which the viewer already has, so "
+            "there is nothing for the §0 confirmation attack to confirm",
+        ),
+        "remote_url": Origin((("project_group", "remote_url"),)),
+        "forge": Origin(
+            (("project_group", "remote_url"),),
+            "re-parsed from the normalized remote rather than copied from the "
+            "row, so a value stored before a fix to normalize_remote cannot ship",
+        ),
+        "owner": Origin(
+            (("project_group", "remote_url"),),
+            "re-parsed from the normalized remote, as forge; the stored column "
+            "is never the thing that ships",
+        ),
+        "repo": Origin(
+            (("project_group", "remote_url"),),
+            "re-parsed from the normalized remote, as forge; the stored column "
+            "is never the thing that ships",
+        ),
+        "web_url": Origin(
+            (("project_group", "remote_url"),),
+            "re-parsed from the normalized remote, as forge; the stored column "
+            "is never the thing that ships",
+        ),
+        "name": Origin((("project_group", "name"),)),
+    },
+    Session: {
+        "session_id": Origin((("session", "id"),)),
+        "repo_id": Origin(
+            (
+                ("session", "project_id"),
+                ("project", "group_id"),
+                ("project_group", "remote_url"),
+            ),
+            "the re-keying this module exists for: the path-derived project_id "
+            "is resolved to a group and replaced by a key on the remote",
+        ),
+        "actor": Origin(
+            (),
+            "from auth, not from this database -- replacing host_id with a name "
+            "chosen on purpose is the point of the field",
+        ),
+        "source": Origin((("session", "source"),)),
+        "git_branch": Origin((("session", "git_branch"),)),
+        "started_at": Origin((("session", "started_at"),)),
+        "ended_at": Origin((("session", "ended_at"),)),
+        "active_ms": Origin((("session", "active_ms"),)),
+        "event_count": Origin((("session", "event_count"),)),
+    },
+    Span: {
+        "span_id": Origin((("span", "id"),)),
+        "session_id": Origin((("span", "session_id"),)),
+        "thread_role": Origin(
+            (("thread", "is_subagent"), ("span", "attended")),
+            "the two DERIVED flags folded into the one label stats.py "
+            "partitions on; see thread_role()",
+        ),
+        "started_at": Origin((("span", "started_at"),)),
+        "ended_at": Origin((("span", "ended_at"),)),
+        "event_count": Origin((("span", "event_count"),)),
+    },
+}
 
 
 @dataclass
@@ -557,8 +703,23 @@ class Audit:
 
     `leaks` are provable: a full local path, or a `project_id` -- which IS
     sha256 of a path -- appearing in a published field, or this machine's
-    username or hostname as a whole token. Any one of them is a defect. This
-    list must be empty and publication must refuse while it is not.
+    username or hostname as a whole token. Any one of them is a defect.
+
+    **Where the refusal lives.** This list must be empty before anything is
+    sent, and the refusal is `remote.check_publishable`, which `remote.publish`
+    calls before its first request and which raises `remote.Unsafe`. It is not
+    here. `publication()` deliberately builds a projection it does not vet,
+    because `cci privacy` has to be able to *report* a leak, and a builder that
+    raises on one can only report that it raised -- the report naming the
+    offending field is the thing that lets somebody fix it.
+
+    That split is only safe while the refusal sits on the sending path rather
+    than on the reporting path. An earlier version of this docstring claimed a
+    refusal that nothing performed: the only caller of `audit()` was `cci
+    privacy`, a command that prints and sends nothing, so "publication refuses"
+    was true of no code. `tests/test_redact.py` now pins the real one by
+    driving `remote.publish` at a poisoned projection and asserting the
+    transport made no request.
 
     `warnings` are a heuristic, and they exist because the honest version of
     this check has an irreducible residue. A withheld project's directory name

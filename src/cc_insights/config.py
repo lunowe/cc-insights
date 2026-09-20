@@ -20,6 +20,24 @@ from pathlib import Path
 from cc_insights import paths
 
 
+class ConfigError(Exception):
+    """A config file exists and cannot be read. Deliberately fatal.
+
+    The tempting behaviour is to treat an unreadable config as no config and
+    start again, and that is the one thing this must never do: starting again
+    means a new `host_id`, and a new host_id forks the history into a
+    duplicate set of rows that nothing afterwards can tell apart or merge
+    back. A file that will not parse is far more likely to be a full disk, a
+    half-finished hand-edit or a bad merge -- all of which a person can fix in
+    thirty seconds *if* they are told -- than a file whose contents nobody
+    wants any more.
+
+    So the rule is: refuse, name the file, and change nothing. Losing a
+    command is recoverable; silently losing the identity of the machine is
+    not.
+    """
+
+
 def default_config_dir() -> Path:
     """Where the config lives when nothing overrides it.
 
@@ -190,14 +208,44 @@ class Config:
 def _atomic_write(path: Path, text: str) -> None:
     """Write via a temp file and rename, so a crash cannot truncate the config.
 
-    `host_id` lives in this file and must never change. A half-written
-    config.toml does not parse, an unparseable config is a config `load` will
-    replace, and a replaced config is a regenerated host_id -- which forks the
-    entire history. Cheap insurance against an expensive, silent failure.
+    `host_id` lives in this file and must never change: it is part of every
+    session id, so losing it forks the entire history into a duplicate set of
+    rows. That is what makes an expensive failure out of a cheap one, and it
+    is why this does more than write-and-rename.
+
+    **Why the fsyncs are not superstition.** `rename(2)` is atomic with
+    respect to other *processes* -- no reader ever sees a half-written file --
+    and that is all it is. It says nothing about power loss. Without the first
+    fsync the rename can reach the disk while the data it points at is still
+    in the page cache, and the machine comes back up with a `config.toml` of
+    length zero: the rename was durable and the contents were not. Without the
+    second, on the directory, the rename itself can be the part that is lost.
+    A zero-length config is the worst of the three outcomes, because it is
+    indistinguishable from a fresh install to anything that only checks
+    whether the file is there.
+
+    The directory fsync is allowed to fail. Windows cannot open a directory
+    for reading at all, and some filesystems reject it; on those the write is
+    no less durable than it was before this function existed, and refusing to
+    save the config over it would turn a weaker guarantee into a broken
+    command.
     """
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text)
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(text)
+        fh.flush()
+        os.fsync(fh.fileno())
     tmp.replace(path)
+    try:
+        fd = os.open(path.parent, os.O_RDONLY)
+    except OSError:                                     # pragma: no cover - platform
+        return
+    try:
+        os.fsync(fd)
+    except OSError:                                     # pragma: no cover - platform
+        pass
+    finally:
+        os.close(fd)
 
 
 # `db_path = "..."` on its own line, before any [table] header. Anchored so a
@@ -235,7 +283,14 @@ def make_db_path_portable(config_dir: Path) -> Path | None:
     if "db_path" not in raw:
         return None
 
-    cfg = load(config_dir, create=False)
+    # A config this function cannot load is a config it declines to rewrite,
+    # for the same reason it declines an unparseable one: a repair is a
+    # convenience, and a convenience must never be the thing that raises. The
+    # command the user actually asked for gets to report the real problem.
+    try:
+        cfg = load(config_dir, create=False)
+    except ConfigError:
+        return None
     want = cfg._db_path_for_toml()
     if raw["db_path"] == want:
         return None                       # already portable, or deliberately absolute
@@ -292,12 +347,47 @@ def _resolve_db_path(raw: str, config_dir: Path) -> Path:
 
 
 def load(config_dir: Path | None = None, *, create: bool = True) -> Config:
-    """Load config, creating it with a fresh host_id on first run."""
+    """Load config, creating it with a fresh host_id on first run.
+
+    A fresh host_id is generated only when there is NO config file. An
+    existing file that cannot be read raises `ConfigError` and is left exactly
+    as it is -- see that class for why replacing it is never the answer.
+
+    An earlier version of `_atomic_write`'s docstring claimed the opposite,
+    that "an unparseable config is a config `load` will replace". It never
+    was: `tomllib.loads` was called unguarded, so a malformed file raised
+    `TOMLDecodeError` and a missing key raised `KeyError`, and the real
+    behaviour was a traceback on every single command with no indication of
+    which file was at fault. The comment described a dangerous behaviour the
+    code did not have, and the code had a correct behaviour it did not
+    explain. Both are fixed here: still fatal, now legible.
+    """
     config_dir = (config_dir or DEFAULT_CONFIG_DIR).expanduser()
     path = config_dir / "config.toml"
 
     if path.exists():
-        raw = tomllib.loads(path.read_text())
+        try:
+            raw = tomllib.loads(path.read_text())
+        except (tomllib.TOMLDecodeError, OSError, UnicodeDecodeError) as exc:
+            raise ConfigError(
+                f"{path} exists but cannot be read: {exc}\n"
+                "    Nothing was changed. This file holds host_id, which must "
+                "never be regenerated -- fix or restore it, or move it aside "
+                "and accept that this machine becomes a new one."
+            ) from exc
+        if "host_id" not in raw:
+            raise ConfigError(
+                f"{path} has no host_id.\n"
+                "    Nothing was changed. Every session id on this machine is "
+                "derived from it, so it cannot be invented now without "
+                "duplicating the history already on disk."
+            )
+        if "db_path" not in raw:
+            raise ConfigError(
+                f"{path} has no db_path.\n"
+                "    Nothing was changed. Guessing the default here would open "
+                "a different database than the one this config describes."
+            )
         return Config(
             host_id=raw["host_id"],
             hostname=raw.get("hostname", socket.gethostname()),

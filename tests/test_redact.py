@@ -8,7 +8,10 @@ by shipping the ids, that test is what says no.
 
 from __future__ import annotations
 
+import dataclasses
+import re
 import sqlite3
+import typing
 
 import pytest
 
@@ -162,14 +165,99 @@ def test_every_verdict_carries_a_reason_that_stands_alone():
         )
 
 
-def test_every_path_bearing_column_is_private():
-    """The columns that carry a filesystem path, enumerated so a rename is loud."""
+def test_no_classification_outlives_the_column_it_describes(conn):
+    """The other direction of the coverage guard. See `redact.stale`."""
+    assert redact.stale(conn) == []
+
+
+def test_a_renamed_column_leaves_a_verdict_that_still_answers(conn):
+    """Why one direction is half a guard.
+
+    `unclassified` catches the new name. Nothing catches the old one, and the
+    old one is the dangerous half: a dropped entry goes quiet, a stale entry
+    keeps answering. After a rename, `verdict("session", "cwd")` still returns
+    PRIVATE for a column that does not exist, so every by-name check reads a
+    reassuring answer about nothing while the live column carries the path.
+    """
+    conn.execute("ALTER TABLE session RENAME COLUMN cwd TO working_dir")
+
+    # Someone classifies the new name and the suite is green again...
+    assert ("session", "working_dir") in redact.unclassified(conn)
+    # ...but the entry that nothing removed is still here, still answering.
+    assert redact.verdict("session", "cwd").verdict == redact.PRIVATE
+    assert ("session", "cwd") in redact.stale(conn)
+
+
+def test_every_path_bearing_column_is_private(conn):
+    """The columns that carry a filesystem path, checked against the live schema.
+
+    The enumeration is worth having -- these are the columns whose leaking IS
+    the finding in docs/REDACTION.md -- but an enumeration on its own says
+    nothing about the database. The previous version of this test called
+    `redact.verdict()` and stopped there, which is a dict lookup against a
+    hardcoded list. It would have passed unchanged after a migration renamed
+    every column in it, reading seven confident verdicts for seven columns
+    that no longer existed. Its docstring claimed "enumerated so a rename is
+    loud"; a rename was silent.
+
+    Each name is now asserted to still BE a column before its verdict is
+    trusted, so the rename fails here, by name, next to the list that needs
+    editing.
+    """
+    live = redact.schema_columns(conn)
     for table, column in (
         ("project", "root_path"), ("project", "project_id"), ("project", "name"),
         ("session", "cwd"), ("ingest_file", "path"),
         ("project_probe", "git_common_dir"), ("project_group", "match_key"),
     ):
+        assert (table, column) in live, (
+            f"{table}.{column} is not in the schema any more, so the verdict "
+            f"below would be read off a dead FIELDS entry. Point this test at "
+            f"the new name and delete the old entry from redact.FIELDS."
+        )
         assert redact.verdict(table, column).verdict == redact.PRIVATE, f"{table}.{column}"
+
+
+#: The shapes a filesystem path arrives in when somebody names a column.
+_PATH_SHAPED = re.compile(
+    r"(^|_)(path|paths|dir|dirs|directory|cwd|root|folder|file|filename|location)(_|$)"
+)
+
+
+def test_a_path_shaped_column_anywhere_in_the_schema_cannot_be_published(conn):
+    """A tripwire over every column the database has, not over seven names.
+
+    The enumeration above can only know the columns that existed when it was
+    written. This reads the live schema, so migration 007's `working_dir`,
+    or a `local_root`, or a `checkout_path`, is caught the moment it appears
+    -- including the case the enumeration cannot catch at all, where somebody
+    keeps the list green by classifying the new column PUBLIC.
+
+    It matches on names, which is the denylist shape `redact.py` condemns, and
+    it is deliberately NOT the guard. `unclassified` is the guard and it is
+    closed by default. This can only ever ADD failures on top of it, so the
+    objection to denylists -- that whatever is not listed is permitted --
+    does not apply here: a path column this pattern has never heard of is
+    still withheld until a human rules on it. What this buys is that the
+    obvious names cannot be waved through by a tired reviewer.
+
+    DERIVED is allowed and PUBLIC is not: a path-shaped column may be
+    replaced by something computed, which is how `project.group_id` becomes a
+    repo_id, but it may never be copied across as itself.
+    """
+    matched = []
+    for table, column in sorted(redact.schema_columns(conn)):
+        if not _PATH_SHAPED.search(column):
+            continue
+        matched.append(f"{table}.{column}")
+        f = redact.verdict(table, column)
+        assert f is not None, f"{table}.{column} is unclassified"
+        assert f.verdict != redact.PUBLIC, (
+            f"{table}.{column} is named like a filesystem path and is classified "
+            f"PUBLIC ({f.why!r}). Publishing a path, or anything derived from "
+            f"one, is the finding docs/REDACTION.md is about."
+        )
+    assert matched, "the pattern matched nothing at all, so this test proved nothing"
 
 
 # ------------------------------------------------------------- the boundary --
@@ -234,6 +322,205 @@ def test_credentials_are_stripped_even_if_the_stored_row_has_them(conn):
     pub = redact.publication(conn, "alice")
     assert "@" not in pub.repos[0].remote_url
     assert "alice" not in pub.repos[0].remote_url
+
+
+# ------------------------------------- the projection is tied to the table --
+#
+# `publication()` is hand-written SELECTs building hand-written dataclasses.
+# Nothing in it reads `FIELDS`, so until these tests existed, classifying a
+# column PRIVATE did not stop it being emitted and no test compared the two at
+# all -- a PRIVATE column added to the projection failed nothing. Two
+# independent checks close that: `redact.PROVENANCE` declares what is allowed,
+# and the marker sweep at the bottom observes what actually came out.
+
+
+def _sources() -> set[tuple[str, str]]:
+    return {
+        src
+        for per_field in redact.PROVENANCE.values()
+        for origin in per_field.values()
+        for src in origin.sources
+    }
+
+
+def test_the_projection_carries_exactly_the_row_types_provenance_knows_about():
+    """A fourth published row type must be ruled on, not just added.
+
+    Read off `Publication`'s own annotations rather than a list here, because
+    a list here is a copy, and `sync.py`'s first schema test proved what a
+    copy is worth: it compared the module to a hardcoded duplicate of itself
+    and sailed through a merge that added three tables.
+    """
+    carried = set()
+    for hint in typing.get_type_hints(redact.Publication).values():
+        if typing.get_origin(hint) is list:
+            (element,) = typing.get_args(hint)
+            carried.add(element)
+    assert carried == set(redact.PROVENANCE)
+
+
+def test_every_published_field_says_where_it_came_from():
+    """Adding a field to the projection is adding a field to the export."""
+    for cls, declared in redact.PROVENANCE.items():
+        actual = {f.name for f in dataclasses.fields(cls)}
+        assert set(declared) == actual, (
+            f"{cls.__name__}: {sorted(actual ^ set(declared))} is in one of the "
+            f"dataclass and redact.PROVENANCE but not the other. A published "
+            f"field with no declared source is a field nobody has ruled on."
+        )
+
+
+def test_no_published_field_is_sourced_from_a_private_column():
+    """The check that was missing: FIELDS compared against what is emitted.
+
+    A straight copy must come from a PUBLIC column -- there is nothing else a
+    copy can honestly be. A computed field may additionally read a DERIVED
+    one, because "replaced by something computed" is exactly what DERIVED
+    means, and `repo_id` reading `project.group_id` is that working. Neither
+    may touch a PRIVATE column, which is the whole rule in one line.
+    """
+    for cls, declared in redact.PROVENANCE.items():
+        for name, origin in declared.items():
+            allowed = (
+                (redact.PUBLIC, redact.DERIVED) if origin.why else (redact.PUBLIC,)
+            )
+            for table, column in origin.sources:
+                f = redact.verdict(table, column)
+                assert f is not None, f"{cls.__name__}.{name}: {table}.{column} is unclassified"
+                assert f.verdict in allowed, (
+                    f"{cls.__name__}.{name} is published from {table}.{column}, "
+                    f"which is classified {f.verdict} ({f.why!r})."
+                )
+
+
+def test_a_computed_field_has_to_justify_itself_and_a_copy_does_not():
+    """`why` is what separates the two rules above, so it cannot be decoration.
+
+    A one-word `why` on a field sourced from a DERIVED column is how the
+    PRIVATE-adjacent path gets unlocked, so it has to be an argument somebody
+    can disagree with -- the same bar `test_every_verdict_carries_a_reason_
+    that_stands_alone` sets for FIELDS, for the same reason.
+    """
+    for cls, declared in redact.PROVENANCE.items():
+        for name, origin in declared.items():
+            if not origin.sources:
+                assert origin.why, f"{cls.__name__}.{name} claims no source and no reason"
+            if origin.why:
+                assert len(origin.why) > 25, (
+                    f"{cls.__name__}.{name} is computed but its reason is too "
+                    f"short to argue with: {origin.why!r}"
+                )
+            else:
+                assert len(origin.sources) == 1, (
+                    f"{cls.__name__}.{name} has {len(origin.sources)} sources but "
+                    f"no reason, so it is not a straight copy of any of them"
+                )
+
+
+def test_no_provenance_entry_points_at_a_column_that_is_gone(conn):
+    """The same rename that rots FIELDS rots this, and here it is worse.
+
+    A stale FIELDS entry misleads a reader. A stale PROVENANCE entry also
+    holds the door open: the verdict it is checked against belongs to a
+    column nobody is writing to any more, while the value actually being
+    published comes from wherever the SELECT was repointed.
+    """
+    live = redact.schema_columns(conn)
+    assert _sources() <= live, sorted(_sources() - live)
+
+
+def _mark_every_private_value(conn: sqlite3.Connection) -> list[str]:
+    """Prefix every PRIVATE value in the database with a traceable marker.
+
+    Prefixing rather than overwriting, because several PRIVATE columns are
+    join keys -- `project.project_id` above all, which is the §0 attack
+    itself. Overwriting them would break the joins `publication()` runs on
+    and leave the test passing over an empty projection, which is the shape
+    of a test that checks nothing. A prefix keeps every value distinct and
+    every join intact, and foreign keys are followed from
+    `PRAGMA foreign_key_list` so parent and child get the same prefix.
+
+    Driven off `FIELDS` and the live schema, so a PRIVATE column added by a
+    future migration is swept in without anybody editing this.
+    """
+    private = {(f.table, f.column) for f in redact.FIELDS if f.verdict == redact.PRIVATE}
+    live = redact.schema_columns(conn)
+    tables = sorted({t for t, _ in live})
+
+    # Text-affinity columns only. A marker is a string, and a column that
+    # cannot hold a string cannot hold a path, a username or a directory name
+    # -- which is what this sweep is looking for. `schema_migrations.version`
+    # is the one that makes this explicit rather than tidy: it is an INTEGER
+    # PRIMARY KEY, and writing text to a rowid alias is a datatype mismatch,
+    # not a leak. PRIVATE counters and timestamps are covered by PROVENANCE
+    # instead, which does not care what a column can hold.
+    texty = {
+        (table, r[1])
+        for table in tables
+        for r in conn.execute(f"PRAGMA table_info({table})")
+        if any(k in (r[2] or "").upper() for k in ("CHAR", "CLOB", "TEXT"))
+    }
+
+    marks: dict[tuple[str, str], str] = {}
+    for table, column in sorted(private & live & texty):
+        marks[(table, column)] = f"MARK_{table}_{column}_"
+
+    for table in tables:
+        for row in conn.execute(f"PRAGMA foreign_key_list({table})"):
+            parent, child_col, parent_col = row[2], row[3], row[4]
+            if parent_col is None:  # implicit reference to the parent's PK
+                parent_col = next(
+                    (r[1] for r in conn.execute(f"PRAGMA table_info({parent})") if r[5]),
+                    None,
+                )
+            mark = marks.get((parent, parent_col))
+            if mark and (table, child_col) not in marks:
+                marks[(table, child_col)] = mark
+
+    # One transaction with the references deferred, because rewriting a key
+    # necessarily breaks it for as long as its children still hold the old
+    # value. Deferred rather than switched off: the constraints are checked
+    # at COMMIT, so if the fixup above missed a reference this raises here
+    # instead of leaving the test running over a quietly orphaned corpus.
+    applied: list[str] = []
+    conn.execute("BEGIN")
+    conn.execute("PRAGMA defer_foreign_keys = ON")
+    for (table, column), mark in sorted(marks.items()):
+        changed = conn.execute(
+            f"UPDATE {table} SET {column} = ? || {column} WHERE {column} IS NOT NULL",
+            (mark,),
+        ).rowcount
+        if changed:
+            applied.append(mark)
+    conn.execute("COMMIT")
+    return applied
+
+
+def test_no_private_column_reaches_the_projection(corpus):
+    """What `publication()` emitted, not what the table says it may emit.
+
+    `PROVENANCE` is a declaration, and a declaration can be wrong about which
+    SELECT a value really came from. This asks the other question: every
+    PRIVATE value in the database is given a marker, the projection is built,
+    and no marker may appear in it. A hand-written SELECT that starts reading
+    `session.cwd` fails here whatever anyone wrote down.
+
+    The three assertions at the end are the point of the test as much as the
+    sweep is: a marker sweep over an empty projection passes perfectly.
+    """
+    applied = _mark_every_private_value(corpus)
+    assert applied, "no PRIVATE value was marked, so nothing was actually tested"
+
+    pub = redact.publication(corpus, "alice")
+    assert pub.repos and pub.sessions and pub.spans, "the projection came out empty"
+
+    blob = repr(pub)
+    leaked = sorted({mark for mark in applied if mark in blob})
+    assert not leaked, (
+        f"the projection carries value(s) from PRIVATE column(s): {leaked}. "
+        f"Either the column is not actually private -- change the verdict in "
+        f"redact.FIELDS and say why -- or publication() must stop selecting it."
+    )
 
 
 # ---------------------------------------------------------- the projection --
@@ -387,16 +674,99 @@ def test_privacy_sends_nothing_and_says_so(tmp_path, capsys):
     assert "Nothing was sent" in capsys.readouterr().out
 
 
-def test_sync_and_publication_are_different_pipes():
+def test_sync_and_publication_are_different_pipes(corpus):
     """`cci sync` moves paths between YOUR machines. This one never does.
 
     Conflating them is the mistake the whole module exists to prevent, so the
     difference is asserted rather than left to a reader's care.
+
+    The earlier version of this collapsed both sides to bare sets of column
+    names with the tables thrown away, and then only consulted the
+    classification table. Two things wrong with that. A bare name means a
+    PUBLIC `cwd` on some *other* table would have satisfied it, and the
+    classification table is not what ships -- `publication()` is. Keyed on
+    (table, column), and asked of the projection.
     """
     from cc_insights import sync
 
-    synced = {c for t in sync.TABLES for c in t.columns}
-    assert "root_path" in synced and "cwd" in synced
+    synced = {(t.name, c) for t in sync.TABLES for c in t.columns}
+    assert ("project", "root_path") in synced, "sync is supposed to move paths"
+    assert ("session", "cwd") in synced
 
-    published = {f.column for f in redact.FIELDS if f.verdict == redact.PUBLIC}
-    assert "root_path" not in published and "cwd" not in published
+    assert ("project", "root_path") not in _sources()
+    assert ("session", "cwd") not in _sources()
+
+    pub = redact.publication(corpus, "alice")
+    assert pub.sessions, "an empty projection would satisfy anything below"
+    blob = repr(pub)
+    for (root_path,) in corpus.execute("SELECT root_path FROM project"):
+        assert root_path not in blob
+    for (cwd,) in corpus.execute("SELECT cwd FROM session WHERE cwd IS NOT NULL"):
+        assert cwd not in blob
+
+
+# ------------------------------------------- where the refusal actually is --
+#
+# `redact.audit` says the leak list must be empty before anything is sent, and
+# for a while nothing anywhere performed that refusal: `publication()` never
+# called `audit()`, and the only caller was `cci privacy`, a command that
+# prints a report and sends nothing. A refusal a caller skips by not calling
+# the reporting function is not a refusal. It lives in the transport now, and
+# these are what keep it there.
+
+
+class _Recorder:
+    """A client that fails loudly if the transport ever tries to send."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def team_publish(self, kind, actor, rows):   # pragma: no cover - must not run
+        self.calls.append(kind)
+        raise AssertionError(f"a projection that failed its audit reached the wire: {kind}")
+
+
+def test_the_transport_refuses_a_projection_that_failed_its_audit(corpus):
+    """And refuses before the first request, not between two of them.
+
+    A half-published projection is worse than none: repos and sessions would
+    be readable by a team while the withheld counters that make the totals
+    honest never arrive.
+    """
+    from cc_insights import remote
+
+    pub = redact.publication(corpus, "alice")
+    pub.sessions[0] = redact.Session(
+        **{**vars(pub.sessions[0]), "git_branch": f"wip{PRIVATE_PATH}"}
+    )
+
+    client = _Recorder()
+    with pytest.raises(remote.Unsafe):
+        remote.publish(corpus, client, pub, host_id="h1")
+    assert client.calls == [], "nothing may be sent"
+
+
+def test_the_transport_refuses_to_publish_over_an_unclassified_column(corpus):
+    """Closed by default has to hold at the moment of sending, too.
+
+    An unclassified column means a migration added something nobody has ruled
+    on. A publisher that has not read the ruling cannot honour it, so the
+    answer is to stop rather than to ship the fields it does recognise.
+    """
+    from cc_insights import remote
+
+    pub = redact.publication(corpus, "alice")
+    corpus.execute("ALTER TABLE project ADD COLUMN client_codename TEXT")
+
+    client = _Recorder()
+    with pytest.raises(remote.Unsafe, match="client_codename"):
+        remote.publish(corpus, client, pub, host_id="h1")
+    assert client.calls == []
+
+
+def test_a_clean_projection_is_not_refused(corpus):
+    """The refusals above are worthless if they also stop the legitimate case."""
+    from cc_insights import remote
+
+    pub = redact.publication(corpus, "alice")
+    assert remote.check_publishable(corpus, pub).clean

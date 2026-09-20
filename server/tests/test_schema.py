@@ -15,7 +15,10 @@ import pytest
 from cci_server import personal_schema
 from cci_server.repoid import github_remote, repo_id
 
-#: Tables that hold the redacted projection. Anything a colleague can read.
+#: The tables that were the team store when this file was written. NOT the
+#: definition -- `team_tables()` is, and it reads the catalog. This is kept
+#: only as a floor: every one of these must still be found there, so deleting
+#: a team table, or quietly reclassifying one as control plane, is loud.
 TEAM_TABLES = (
     "published_repo", "published_session", "published_session_branch",
     "published_span", "published_withheld", "repo_publisher", "team_repo",
@@ -29,6 +32,52 @@ FORBIDDEN_IN_TEAM_STORE = (
     "group_id", "tool_name", "model",
 )
 
+#: Types that cannot hold a path, a name or a paragraph. Anything else counts
+#: as free text and has to be declared below.
+#:
+#: This is the closed-by-default half, and it replaces a filter that asked for
+#: `data_type IN ('text', 'character varying')`. Under that filter a `jsonb`,
+#: `json`, `bytea`, `xml` or `citext` column was not free text as far as this
+#: test was concerned -- each of which stores `/Users/alice/Coding/nda-client`
+#: or a whole prompt perfectly happily, and each of which would have passed
+#: both team-store checks without comment. Listing what is SAFE means a type
+#: nobody here has thought of is free text until somebody argues otherwise,
+#: which is the right way round: the cost of being wrong is one line in
+#: `allowed`, against a column that can hold anything.
+#:
+#: `ARRAY` and `USER-DEFINED` are deliberately absent. An array of text is
+#: text, and a user-defined type is by definition one this list has never
+#: seen.
+_CANNOT_HOLD_PROSE = frozenset({
+    "bigint", "integer", "smallint", "numeric", "real", "double precision",
+    "boolean", "date", "interval", "uuid",
+    "timestamp with time zone", "timestamp without time zone",
+    "time with time zone", "time without time zone",
+})
+
+
+#: Tables that are neither the personal store nor the team store: who exists,
+#: what they may see, and what has been migrated. Nothing a colleague reads
+#: agent-time data out of.
+#:
+#: Each needs a reason, because this dict is the ONLY way a table escapes the
+#: team-store checks below -- and "it is not really a team table" is exactly
+#: the sentence somebody would write on the way to shipping `published_project`
+#: with a path column in it.
+CONTROL_PLANE: dict[str, str] = {
+    "account": "who exists; no agent-time data and nothing derived from a path",
+    "identity": "which forge login proves an account; an OAuth subject, not a repo fact",
+    "api_token": "credentials, stored hashed, readable by nobody including their owner",
+    "device_authorization": "in-flight device grants, short-lived and single-account",
+    "account_repo_access": "the access CACHE that answers 'may this account see this "
+                           "repo' -- it holds repo_ids the account already proved it "
+                           "can see, which is the boundary itself rather than a thing "
+                           "published across it",
+    "team": "a team's name, chosen by a human for other humans to read",
+    "team_member": "who is in a team and in what role; membership, not measurement",
+    "schema_migrations": "which migrations have run on this database",
+}
+
 
 def _columns(conn, table: str) -> list[str]:
     return [
@@ -41,6 +90,65 @@ def _columns(conn, table: str) -> list[str]:
     ]
 
 
+def _live_tables(conn) -> set[str]:
+    return {
+        r["table_name"]
+        for r in conn.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'"
+        )
+    }
+
+
+def team_tables(conn) -> set[str]:
+    """Every live table that is not the personal store and not control plane.
+
+    Derived by subtraction, not listed. `TEAM_TABLES` used to be a hardcoded
+    tuple that both team-store checks iterated, which meant a migration
+    adding `published_project` was examined by neither of them: not a
+    failure, not a warning, simply absent from two tests that looked like
+    they covered the schema. A hardcoded list cannot fail to mention a table
+    it has never heard of.
+
+    Subtracting inverts the default. A new table is IN the team store, and
+    therefore fully checked, until somebody writes a reason in
+    `CONTROL_PLANE` -- which is the same shape as
+    `test_every_table_is_either_synced_or_excluded_on_purpose` on the client,
+    for the same reason.
+    """
+    return _live_tables(conn) - set(personal_schema.BY_NAME) - set(CONTROL_PLANE)
+
+
+def test_every_table_is_personal_team_or_control_plane_on_purpose(migrated_db):
+    """Nothing in this database escapes all three sets of rules by accident.
+
+    The partition is what makes `team_tables()` trustworthy: a new table is
+    checked as a team table, and the only alternative is a written reason.
+    The other two assertions keep the escape hatch honest -- a stale
+    `CONTROL_PLANE` entry silently un-checks a table that gets re-created
+    later under the same name, and a one-word reason is not one.
+    """
+    with migrated_db.connection() as conn:
+        live = _live_tables(conn)
+        assert set(CONTROL_PLANE) <= live, (
+            f"CONTROL_PLANE names table(s) that no longer exist: "
+            f"{sorted(set(CONTROL_PLANE) - live)}. A stale entry here excuses a "
+            f"future table of the same name from every check below."
+        )
+        assert set(personal_schema.BY_NAME) <= live, (
+            f"personal_schema names table(s) that no longer exist: "
+            f"{sorted(set(personal_schema.BY_NAME) - live)}"
+        )
+        assert set(TEAM_TABLES) <= team_tables(conn), (
+            f"table(s) that used to be in the team store are not there any more: "
+            f"{sorted(set(TEAM_TABLES) - team_tables(conn))}. Either they were "
+            f"dropped, or something moved them into CONTROL_PLANE and out of "
+            f"the reach of the path and free-text checks."
+        )
+    for table, why in CONTROL_PLANE.items():
+        assert len(why) > 25, f"{table} needs a reason someone can argue with"
+
+
 def test_team_store_has_no_path_column(migrated_db):
     """A path column in the team store is a leak waiting for one careless INSERT.
 
@@ -50,22 +158,48 @@ def test_team_store_has_no_path_column(migrated_db):
     written to and which no code review reliably catches. If this fails,
     somebody added a column that can hold `~/Coding/<client-name>`, and the
     projection stopped being a projection.
+
+    `FORBIDDEN_IN_TEAM_STORE` is a denylist of column names, which is the
+    shape `redact.py:60` condemns: it lists the leaks someone thought of, and
+    the next migration adds one that is not on it. `working_dir`,
+    `local_root` and `checkout_path` all sail past it. It is kept because a
+    named column is a clearer failure message than a type mismatch, but it is
+    NOT what enforces the rule -- the free-text check below is, and that one
+    is closed by default and knows nothing about names.
     """
     with migrated_db.connection() as conn:
-        for table in TEAM_TABLES:
+        for table in sorted(team_tables(conn)):
             cols = _columns(conn, table)
             assert cols, f"{table} does not exist"
             offending = sorted(set(cols) & set(FORBIDDEN_IN_TEAM_STORE))
             assert not offending, f"{table} has path-derived column(s) {offending}"
 
 
+def _free_text_columns(conn, table: str) -> dict[str, str]:
+    return {
+        r["column_name"]: r["data_type"]
+        for r in conn.execute(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = %s",
+            (table,),
+        )
+        if r["data_type"] not in _CANNOT_HOLD_PROSE
+    }
+
+
 def test_team_store_holds_no_free_text_beyond_the_branch_name(migrated_db):
     """Metadata only. A free-text column is where prompt text ends up.
 
-    The team store's TEXT columns are ids, a remote URL, its parsed parts, an
-    actor, a source, a thread role and the branch name. If this list grows,
-    somebody added somewhere for prose to live, and "no prompt text in the
-    schema" is a release blocker in this project rather than a style rule.
+    The team store's free-text columns are ids, a remote URL, its parsed
+    parts, an actor, a source, a thread role and the branch name. If this
+    list grows, somebody added somewhere for prose to live, and "no prompt
+    text in the schema" is a release blocker in this project rather than a
+    style rule.
+
+    An equality check rather than a subset one, and over `team_tables()`
+    rather than a hardcoded tuple, so the two ways of getting a path in here
+    both fail: adding a column to a table that is already listed, and adding
+    a whole table nobody remembered to list.
     """
     allowed = {
         "published_repo": {"repo_id", "remote_url", "forge", "owner", "repo",
@@ -88,17 +222,24 @@ def test_team_store_holds_no_free_text_beyond_the_branch_name(migrated_db):
         "team_repo": {"team_id", "repo_id", "added_by"},
     }
     with migrated_db.connection() as conn:
-        for table, expected in allowed.items():
-            text_cols = {
-                r["column_name"]
-                for r in conn.execute(
-                    "SELECT column_name, data_type FROM information_schema.columns "
-                    "WHERE table_schema = current_schema() AND table_name = %s "
-                    "AND data_type IN ('text', 'character varying')",
-                    (table,),
-                )
-            }
-            assert text_cols == expected, f"{table} text columns drifted: {text_cols}"
+        live = team_tables(conn)
+        assert set(allowed) <= live, (
+            f"`allowed` describes table(s) that are not in the team store any "
+            f"more: {sorted(set(allowed) - live)}"
+        )
+        for table in sorted(live):
+            found = _free_text_columns(conn, table)
+            expected = allowed.get(table)
+            assert expected is not None, (
+                f"{table} is in the team store and this test has never heard of "
+                f"it. Its free-text columns are {found}. Add it to `allowed` "
+                f"having checked every one of them, or give it a reason in "
+                f"CONTROL_PLANE -- a table nobody listed used to be a table "
+                f"nobody checked."
+            )
+            assert set(found) == expected, (
+                f"{table} free-text columns drifted: {found} (expected {sorted(expected)})"
+            )
 
 
 def test_every_personal_table_is_keyed_on_account(migrated_db):

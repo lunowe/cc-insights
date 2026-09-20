@@ -1,5 +1,7 @@
 import pathlib
 
+import pytest
+
 from cc_insights import config as config_mod
 from cc_insights import paths
 
@@ -280,3 +282,127 @@ def test_init_says_created_only_on_a_first_run(tmp_path, capsys):
 
     assert cli.main(["--config-dir", str(tmp_path), "init"]) == 0
     assert "(created)" not in capsys.readouterr().out
+
+
+# ------------------------------------------ durability, and honest failure --
+
+
+def test_the_config_is_flushed_to_disk_before_the_rename_and_after_it(tmp_path, monkeypatch):
+    """`rename(2)` is atomic against other processes, not against power loss.
+
+    Without an fsync on the file, the rename can reach the disk while the
+    bytes it points at are still in the page cache, and the machine comes
+    back up with a zero-length config.toml -- the rename durable, the data
+    not. Without an fsync on the *directory*, the rename itself is what can
+    be lost. Both are needed and neither is implied by the other.
+
+    Checked by watching the syscalls, because the honest version of this test
+    needs somebody to pull a power cord. `st_mode` is what makes it more than
+    a call count: it distinguishes the two fsyncs by what they were actually
+    applied to, so replacing the directory one with a second file fsync fails
+    here.
+    """
+    import os
+    import stat
+
+    synced: list[int] = []
+    real_fsync = os.fsync
+
+    def recording_fsync(fd):
+        synced.append(stat.S_IFMT(os.fstat(fd).st_mode))
+        return real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+    config_mod.load(tmp_path).save()
+
+    assert stat.S_IFREG in synced, "the config contents were never flushed to disk"
+    assert stat.S_IFDIR in synced, "the rename itself was never flushed to disk"
+
+
+def test_the_rename_is_the_last_thing_that_happens(tmp_path):
+    """A reader never sees a partial file, only the old one or the new one.
+
+    The temp file must also not be left behind: `cci doctor` and anything
+    else that lists the config directory would be looking at a second,
+    stale-looking config.
+    """
+    cfg = config_mod.load(tmp_path)
+    cfg.idle_threshold_s = 120
+    cfg.save()
+
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+    assert leftovers == [], leftovers
+    assert config_mod.load(tmp_path).idle_threshold_s == 120
+
+
+def test_an_unreadable_config_is_never_replaced_with_a_new_host_id(tmp_path):
+    """The failure the whole file is arranged around.
+
+    Replacing a config that will not parse means a new host_id, and a new
+    host_id forks the history into a duplicate set of rows nothing can merge
+    back. So the file is left byte-for-byte as it was, and the command dies
+    saying which file and why.
+    """
+    original = config_mod.load(tmp_path)
+    assert original.host_id in (tmp_path / "config.toml").read_text()
+
+    (tmp_path / "config.toml").write_text("this is not = = toml\n")
+    with pytest.raises(config_mod.ConfigError, match="config.toml"):
+        config_mod.load(tmp_path)
+
+    # Nothing written, nothing regenerated.
+    assert (tmp_path / "config.toml").read_text() == "this is not = = toml\n"
+    assert not (tmp_path / "config.toml.tmp").exists()
+
+
+def test_a_config_missing_its_host_id_is_an_error_and_not_a_fresh_install(tmp_path):
+    """A KeyError traceback names `raw["host_id"]`, not the file to go and fix.
+
+    This is the half-written case that survived the rename: the file parses,
+    it simply stops before the key that matters. Inventing one here would be
+    the same fork as replacing the file, arrived at by a different route.
+    """
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config.toml").write_text('db_path = "cc-insights.db"\n')
+
+    with pytest.raises(config_mod.ConfigError, match="host_id"):
+        config_mod.load(tmp_path)
+    assert (tmp_path / "config.toml").read_text() == 'db_path = "cc-insights.db"\n'
+
+
+def test_a_truncated_config_does_not_silently_open_a_different_database(tmp_path):
+    """`db_path` missing is not the same as `db_path` defaulted.
+
+    Falling back to the default would open a *different* database than the
+    one this config describes and report it as that machine's history.
+    """
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config.toml").write_text('host_id = "stable-host-id"\n')
+
+    with pytest.raises(config_mod.ConfigError, match="db_path"):
+        config_mod.load(tmp_path)
+
+
+def test_a_config_that_parses_is_still_loaded_normally(tmp_path):
+    """The refusals above are worthless if they also stop the ordinary case."""
+    written = config_mod.load(tmp_path)
+    again = config_mod.load(tmp_path)
+    assert again.host_id == written.host_id
+    assert again.db_path == written.db_path
+
+
+def test_the_repair_declines_a_config_it_cannot_load(tmp_path):
+    """A convenience must never be the thing that raises.
+
+    `make_db_path_portable` already declined an unparseable config as "not
+    ours to repair". A config that parses but is missing `host_id` is the
+    same situation arriving one step later, and the repair running first
+    must not be what turns a legible `ConfigError` from the real command
+    into a traceback out of a fixup nobody asked for.
+    """
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    text = f'db_path = "{tmp_path / "cc-insights.db"}"\n'
+    (tmp_path / "config.toml").write_text(text)
+
+    assert config_mod.make_db_path_portable(tmp_path) is None
+    assert (tmp_path / "config.toml").read_text() == text
