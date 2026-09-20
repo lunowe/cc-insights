@@ -1,9 +1,17 @@
 # Deploying the account server
 
-> **Nothing here has been run.** The Dockerfile builds a wheel that has been
-> verified to carry its four migrations, but the image itself has not been
-> built (no Docker daemon on the machine this was written on) and no instance
-> exists. Treat every command below as a plan, not a transcript.
+> **Deployed 2026-09-20.** Railway project `cc-insights` in workspace
+> "Personal Projects": service `server` (Dockerfile, rootDirectory `server`)
+> and service `Postgres` (managed, 5 GB volume).
+>
+> **https://YOUR-SERVER.up.railway.app**
+>
+> Migrations 1-4 applied at first boot. `GET /v1/personal/tables` returns
+> `401 unauthenticated`, which is the server working. **Sign-in does not work
+> yet**: no GitHub OAuth app is configured, so `POST /v1/auth/device/start`
+> returns `502 upstream_unavailable` naming the two missing variables. See
+> "Prerequisites" below — that is the one remaining step, and it needs a
+> browser.
 
 ## What you are standing up, and what it holds
 
@@ -54,6 +62,20 @@ default would be a database somebody did not choose, and this one holds
 filesystem paths.
 
 ## On Railway
+
+Two things cost an hour the first time and are worth writing down.
+
+**`railway up` deploys the directory you run it in, and `rootDirectory` is
+applied inside that upload.** Running it from `server/` uploads the server
+directory and then looks for `server/` *inside* it — `lstat .../snapshot-
+target-unpack/server: no such file or directory`. Run it from the repo root
+with `rootDirectory=server`, or from `server/` with no root directory. Not
+both.
+
+**Link before you deploy.** `railway up` in an unlinked directory does not
+fail — it creates a brand-new project and deploys there, which is a second
+project with a half-built service in it and no warning that this is not what
+you meant.
 
 ```bash
 railway init
