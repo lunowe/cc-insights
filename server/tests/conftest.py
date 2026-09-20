@@ -38,7 +38,8 @@ _TABLES = [
     "span", "event", "thread", "session", "project_probe", "project",
     "project_group", "host",
     "account_repo_access", "device_authorization", "api_token",
-    "team_member", "team", "identity", "account",
+    "team_invite_redemption", "team_member", "team_invite", "team",
+    "identity", "account",
 ]
 
 
@@ -172,6 +173,30 @@ def make_account(migrated_db):
         return Account(account_id, actor, token)
 
     return _make
+
+
+def join_team(client, admin: Account, team_id: str, joiner: Account,
+              role: str = "member") -> dict:
+    """Put `joiner` on `team_id` the only way there is: a code they redeem.
+
+    Every test that used to call `POST /v1/teams/{id}/members` with an
+    `accountId` now comes through here, and that is deliberately not a
+    like-for-like swap. It routes the setup of every membership test through
+    the real consent path, so an attack written against a team's membership
+    is attacking the arrangement that actually ships -- the old helper would
+    have kept those tests green against a join flow that had been broken or
+    removed.
+
+    Two calls, because two people are involved and that is the whole point:
+    the admin mints with their own token, the joiner redeems with theirs.
+    """
+    minted = client.post(f"/v1/teams/{team_id}/invites", json={"role": role},
+                         headers=admin.auth)
+    assert minted.status_code == 201, minted.text
+    code = minted.json()["code"]
+    joined = client.post("/v1/teams/join", json={"code": code}, headers=joiner.auth)
+    assert joined.status_code == 200, joined.text
+    return joined.json()
 
 
 @pytest.fixture

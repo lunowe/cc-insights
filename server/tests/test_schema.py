@@ -75,6 +75,15 @@ CONTROL_PLANE: dict[str, str] = {
                            "published across it",
     "team": "a team's name, chosen by a human for other humans to read",
     "team_member": "who is in a team and in what role; membership, not measurement",
+    "team_invite": "join codes, stored hashed like api_token and readable by "
+                   "nobody once minted. Its one free-text column is `note`, "
+                   "which an admin types about a code they are cutting -- the "
+                   "same category as `team.name` and, like it, reached by no "
+                   "log parser, so there is no path by which prompt text "
+                   "arrives in it",
+    "team_invite_redemption": "who redeemed which code and when; the consent "
+                              "record, append-only. Two account ids and a "
+                              "timestamp, and no agent-time data at all",
     "schema_migrations": "which migrations have run on this database",
 }
 

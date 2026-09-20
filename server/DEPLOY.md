@@ -109,10 +109,32 @@ cci doctor           # confirms sign-in, last push, and that the token works
 These are the things that are *not* the code's call, and the code cannot make
 them for you:
 
-- **`add_member` has no consent.** Any team admin can add any account by id.
-  It grants the admin nothing today — a roster shares the *adder's* access,
-  not the member's — but it means somebody can be put in a team without being
-  asked, and it becomes load-bearing under any future membership-based rule.
+- **Joining a team takes the joiner's own credential.** This used to say that
+  `add_member` had no consent — any admin could add any account by id. That
+  route is **gone**. An admin now mints a join code (`cci team invite`) and
+  sends it however they like; the colleague redeems it with their own token
+  (`cci team join <code>`), and that redemption is the consent. Both ends are
+  recorded, so `cci team members` answers "who let this person in" and
+  `cci team invites` answers "who did I let in, and when".
+
+  What this means for you operationally:
+
+  - **A join code is a password.** It grants a stranger membership of a team
+    that reads other people's agent time. Send it the way you would send a
+    password, and prefer a direct message to a channel.
+  - **It is shown exactly once,** at `cci team invite`. It is stored hashed
+    and there is no command, and no database query, that can show it again.
+    If somebody loses it, mint another and revoke the first.
+  - **Defaults are single-use and 72 hours.** Override with `--uses` and
+    `--expires-in` when you are onboarding several people at once, and prefer
+    several single-use codes to one shared code if you want the audit trail
+    to say who is who.
+  - **Revoke, do not just remove.** `cci team remove <who>` takes somebody
+    off the roster, and a *spent* single-use code cannot readmit them. A code
+    with seats left can. Run `cci team invites` after any removal you meant.
+  - **An invalid code and an expired one look identical** to whoever tried
+    it, on purpose. When a colleague says "it says the code is not valid",
+    the server will not tell you which; check `cci team invites` yourself.
 - **Anyone can publish their own rows under any `repo_id`.** Not a disclosure,
   but a stranger who guesses your remote can inject rows under their own actor
   name into a repo your team reads. There is no write-side rule for this yet.

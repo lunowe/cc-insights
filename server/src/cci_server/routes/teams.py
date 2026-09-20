@@ -45,7 +45,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
-from cci_server import ids, scope as scope_mod, tokens
+from cci_server import ids, invites as invites_mod, scope as scope_mod, tokens
 from cci_server.auth import get_conn, principal
 from cci_server.db import now_ms
 from cci_server.errors import conflict, forbidden, not_found
@@ -60,9 +60,37 @@ class CreateTeamBody(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
-class AddMemberBody(BaseModel):
-    accountId: str
+class CreateInviteBody(BaseModel):
+    """What an admin may choose about a join code. Every field has a safe default.
+
+    `expiresInMs` and `maxUses` are clamped rather than rejected
+    (`invites.clamp_ttl` / `clamp_uses`). A 400 for "90 days is too long"
+    teaches an admin to fight the limit; silently minting the longest code
+    that is allowed, and printing what was actually chosen, does not. The
+    same argument `docs/SERVER_API.md` §0 makes for clamping `limit`.
+    """
+
     role: str = MEMBER
+    expiresInMs: int | None = Field(default=None, ge=1)
+    maxUses: int | None = Field(default=None, ge=1)
+    note: str | None = Field(default=None, max_length=200)
+
+
+class JoinBody(BaseModel):
+    """The code, and nothing else.
+
+    No `teamId`: the code says which team. A caller who had to name the team
+    could probe "is this code for THIS team", which is the existence oracle
+    again with an extra step.
+
+    In the BODY rather than the path, and that is a security requirement
+    rather than a style choice. A path lands in access logs, proxy logs,
+    browser history and the `Referer` header of anything the URL is pasted
+    into; a body lands in none of them. This is the same reason
+    `POST /v1/auth/device/token` takes its device code in the body.
+    """
+
+    code: str = Field(min_length=1, max_length=400)
 
 
 class AddRepoBody(BaseModel):
@@ -139,46 +167,177 @@ def create_team(body: CreateTeamBody, who: tokens.Principal = Depends(principal)
 def list_members(team_id: str, who: tokens.Principal = Depends(principal),
                  conn=Depends(get_conn)):
     _role(conn, team_id, who.account_id)
+    # `invitedByActor` is the visible half of the audit trail from migration
+    # 005, and it is shown to every member rather than to admins alone. "Who
+    # let this person in" is a question the people whose agent time sits on
+    # the roster have the strongest interest in being able to answer, and
+    # none of it is information a member could not already get -- every name
+    # here is a fellow member's, and they are all on the list above it.
     rows = conn.execute(
-        """SELECT tm.account_id, tm.role, tm.joined_at, a.actor
-           FROM team_member tm JOIN account a ON a.account_id = tm.account_id
+        """SELECT tm.account_id, tm.role, tm.joined_at, tm.invite_id, a.actor,
+                  inviter.actor AS invited_by_actor
+           FROM team_member tm
+           JOIN account a ON a.account_id = tm.account_id
+           LEFT JOIN team_invite i ON i.invite_id = tm.invite_id
+           LEFT JOIN account inviter ON inviter.account_id = i.created_by
            WHERE tm.team_id = %s ORDER BY a.actor""",
         (team_id,),
     ).fetchall()
     return {
         "members": [
             {"accountId": r["account_id"], "actor": r["actor"],
-             "role": r["role"], "joinedAt": r["joined_at"]}
+             "role": r["role"], "joinedAt": r["joined_at"],
+             # NULL for whoever created the team: there was no invite, and a
+             # synthetic one would be a code-shaped record for a code that
+             # never existed.
+             "invitedByActor": r["invited_by_actor"]}
             for r in rows
         ]
     }
 
 
-@router.post("/{team_id}/members", status_code=201)
-def add_member(team_id: str, body: AddMemberBody,
-               who: tokens.Principal = Depends(principal), conn=Depends(get_conn)):
+# --------------------------------------------------------------------------
+# joining, which is now the only way onto a roster
+# --------------------------------------------------------------------------
+#
+# `POST /v1/teams/{teamId}/members` USED TO BE HERE AND IS GONE. It took an
+# `accountId` and added that person. server/DEPLOY.md flagged two problems
+# with it, and they turn out to be one problem:
+#
+#   * Nobody consented. Being put on a roster means other people see your
+#     actor name and -- wherever a forge-verified admin rostered a repo --
+#     your sessions on it. That is not a thing to acquire without being asked.
+#   * The admin could not learn the id anyway. `account_id` is an opaque
+#     random handle and there is deliberately no directory endpoint: a lookup
+#     from a name to an account id is an enumeration oracle over everybody on
+#     the instance. So the only way to use the route was for the joiner to
+#     paste their own id out of `whoami` -- a worse consent flow than this
+#     one, and one nothing checked as consent regardless.
+#
+# What replaces it is a code an admin mints and the joiner redeems with their
+# own bearer token. The redemption IS the consent, and it is recorded at both
+# ends. `invites.py` explains why the code is stored and sized as it is.
+
+
+@router.post("/{team_id}/invites", status_code=201)
+def create_invite(team_id: str, body: CreateInviteBody,
+                  who: tokens.Principal = Depends(principal), conn=Depends(get_conn)):
+    """Mint a join code. THE ONLY RESPONSE THAT EVER CARRIES THE PLAINTEXT.
+
+    It is sha256 at rest (migration 005), so "shown once" is not a policy
+    somebody could relax later by adding a "show me that code again" route --
+    the code genuinely is not recoverable, and `cci team invite` says so on
+    the same screen that prints it.
+    """
     _require_admin(conn, team_id, who.account_id)
     if body.role not in (ADMIN, MEMBER):
         raise conflict("invalid_role", "role must be 'member' or 'admin'.")
-    exists = conn.execute(
-        "SELECT actor FROM account WHERE account_id = %s", (body.accountId,)
-    ).fetchone()
-    if exists is None:
-        raise not_found("No such account.")
-    conn.execute(
-        """INSERT INTO team_member (team_id, account_id, role, joined_at)
-           VALUES (%s, %s, %s, %s)
-           ON CONFLICT (team_id, account_id) DO UPDATE SET role = excluded.role""",
-        (team_id, body.accountId, body.role, now_ms()),
+    minted = invites_mod.create(
+        conn, team_id, who.account_id, role=body.role,
+        ttl_ms=body.expiresInMs, max_uses=body.maxUses, note=body.note,
     )
-    return {"teamId": team_id, "accountId": body.accountId,
-            "actor": exists["actor"], "role": body.role}
+    return {
+        "inviteId": minted.invite_id,
+        # Once. Not logged here, not stored, and in no other response.
+        "code": minted.code,
+        "teamId": team_id,
+        "role": minted.role,
+        "createdAt": minted.created_at,
+        # Echoed because they may have been clamped, and an admin who asked
+        # for 90 days needs to see that they got 30 before promising somebody
+        # the code will still work next month.
+        "expiresAt": minted.expires_at,
+        "maxUses": minted.max_uses,
+        "note": minted.note,
+    }
+
+
+@router.get("/{team_id}/invites")
+def list_invites(team_id: str, who: tokens.Principal = Depends(principal),
+                 conn=Depends(get_conn)):
+    """Outstanding and spent codes, with who minted each and who redeemed it.
+
+    Admin-only, and never a code: only the hash was kept. A listing that
+    could reproduce a plaintext would turn one compromised admin session into
+    a way to recover every live invite on the instance.
+    """
+    _require_admin(conn, team_id, who.account_id)
+    return {"invites": invites_mod.listing(conn, team_id)}
+
+
+@router.delete("/{team_id}/invites/{invite_id}", status_code=204)
+def revoke_invite(team_id: str, invite_id: str,
+                  who: tokens.Principal = Depends(principal), conn=Depends(get_conn)):
+    """Kill a code. Idempotent, and no 404 for one that was never there.
+
+    Same rule as removing a repo from a roster: the caller's goal -- "that
+    code cannot be used" -- is true either way, and taking access away is
+    never made harder than granting it. A 404 would also answer "is there an
+    invite with this id", which is a question for nobody.
+    """
+    _require_admin(conn, team_id, who.account_id)
+    invites_mod.revoke(conn, team_id, invite_id)
+    return Response(status_code=204)
+
+
+@router.post("/join")
+def join_team(body: JoinBody, who: tokens.Principal = Depends(principal),
+              conn=Depends(get_conn)):
+    """Redeem a join code as the authenticated caller. The consent step.
+
+    AUTHENTICATION IS REQUIRED AND THAT IS THE DESIGN, not an oversight about
+    convenience. A code alone must never mint an identity: if it could, the
+    code would be a credential that creates an account, and whoever found it
+    in a Slack export would be a person on the team rather than a stranger
+    holding a string. The code says WHICH TEAM; the bearer token says WHO IS
+    JOINING; neither half is sufficient alone.
+
+    Every way this can fail is one 404 with one sentence. Unknown, malformed,
+    revoked, expired, exhausted -- `invites.redeem` returns `None` for all of
+    them and nothing here tries to be more helpful, because "that code has
+    expired" confirms the code was real, which confirms the team is real, to
+    somebody who has just demonstrated they were not invited to it.
+
+    The message names no code and no team. `errors.not_found`'s rule, applied
+    to a credential instead of a row.
+    """
+    with conn.transaction():
+        joined = invites_mod.redeem(conn, body.code, who.account_id)
+    if joined is None:
+        raise not_found("That join code is not valid.")
+    return {
+        "teamId": joined.team_id,
+        "name": joined.team_name,
+        "role": joined.role,
+        # So the CLI can say "you were already on this team" rather than
+        # implying a seat was spent. This reports what HAPPENED; it does not
+        # distinguish any failure, which is the property that matters.
+        "alreadyMember": joined.already_member,
+    }
 
 
 @router.delete("/{team_id}/members/{account_id}", status_code=204)
 def remove_member(team_id: str, account_id: str,
                   who: tokens.Principal = Depends(principal), conn=Depends(get_conn)):
-    _require_admin(conn, team_id, who.account_id)
+    """An admin removes somebody; anybody removes themselves.
+
+    LEAVING IS THE SAME ROUTE ON PURPOSE. Now that joining requires consent,
+    so must staying -- a person who can be talked into a team but not out of
+    one has consented to something with no end. A separate `/leave` endpoint
+    would have been a second place for the last-admin rule to be forgotten,
+    and that rule has to hold for a departure exactly as it does for a
+    removal: a team whose only admin walks out is a roster nobody can
+    correct, with its repos visible to everyone left on it forever.
+
+    The self case needs no role check. Somebody removing themselves discloses
+    nothing and gives up nothing that was not theirs to give up.
+    """
+    if account_id != who.account_id:
+        _require_admin(conn, team_id, who.account_id)
+    else:
+        # Still a membership check, so leaving a team you are not on is the
+        # same 404 as leaving one that does not exist.
+        _role(conn, team_id, who.account_id)
     target = conn.execute(
         "SELECT role FROM team_member WHERE team_id = %s AND account_id = %s",
         (team_id, account_id),

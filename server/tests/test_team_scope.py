@@ -12,6 +12,7 @@ they were never granted.
 from __future__ import annotations
 
 import pytest
+from conftest import join_team
 
 from cci_server.repoid import github_remote, repo_id
 
@@ -81,9 +82,11 @@ def world(client, alice, bob):
     publish_span(client, bob, "sp-bob", "s-bob", started=T0, ms=30 * 60_000)
 
     team = make_team(client, alice)
-    client.post(f"/v1/teams/{team}/members",
-                json={"accountId": bob.account_id, "role": "member"},
-                headers=alice.auth)
+    # Bob redeems a code Alice minted. Every disclosure assertion in this file
+    # is unchanged by that: consent governs who is on the team, and the scope
+    # rules govern what the team can see. Routing the fixture through the real
+    # join path is what keeps the two from being confused later.
+    join_team(client, alice, team, bob)
     client.post(f"/v1/teams/{team}/repos", json={"repoId": PUBLIC}, headers=alice.auth)
     return team
 
@@ -358,8 +361,7 @@ def test_off_wins_when_a_repo_is_on_two_teams(client, alice, bob, world):
     client.patch(f"/v1/teams/{world}/repos/{PUBLIC}",
                  json={"branchNamesPublished": False}, headers=alice.auth)
     second = make_team(client, alice, "Another team")
-    client.post(f"/v1/teams/{second}/members",
-                json={"accountId": bob.account_id}, headers=alice.auth)
+    join_team(client, alice, second, bob)
     client.post(f"/v1/teams/{second}/repos",
                 json={"repoId": PUBLIC, "branchNamesPublished": True},
                 headers=alice.auth)

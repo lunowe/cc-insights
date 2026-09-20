@@ -15,6 +15,19 @@ needs to change, say so rather than diverging.
 > without one. The example was corrected to match the stated rule, and the
 > server was corrected to match both.
 
+> **Amended again, saying so rather than diverging.** `POST
+> /v1/teams/{teamId}/members` is **removed** and replaced by join codes —
+> §4.5.1, and the register in §4.5. This is the one amendment so far that
+> takes something away, so it is worth being plain about: an integration
+> calling the old route gets `405`, deliberately and not `404`, because the
+> path still serves `GET`. The reasons are recorded in `docs/ACCOUNTS.md` §5a
+> and were flagged as unresolved in `server/DEPLOY.md` before this change;
+> the short version is that adding somebody by id had no consent behind it
+> and needed an account id nothing in the system would tell you. Two
+> endpoints gained fields rather than changing: `GET …/members` now carries
+> `joinedAt` and `invitedByActor`, and `DELETE …/members/{accountId}` now
+> also accepts the caller removing themselves.
+
 `docs/API.md` is the other frozen contract in this repo and describes a
 different thing: `cci serve`, read-only, localhost, no auth. This one is the
 opposite on all three counts, so nothing here is shared with it except the
@@ -641,9 +654,12 @@ to guess about.
 | --- | --- | --- |
 | `GET /v1/teams` | member | teams the caller belongs to, with their role |
 | `POST /v1/teams` | any account | create a team; the creator becomes `admin` |
-| `GET /v1/teams/{teamId}/members` | member | `[{accountId, actor, role}]` |
-| `POST /v1/teams/{teamId}/members` | admin | `{accountId, role}` → `201` |
-| `DELETE /v1/teams/{teamId}/members/{accountId}` | admin | `204` |
+| `GET /v1/teams/{teamId}/members` | member | `[{accountId, actor, role, joinedAt, invitedByActor}]` |
+| `DELETE /v1/teams/{teamId}/members/{accountId}` | admin, **or yourself** | `204` |
+| `POST /v1/teams/{teamId}/invites` | admin | mint a join code → `201` |
+| `GET /v1/teams/{teamId}/invites` | admin | the codes, **without the codes** |
+| `DELETE /v1/teams/{teamId}/invites/{inviteId}` | admin | `204`, idempotent |
+| `POST /v1/teams/join` | any account | `{code}` → `200`, joins the code's team |
 | `GET /v1/teams/{teamId}/repos` | member | the roster |
 | `POST /v1/teams/{teamId}/repos` | admin | `{repoId, branchNamesPublished?}` → `201` |
 | `PATCH /v1/teams/{teamId}/repos/{repoId}` | admin | `{branchNamesPublished}` → `200` |
@@ -655,7 +671,98 @@ team exists, so there is nothing to leak by being specific.
 
 An admin may not remove the last admin from a team: `409 last_admin`. A team
 nobody can administer is a roster nobody can correct, and the repos on it stay
-visible forever.
+visible forever. That applies to **leaving** exactly as it does to being
+removed, which is why leaving is the same route rather than its own: a rule
+with two implementations is a rule with one of them out of date.
+
+### 4.5.1 Join codes — the only way onto a roster
+
+**`POST /v1/teams/{teamId}/members` is gone.** It took an `accountId` and
+added that person, and it was wrong twice over: nobody consented, and the
+admin had no way to learn the id anyway — `account_id` is an opaque handle,
+there is no directory endpoint, and there must not be one, because a lookup
+from a name to an account id is an enumeration oracle over everybody on the
+instance.
+
+What replaces it is a code an admin mints and the colleague redeems **with
+their own bearer token**. The redemption is the consent; the account id never
+has to be discovered; and there is a record at both ends.
+
+```jsonc
+// POST /v1/teams/{teamId}/invites   (admin)
+// body — every field optional
+{ "role": "member", "expiresInMs": 259200000, "maxUses": 1, "note": "contractors" }
+// 201 — THE ONLY RESPONSE THAT EVER CARRIES THE PLAINTEXT
+{ "inviteId": "inv_…", "code": "ccij_…", "teamId": "tm_…", "role": "member",
+  "createdAt": …, "expiresAt": …, "maxUses": 1, "note": "contractors" }
+
+// POST /v1/teams/join            (any authenticated account)
+{ "code": "ccij_…" }
+// 200
+{ "teamId": "tm_…", "name": "Platform", "role": "member", "alreadyMember": false }
+```
+
+The properties, each of which has a test that fails without it
+(`server/tests/test_join_codes.py`):
+
+- **Hashed at rest**, sha256, exactly as `api_token` is and for the reasons in
+  `tokens.py`. The plaintext is in the `201` above and nowhere else — not in a
+  log, not in the database, and not recoverable. `GET …/invites` therefore
+  cannot re-show a code, which is a property rather than a gap: an endpoint
+  that could would make one compromised admin session a way to recover every
+  live invite on the instance.
+- **256 bits**, from `secrets.token_urlsafe(32)`, prefixed `ccij_`. Long and
+  opaque rather than short and typeable, unlike the device flow's `43CA-9AAA`:
+  that one is read off a screen and typed within minutes against a throttled
+  upstream, whereas this is pasted into Slack, lives for days, and **there is
+  no attempt throttle on this server**. With nothing to make guessing
+  expensive, entropy is the only defence.
+- **Expiring, revocable, use-limited.** Defaults are **single-use** and
+  **72 hours**; `maxUses` caps at 50 and `expiresInMs` at 30 days. Both are
+  clamped rather than rejected — the same treatment `limit` gets in §0 — and
+  the response echoes what was actually minted. There is no way to mint a code
+  with no deadline, because nobody revokes a code they have forgotten.
+- **Authentication is required to redeem.** The code says *which team*; the
+  bearer token says *who is joining*. A code alone must never mint an
+  identity, or whoever finds it in a Slack export is a member rather than a
+  stranger holding a string.
+- **Every failure is one failure.** Unknown, malformed, revoked, expired and
+  exhausted are all `404 not_found` with one sentence, which names neither the
+  code nor the team. A distinguishable "that code has expired" confirms the
+  code was real, which confirms the team is real, to somebody who has just
+  demonstrated they were not invited to it — §0's 403-versus-404 rule applied
+  to a credential instead of a row.
+- **Redeeming never changes an existing membership.** Already on the team is a
+  `200` with `alreadyMember: true` that consumes no seat, so a retried request
+  is free. It does **not** apply the code's role: if redeeming an `admin` code
+  promoted an existing member, a leaked one would be a self-promotion route
+  for everybody already inside. Promotion stays an admin action about a named
+  person.
+- **A seat is spent per join, not per person.** Somebody removed from the team
+  who redeems the same code again spends another seat, so a spent single-use
+  code is not a standing back door that outlives their removal.
+- **Audit at both ends.** `createdBy` and `createdAt` on the invite,
+  `{accountId, actor, redeemedAt}` per redemption, and `invitedByActor` on the
+  member row. The redemption log is append-only and survives the member
+  leaving — somebody joining, reading a week of data and leaving is precisely
+  the sequence an admin needs to reconstruct afterwards.
+
+**Joining does not widen anything by itself,** and that is the property this
+design is really about. A new member sees exactly what the team's rosters
+already delegated — bounded, as ever, by `team_repo.added_by` — and the
+existing members see nothing new of the joiner. `scope.resolve` reads
+`team_member` only to find which rosters apply; co-membership is a join key
+and never a grant. `server/tests/test_invite_disclosure.py` attacks both
+directions, including the roster escalation with an invite bolted on as a
+fifth step.
+
+The one visible change joining can cause is to the branch-name switch: a
+caller inside a team is governed by their own teams (§4.5), so joining a team
+whose roster has branch names *on* can lift a suppression another team's admin
+had imposed. That is confined to a repo the caller could already read every
+row of, on a field publishable under the repo rule anyway — anyone with repo
+access can run `git branch -r` — and it can never uncover a name in a repo
+joining did not otherwise reach.
 
 **An admin may only add a repo that is already in their own scope.** This rule
 is not in `docs/ACCOUNTS.md` and it has to be, because without it the roster

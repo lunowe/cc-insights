@@ -2,7 +2,8 @@
 
 > Status: built. The server lives in `server/`; its wire contract is
 > `docs/SERVER_API.md` and that document is frozen. §4 carries a list of
-> four things this design got wrong, found by implementing it.
+> four things this design got wrong, found by implementing it, and §5a
+> settles the one it never answered at all — how somebody joins a team.
 > `docs/REDACTION.md` is the prerequisite and is done; this document is what
 > consumes it.
 
@@ -233,6 +234,64 @@ cannot be published (8% of the author's corpus, the work with no git
 remote), and the team view must show that number rather than quietly
 omitting it. A dashboard that silently drops part of someone's week is not
 private, it is wrong, and the person reading it cannot tell the difference.
+
+## 5a. Joining a team, which §4 left unanswered
+
+The schema above says who is in a team. It never said **how they get there**,
+and the first implementation filled the gap with the obvious thing: an admin
+POSTs an `accountId` and that person is on the roster. `server/DEPLOY.md`
+listed this under "things that are not the code's call" and it should not
+have been — it was two defects wearing one coat.
+
+1. **Nobody agreed.** Being put on a roster is not nothing. The other members
+   see your actor name, the repos on the roster, and — wherever a
+   forge-verified admin rostered a repo — your sessions on it. §2 argues that
+   the whole point of the two-store split is that a second person's sight of
+   your work is decided at the moment it is written rather than read. It is a
+   poor complement to that for the *set of second people* to be something you
+   can be added to without being asked.
+
+2. **The admin could not get the id anyway.** `account_id` is a random opaque
+   handle. There is no directory endpoint and there must not be one: a lookup
+   from a name or an email to an account id enumerates everybody on the
+   instance. So the only way to use the route was for the joiner to read
+   their own id out of `whoami` and paste it to an admin — a worse consent
+   flow than the real one, and not enforced as consent regardless.
+
+**Decision: join codes, and they are the only way in.** An admin mints one,
+sends it however they like, and the colleague redeems it with their own
+credential. The redemption is the consent, and it removes the id-discovery
+problem entirely: the code says which team, the bearer token says who is
+joining, and neither half is sufficient alone.
+
+A join code is a bearer secret that reads other people's agent time, so it is
+stored the way `api_token` is — sha256, shown exactly once, constant-time
+comparison — and sized for a threat model with **no attempt throttle behind
+it**: 256 bits, opaque, pasted rather than typed. Single-use and 72 hours by
+default, both overridable and both capped, because a code with no deadline is
+one nobody remembers to revoke. Every way it can fail is the same 404, since
+"that code has expired" confirms the team is real to somebody who just showed
+they were not invited to it. `docs/SERVER_API.md` §4.5.1 is the contract and
+`server/src/cci_server/invites.py` carries the reasoning.
+
+**The rule that had to be checked, and the reason this is in this document
+rather than only in the API one:** joining a team does not, by itself, widen
+what anybody can see. §4's fourth correction and `scope.py` exist because a
+roster nearly became a laundering step for a guessed `repo_id`, and a new
+arrival inside a team is the obvious next candidate. It is not one, because
+`scope.resolve` reads `team_member` only to find which rosters apply and
+attributes every row it then grants to `team_repo.added_by` or to a verified
+forge identity. Membership is a join key, never a grant — in either
+direction. A new member sees what the roster already delegated; the existing
+members see nothing new of them.
+
+The one thing joining does change is the branch-name switch, and it is worth
+naming rather than leaving to be discovered. §5 rule 2 makes the switch
+per-team, so a person inside a team is governed by their own teams — which
+means joining a team that publishes branch names can lift a suppression a
+different team's admin had set. That is confined to repos the person could
+already read every row of, on a field the repo rule publishes anyway, and it
+cannot uncover a name in a repo joining did not otherwise reach.
 
 ## 6. Signing in from a second machine
 

@@ -25,7 +25,7 @@ is by design; treating a self-asserted one as proof of access is the bug.
 
 from __future__ import annotations
 
-from conftest import session_row  # noqa: F401  (kept for parity with siblings)
+from conftest import join_team, session_row  # noqa: F401  (session_row: parity with siblings)
 
 from cci_server.repoid import repo_id
 
@@ -220,8 +220,10 @@ def test_a_teammate_of_the_rostering_admin_gets_the_admins_access_and_no_more(
     carol = make_account("carol")
     team = client.post("/v1/teams", json={"name": "Bob's"},
                        headers=bob.auth).json()["teamId"]
-    client.post(f"/v1/teams/{team}/members", json={"accountId": carol.account_id},
-                headers=bob.auth)
+    # Carol joins by redeeming a code Bob minted, which is now the only way
+    # onto a roster. The assertion below is unchanged and has to be: consent
+    # decides WHO is on the team, never WHAT the team can see.
+    join_team(client, bob, team, carol)
     client.post(f"/v1/teams/{team}/repos", json={"repoId": rid}, headers=bob.auth)
 
     body = client.get("/v1/team/sessions", headers=carol.auth).text
@@ -288,9 +290,7 @@ def test_a_verified_admin_re_adding_the_repo_upgrades_the_team(
     team = client.post("/v1/teams", json={"name": "Platform"},
                        headers=bob.auth).json()["teamId"]
     for member in (alice, carol):
-        client.post(f"/v1/teams/{team}/members", json={"accountId": member.account_id,
-                                                       "role": "admin"},
-                    headers=bob.auth)
+        join_team(client, bob, team, member, role="admin")
     client.post(f"/v1/teams/{team}/repos", json={"repoId": rid}, headers=bob.auth)
 
     assert "sess-alice-5" not in client.get("/v1/team/sessions", headers=carol.auth).text

@@ -438,11 +438,104 @@ class Client:
     def team_actors(self, **filters: Any) -> dict:
         return self.request("GET", "/v1/team/actors", params=_filter_params(filters))
 
-    def team_daily(self, **filters: Any) -> list[dict]:
-        return self.request("GET", "/v1/team/daily", params=_filter_params(filters))["days"]
+    def team_daily(self, **filters: Any) -> dict:
+        """The whole body, `withheld` block included. Not just `days`.
+
+        This returned `body["days"]` and that was the §4.8 bug one layer up.
+        The contract records that `/daily` shipped without a `withheld` block
+        and had to be corrected, because a "hours this week" chart is built
+        by summing `days` and silently loses the unpublishable part --
+        docs/ACCOUNTS.md §5 rule 3's exact failure, where the reader cannot
+        tell a quiet week from a week spent in a repo with no remote.
+
+        A client that throws the block away recreates that failure for every
+        caller of this method, and the server being right about it does not
+        help. So it returns what the endpoint returns, like `team_summary`
+        and `team_actors` do.
+        """
+        return self.request("GET", "/v1/team/daily", params=_filter_params(filters))
 
     def teams(self) -> list[dict]:
         return self.request("GET", "/v1/teams")["teams"]
+
+    # -- team administration ----------------------------------------------
+    #
+    # docs/SERVER_API.md §4.5. Thin on purpose: every one of these is one
+    # request and no logic, because the rules they are subject to are the
+    # server's and a client that re-implemented any of them would be a second
+    # opinion about a disclosure. The CLI does resolution and formatting; the
+    # server decides.
+
+    def create_team(self, name: str) -> dict:
+        return self.request("POST", "/v1/teams", body={"name": name})
+
+    def team_members(self, team_id: str) -> list[dict]:
+        return self.request("GET", f"/v1/teams/{team_id}/members")["members"]
+
+    def remove_member(self, team_id: str, account_id: str) -> None:
+        """Remove somebody, or leave. One route, because it is one rule.
+
+        The server permits this when the caller is an admin OR is the person
+        being removed, and applies the last-admin check either way. Giving
+        `leave` its own method here would imply the two are different
+        operations and invite a second code path on the server to match.
+        """
+        self.request("DELETE", f"/v1/teams/{team_id}/members/{account_id}")
+
+    def create_invite(self, team_id: str, *, role: str = "member",
+                      expires_in_ms: int | None = None,
+                      max_uses: int | None = None,
+                      note: str | None = None) -> dict:
+        """Mint a join code. THE RETURNED `code` IS THE ONLY COPY.
+
+        It is hashed on the server, so there is no call that can fetch it
+        again. Anything that handles the return value of this method is
+        handling a live credential: `cmd_team_invite` prints it once and
+        keeps it out of every other line it writes.
+        """
+        return self.request("POST", f"/v1/teams/{team_id}/invites", body={
+            "role": role, "expiresInMs": expires_in_ms,
+            "maxUses": max_uses, "note": note,
+        })
+
+    def team_invites(self, team_id: str) -> list[dict]:
+        """Outstanding and spent codes. Never contains a code."""
+        return self.request("GET", f"/v1/teams/{team_id}/invites")["invites"]
+
+    def revoke_invite(self, team_id: str, invite_id: str) -> None:
+        self.request("DELETE", f"/v1/teams/{team_id}/invites/{invite_id}")
+
+    def join_team(self, code: str) -> dict:
+        """Redeem a join code as the signed-in account.
+
+        The code goes in the BODY and the team is not named: the code says
+        which team, and the bearer token says who is joining. A code in the
+        path would land in access logs, proxy logs and shell history, which
+        is the one place a live credential must not be.
+        """
+        return self.request("POST", "/v1/teams/join", body={"code": code})
+
+    def team_roster(self, team_id: str) -> list[dict]:
+        """The repos one team shares. Not the same question as `team_repos`.
+
+        `team_repos` is "everything I can see, however I reach it"; this is
+        "what has this team been given". Two names because conflating them is
+        how a caller ends up believing a roster is the whole of their scope.
+        """
+        return self.request("GET", f"/v1/teams/{team_id}/repos")["repos"]
+
+    def share_repo(self, team_id: str, repo_id: str, *,
+                   branch_names_published: bool = True) -> dict:
+        return self.request("POST", f"/v1/teams/{team_id}/repos", body={
+            "repoId": repo_id, "branchNamesPublished": branch_names_published,
+        })
+
+    def unshare_repo(self, team_id: str, repo_id: str) -> None:
+        self.request("DELETE", f"/v1/teams/{team_id}/repos/{repo_id}")
+
+    def set_branch_names(self, team_id: str, repo_id: str, published: bool) -> dict:
+        return self.request("PATCH", f"/v1/teams/{team_id}/repos/{repo_id}",
+                            body={"branchNamesPublished": published})
 
 
 #: The remedy the python.org macOS installer ships and does not run for you.

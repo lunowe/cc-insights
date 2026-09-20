@@ -22,6 +22,7 @@ IDENTITY = "idt"
 TEAM = "tm"
 TOKEN = "tok"
 DEVICE = "dev"
+INVITE = "inv"
 
 
 def new_id(prefix: str) -> str:

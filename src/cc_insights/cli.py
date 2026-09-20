@@ -1193,6 +1193,657 @@ def cmd_publish(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------- team --
+#
+# THE SHAPE OF THIS COMMAND SURFACE, and why it is not the HTTP routes.
+#
+# The wire contract is organised around resources, because that is what a
+# wire contract is for. A person at a terminal is not holding a resource
+# model; they are holding a question, and the questions are: who is on my
+# team, how do I let somebody in, what am I sharing, and how do I stop. So
+# the verbs are named for those and the ids are hidden wherever a name will
+# do -- `cci team share cc-insights`, not a 64-character hash, because a
+# repo id is a sha256 and nobody is going to type one correctly.
+#
+# Everything that needs a team takes `--team`, and omitting it when you are
+# on exactly one team picks that one. That is not a shortcut bolted on: one
+# team is the case docs/ACCOUNTS.md §1 describes ("one private instance, for
+# one team"), so making it the wordless path is making the common case the
+# short one. With several teams it refuses and lists them, rather than
+# guessing about an operation that changes who can read somebody's work.
+
+
+def _print_teams(teams: list[dict], *, stream=sys.stdout) -> None:
+    width = max((len(t.get("name") or "") for t in teams), default=4)
+    for t in teams:
+        print(f"  {(t.get('name') or ''):<{width}}  {t.get('role', ''):<6} "
+              f" {t.get('teamId', '')}", file=stream)
+
+
+def _resolve_team(client, spec: str | None) -> dict:
+    """The team a command applies to, or exit saying how to say which.
+
+    Accepts an exact team id or a case-insensitive substring of the name,
+    because a person who can see the name on the previous command's output
+    should be able to type it. Ambiguity is never resolved by picking one:
+    these commands change who can read other people's data, and a `share`
+    that landed on the wrong team is not something the user would be told
+    about.
+    """
+    try:
+        teams = client.teams()
+    except remote.RemoteError as exc:
+        print(f"\n{exc}", file=sys.stderr)
+        raise SystemExit(1)
+
+    if not teams:
+        print("you are not on a team yet.\n"
+              "  cci team new <name>     to start one\n"
+              "  cci team join <code>    if a colleague sent you a join code",
+              file=sys.stderr)
+        raise SystemExit(1)
+
+    if spec is None:
+        if len(teams) == 1:
+            return teams[0]
+        print(f"you are on {len(teams)} teams — say which with --team:",
+              file=sys.stderr)
+        _print_teams(teams, stream=sys.stderr)
+        raise SystemExit(1)
+
+    exact = [t for t in teams if t.get("teamId") == spec]
+    if exact:
+        return exact[0]
+    matches = [t for t in teams if spec.casefold() in (t.get("name") or "").casefold()]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        print(f"no team of yours matches {spec!r}:", file=sys.stderr)
+    else:
+        print(f"{spec!r} matches {len(matches)} of your teams:", file=sys.stderr)
+    _print_teams(matches or teams, stream=sys.stderr)
+    raise SystemExit(1)
+
+
+def _repo_label(repo: dict) -> str:
+    return repo.get("name") or repo.get("repo") or repo.get("repoId", "")
+
+
+def _resolve_repo(repos: list[dict], spec: str, where: str) -> dict:
+    """One repo out of a list, by id, name or remote. Never a guess.
+
+    `where` names the list that was searched, so "not found" distinguishes
+    "you cannot see that repo" from "that team is not sharing it" -- two
+    different problems with two different next commands.
+    """
+    exact = [r for r in repos if r.get("repoId") == spec]
+    if exact:
+        return exact[0]
+    needle = spec.casefold()
+    matches = [
+        r for r in repos
+        if needle in (_repo_label(r) or "").casefold()
+        or needle in (r.get("remoteUrl") or "").casefold()
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        print(f"no repo matching {spec!r} {where}.", file=sys.stderr)
+        if repos:
+            print("  cci team repos   to see what there is", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"{spec!r} matches {len(matches)} repos {where}:", file=sys.stderr)
+    for r in matches:
+        print(f"    {_repo_label(r):<28}  {r.get('remoteUrl') or ''}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def _resolve_member(members: list[dict], spec: str) -> dict:
+    exact = [m for m in members if m.get("accountId") == spec
+             or (m.get("actor") or "").casefold() == spec.casefold()]
+    if len(exact) == 1:
+        return exact[0]
+    matches = [m for m in members
+               if spec.casefold() in (m.get("actor") or "").casefold()]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        print(f"nobody on this team matches {spec!r}.", file=sys.stderr)
+    else:
+        print(f"{spec!r} matches {len(matches)} people:", file=sys.stderr)
+        for m in matches:
+            print(f"    {m.get('actor', '')}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+#: Suffixes for `--expires-in`. Minutes are absent deliberately: a code that
+#: lives for minutes is a code the recipient will miss, and the failure is
+#: silent -- they get the same 404 as an attacker and no way to tell.
+_DURATIONS = {"h": 3_600_000, "d": 86_400_000, "w": 7 * 86_400_000}
+
+
+def _duration_ms(spec: str) -> int:
+    """`72h`, `3d`, `1w` -> milliseconds. Raises `ValueError` for anything else.
+
+    A bare number is rejected rather than assumed. "7" could mean hours or
+    days and the two differ by a factor of 24; guessing wrong in the long
+    direction leaves a live credential in a chat log for a week.
+    """
+    spec = spec.strip().lower()
+    if len(spec) < 2 or spec[-1] not in _DURATIONS or not spec[:-1].isdigit():
+        raise ValueError(
+            f"{spec!r} is not a duration. Use a number and a unit: 12h, 3d, 1w."
+        )
+    n = int(spec[:-1])
+    if n < 1:
+        raise ValueError("a duration must be at least 1.")
+    return n * _DURATIONS[spec[-1]]
+
+
+def _plural(n: int, one: str, many: str | None = None) -> str:
+    """`1 person` / `2 people`. Small, and the reason is that it is read.
+
+    This output is the first thing a person sees of the team feature, and
+    "1 people" is the kind of seam that makes a tool feel unfinished — which
+    matters here more than usual, because the thing it is asking them to
+    trust is a credential.
+    """
+    return f"{n:,} {one if n == 1 else (many or one + 's')}"
+
+
+def _relative(ms: int | None, *, now: int | None = None) -> str:
+    """"in 2 days" / "3 hours ago" / "expired". Coarse on purpose.
+
+    An exact timestamp is the wrong answer to "can I still send this to
+    somebody": it makes the reader do arithmetic across a timezone to find
+    out. The absolute time is available on the server for anyone who needs
+    it; this is the form the decision is actually made in.
+    """
+    if not ms:
+        return "—"
+    delta = ms - (now if now is not None else _now_ms())
+    past = delta < 0
+    delta = abs(delta)
+    # Floored, not rounded, and that is the safe direction for a credential:
+    # a 72-hour code reads "in 2 days", so nobody promises a colleague more
+    # life than it has. Rounding up would do the opposite.
+    for unit, size in (("day", 86_400_000), ("hour", 3_600_000), ("minute", 60_000)):
+        if delta >= size:
+            n = delta // size
+            plural = "" if n == 1 else "s"
+            return f"{n} {unit}{plural} ago" if past else f"in {n} {unit}{plural}"
+    return "just now" if past else "in under a minute"
+
+
+def _returns_exit_code(fn):
+    """Turn a refusal raised from deep in a helper into this command's exit code.
+
+    The helpers above (`_resolve_team`, `_resolve_repo`, `_team_call`, and
+    `_account_client` before them) refuse by printing a sentence and raising
+    `SystemExit`, because they are several frames down from the command and
+    have no `return` that reaches it.
+
+    Elsewhere in this CLI that exception is allowed to propagate out of
+    `main`, and a handful of tests depend on it doing so -- so this does NOT
+    change `main`. It converts only inside the `cci team` verbs, which gives
+    that surface one contract ("a command returns an int") without altering
+    the behaviour of any command that already shipped.
+    """
+    def wrapper(args: argparse.Namespace) -> int:
+        try:
+            return fn(args)
+        except SystemExit as exc:
+            if exc.code is None:
+                return 0
+            return exc.code if isinstance(exc.code, int) else 1
+
+    wrapper.__name__ = fn.__name__
+    wrapper.__doc__ = fn.__doc__
+    return wrapper
+
+
+def _team_client(args):
+    """Config plus an authenticated client. Every `cci team` verb starts here."""
+    cfg = config_mod.load(args.config_dir, create=False)
+    client, _credential, url = _account_client(args, cfg)
+    return cfg, client, url
+
+
+def _team_call(fn, *a, **kw):
+    """Run one request, or print the server's sentence and exit.
+
+    Wrapped in one place because every verb below does the same thing with a
+    failure, and `RemoteError.__str__` is already the whole message a user
+    should see -- including, for a 401, the `cci login` that fixes it.
+    """
+    try:
+        return fn(*a, **kw)
+    except remote.RemoteError as exc:
+        print(f"\n{exc}", file=sys.stderr)
+        raise SystemExit(1)
+
+
+def cmd_team_list(args: argparse.Namespace) -> int:
+    """The teams you are on, and what you are on them as."""
+    _cfg, client, url = _team_client(args)
+    teams = _team_call(client.teams)
+    if not teams:
+        print("\nyou are not on a team.")
+        print("  cci team new <name>     to start one")
+        print("  cci team join <code>    if a colleague sent you a join code\n")
+        return 0
+
+    print(f"\n{url}")
+    print(f"\nYOUR TEAMS  ({len(teams)})")
+    width = max(len(t.get("name") or "") for t in teams)
+    for t in teams:
+        roster = _team_call(client.team_roster, t["teamId"])
+        members = _team_call(client.team_members, t["teamId"])
+        print(f"  {(t.get('name') or ''):<{width}}  {t.get('role', ''):<6} "
+              f" {_plural(len(members), 'person', 'people'):>9}  "
+              f"{_plural(len(roster), 'repo')} shared")
+    print(f"\n  cci team members   who is on {'it' if len(teams) == 1 else 'one of them'}")
+    print("  cci team invite    to let somebody else in\n")
+    return 0
+
+
+def cmd_team_new(args: argparse.Namespace) -> int:
+    """Create a team. You are its first admin, and its only member."""
+    _cfg, client, _url = _team_client(args)
+    team = _team_call(client.create_team, args.name)
+    print(f"\ncreated {team['name']}")
+    print(f"  id       {team['teamId']}")
+    print(f"  you      {team['role']}")
+    print("\nIt shares nothing yet — a team is a list of people until a repo is on it.")
+    print("  cci team share <repo>   to share one of the repos you can see")
+    print("  cci team invite         to mint a join code for a colleague\n")
+    return 0
+
+
+def cmd_team_members(args: argparse.Namespace) -> int:
+    """Who is on the team, what they can do, and who let them in."""
+    _cfg, client, _url = _team_client(args)
+    team = _resolve_team(client, args.team)
+    members = _team_call(client.team_members, team["teamId"])
+
+    print(f"\n{team['name']}  ·  {_plural(len(members), 'person', 'people')}")
+    width = max(len(m.get("actor") or "") for m in members)
+    for m in members:
+        # Who invited them, because "how did this person get here" is the
+        # question the audit trail exists to answer and the roster is where
+        # somebody would think to ask it.
+        via = (f"invited by {m['invitedByActor']}" if m.get("invitedByActor")
+               else "created the team")
+        print(f"  {(m.get('actor') or ''):<{width}}  {m.get('role', ''):<6} "
+              f" joined {_relative(m.get('joinedAt')):<16} {via}")
+    if team.get("role") == "admin":
+        print("\n  cci team invite           to let somebody in")
+        print("  cci team remove <who>     to take somebody out")
+    print("  cci team leave            to take yourself out\n")
+    return 0
+
+
+def cmd_team_invite(args: argparse.Namespace) -> int:
+    """Mint a join code and print it once, saying plainly that it is once.
+
+    THE ONLY PLACE A LIVE JOIN CODE IS EVER PRINTED. It is stored hashed, so
+    "copy it now" is a statement of fact rather than a nag -- there is no
+    command that can show it again, and a person who closes the terminal has
+    to mint another one.
+
+    The code goes on its own line with nothing else on it, so that a
+    double-click selects the whole of it and nothing else.
+    """
+    _cfg, client, _url = _team_client(args)
+    team = _resolve_team(client, args.team)
+
+    ttl = None
+    if args.expires_in:
+        try:
+            ttl = _duration_ms(args.expires_in)
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+
+    minted = _team_call(client.create_invite, team["teamId"], role=args.role,
+                        expires_in_ms=ttl, max_uses=args.uses, note=args.note)
+
+    seats = minted.get("maxUses", 1)
+    print(f"\njoin code for {team['name']} — COPY IT NOW, IT IS NOT SHOWN AGAIN")
+    print(f"\n    {minted['code']}\n")
+    print(f"  joins as   {minted.get('role', 'member')}")
+    print(f"  expires    {_relative(minted.get('expiresAt'))}")
+    print(f"  good for   {_plural(seats, 'person', 'people')}")
+    if minted.get("note"):
+        print(f"  note       {minted['note']}")
+    print(f"  id         {minted.get('inviteId', '')}")
+    # Said out loud because the mistake this prevents is the expensive one:
+    # the code is a bearer secret, and somebody who treats it as a team name
+    # will paste it somewhere public.
+    print("\nAnyone holding this can join the team and read what it shares. Send it")
+    print("the way you would send a password. They run:")
+    print(f"\n    cci team join {minted['code'][:9]}…\n")
+    print("  cci team invites          to see it listed (without the code)")
+    print(f"  cci team revoke {minted.get('inviteId', '')}   if it goes astray\n")
+    return 0
+
+
+def cmd_team_invites(args: argparse.Namespace) -> int:
+    """Outstanding and spent codes. Never the codes themselves."""
+    _cfg, client, _url = _team_client(args)
+    team = _resolve_team(client, args.team)
+    invites = _team_call(client.team_invites, team["teamId"])
+
+    if not invites:
+        print(f"\nno join codes for {team['name']}.")
+        print("  cci team invite   to mint one\n")
+        return 0
+
+    live = [i for i in invites if i.get("active")]
+    print(f"\n{team['name']}  ·  {len(live)} live of "
+          f"{_plural(len(invites), 'code')}")
+    for i in invites:
+        if i.get("revokedAt"):
+            state = "revoked"
+        elif i.get("uses", 0) >= i.get("maxUses", 1):
+            state = "used up"
+        elif not i.get("active"):
+            state = "expired"
+        else:
+            state = f"live, {i.get('maxUses', 1) - i.get('uses', 0)} left"
+        print(f"\n  {i.get('inviteId', '')}  {state}")
+        print(f"    minted by {i.get('createdByActor', '')} "
+              f"{_relative(i.get('createdAt'))}"
+              + (f" · {i['note']}" if i.get("note") else ""))
+        print(f"    joins as {i.get('role', 'member')}, "
+              f"expires {_relative(i.get('expiresAt'))}")
+        for r in i.get("redemptions") or []:
+            print(f"    redeemed by {r.get('actor', '')} "
+                  f"{_relative(r.get('redeemedAt'))}")
+    # The absence is worth stating, so nobody goes looking for a flag.
+    print("\nThe codes are not shown: they are stored hashed and cannot be "
+          "recovered.\n  cci team revoke <id>   to kill one\n")
+    return 0
+
+
+def cmd_team_revoke(args: argparse.Namespace) -> int:
+    """Kill a join code. Idempotent, so it is safe to run when unsure."""
+    _cfg, client, _url = _team_client(args)
+    team = _resolve_team(client, args.team)
+    _team_call(client.revoke_invite, team["teamId"], args.invite_id)
+    print(f"\nrevoked {args.invite_id} on {team['name']}")
+    print("  Anybody who has not already used it cannot now.")
+    print("  cci team members   to check who did get in\n")
+    return 0
+
+
+def cmd_team_join(args: argparse.Namespace) -> int:
+    """Redeem a join code. This is the moment you agree to be on the team."""
+    _cfg, client, _url = _team_client(args)
+    joined = _team_call(client.join_team, args.code.strip())
+
+    if joined.get("alreadyMember"):
+        print(f"\nyou were already on {joined.get('name', '')} — nothing changed.")
+        print("  cci team members   to see who else is\n")
+        return 0
+
+    print(f"\njoined {joined.get('name', '')} as {joined.get('role', 'member')}")
+    roster = _team_call(client.team_roster, joined["teamId"])
+    if roster:
+        print(f"\n  It shares {_plural(len(roster), 'repo')} with you:")
+        for r in roster[:5]:
+            print(f"    {_repo_label(r)}")
+        if len(roster) > 5:
+            print(f"    … and {len(roster) - 5} more")
+    else:
+        print("\n  It shares no repos yet, so you can see nothing new.")
+    # Worth saying, because the natural assumption on joining a team is that
+    # your own work is now on it. It is not: publishing is what shares your
+    # rows, and a roster is what shares a repo.
+    print("\nJoining did not share any of your own work. `cci publish` sends yours.")
+    print("  cci team          what you can see now")
+    print("  cci team leave    to undo this\n")
+    return 0
+
+
+def cmd_team_leave(args: argparse.Namespace) -> int:
+    """Leave a team. The other half of consent."""
+    _cfg, client, _url = _team_client(args)
+    team = _resolve_team(client, args.team)
+
+    if not args.yes:
+        print(f"\nLeaving {team['name']}. You will lose sight of the repos it "
+              "shares with you,")
+        print("and its members lose whatever your rosters shared with them.")
+        answer = input(f"Type the team name to confirm [{team['name']}]: ").strip()
+        if answer != team["name"]:
+            print("nothing changed.")
+            return 1
+
+    account_id = _team_call(client.whoami)["accountId"]
+    _team_call(client.remove_member, team["teamId"], account_id)
+    print(f"\nleft {team['name']}")
+    print("  cci team list   the teams you are still on\n")
+    return 0
+
+
+def cmd_team_remove(args: argparse.Namespace) -> int:
+    """Remove somebody from the team. Admin only."""
+    _cfg, client, _url = _team_client(args)
+    team = _resolve_team(client, args.team)
+    members = _team_call(client.team_members, team["teamId"])
+    target = _resolve_member(members, args.who)
+
+    _team_call(client.remove_member, team["teamId"], target["accountId"])
+    print(f"\nremoved {target.get('actor', '')} from {team['name']}")
+    # Named because removal alone is not enough if they still hold a live
+    # code: a spent single-use code cannot readmit them, but a multi-use one
+    # can, and an admin doing this deliberately should be told.
+    print("  cci team invites   check no live code lets them back in\n")
+    return 0
+
+
+def cmd_team_repos(args: argparse.Namespace) -> int:
+    """Repos you can see, or -- with `--team` -- the ones one team shares.
+
+    Two questions on one command because they are the same question with a
+    different scope, and keeping them apart as two verbs would invite the
+    belief that a team's roster is the whole of what you can see. It is not:
+    forge access and your own publications reach repos no team shares.
+    """
+    _cfg, client, _url = _team_client(args)
+
+    if args.team:
+        team = _resolve_team(client, args.team)
+        repos = _team_call(client.team_roster, team["teamId"])
+        heading = f"{team['name']} SHARES"
+        empty = ("nothing yet.\n  cci team share <repo>   "
+                 "to put one of your repos on it")
+    else:
+        repos = _team_call(client.team_repos)
+        heading = "REPOS YOU CAN SEE"
+        empty = ("no repos in scope yet.\n  cci publish   "
+                 "to share this machine's repos")
+
+    if not repos:
+        print(f"\n{empty}\n")
+        return 0
+
+    print(f"\n{heading}  ({len(repos)})")
+    width = max(len(_repo_label(r)) for r in repos)
+    for r in sorted(repos, key=lambda r: _repo_label(r).casefold()):
+        # `via` says WHY it is visible, which is the question a person asks
+        # when they are surprised by something in this list. Only the scope
+        # listing carries it; a roster is a roster.
+        via = ", ".join(r.get("via") or []) or ""
+        bits = [f"via {via}"] if via else []
+        if not r.get("branchNamesPublished", True):
+            bits.append("branch names off")
+        tail = ("  [" + " · ".join(bits) + "]") if bits else ""
+        print(f"  {_repo_label(r):<{width}}  {r.get('remoteUrl') or ''}{tail}")
+
+    if args.ids:
+        print()
+        for r in sorted(repos, key=lambda r: _repo_label(r).casefold()):
+            print(f"  {r.get('repoId', '')}  {_repo_label(r)}")
+    else:
+        print("\n  --ids   to print the repo ids as well")
+    print()
+    return 0
+
+
+def cmd_team_share(args: argparse.Namespace) -> int:
+    """Put a repo on a team's roster.
+
+    The server permits this only for a repo already in the caller's own
+    scope, and what the team then gets is what the CALLER had -- every row
+    if a forge identity was verified for the repo, their own rows otherwise.
+    That is `docs/SERVER_API.md` §4.5 and it is not restated in the output
+    as a rule, but the "shares" line below says which of the two happened,
+    because an admin who thinks they shared a whole repo and shared one row
+    has been misled by their own tool.
+    """
+    _cfg, client, _url = _team_client(args)
+    team = _resolve_team(client, args.team)
+    scope = _team_call(client.team_repos)
+    repo = _resolve_repo(scope, args.repo, "in what you can see")
+
+    _team_call(client.share_repo, team["teamId"], repo["repoId"],
+               branch_names_published=not args.no_branches)
+
+    via = repo.get("via") or []
+    full = any(v == "github" for v in via)
+    print(f"\nshared {_repo_label(repo)} with {team['name']}")
+    print("  they see   " + ("every published row in this repo"
+                             if full else "the rows you published, and no others"))
+    if not full:
+        # The under-sharing is deliberate and correctable, and saying so here
+        # saves an admin concluding the feature is broken.
+        print("             (you reach this repo as its publisher, not through")
+        print("              GitHub, so that is all you had to share)")
+    print("  branches   " + ("published" if not args.no_branches else "hidden"))
+    print("\n  cci team repos --team   what the team shares now")
+    print("  cci team unshare        to take it back off\n")
+    return 0
+
+
+def cmd_team_unshare(args: argparse.Namespace) -> int:
+    """Take a repo off a team's roster."""
+    _cfg, client, _url = _team_client(args)
+    team = _resolve_team(client, args.team)
+    roster = _team_call(client.team_roster, team["teamId"])
+    if not roster:
+        print(f"\n{team['name']} shares nothing.\n")
+        return 0
+    repo = _resolve_repo(roster, args.repo, f"on {team['name']}'s roster")
+
+    _team_call(client.unshare_repo, team["teamId"], repo["repoId"])
+    print(f"\n{team['name']} no longer sees {_repo_label(repo)}")
+    # The honest limit, stated rather than left to be discovered. It is the
+    # same point docs/REDACTION.md §5 makes about revocation.
+    print("  Anything they already read, they have read. This stops the next look.")
+    print("  cci team repos --team   what is left\n")
+    return 0
+
+
+def cmd_team_branches(args: argparse.Namespace) -> int:
+    """Turn branch-name publication on or off for one repo, for one team.
+
+    docs/ACCOUNTS.md §5 rule 2. The switch takes effect at READ time, which
+    is the only way it can work -- its whole purpose is to be flipped after
+    the rows were published.
+    """
+    _cfg, client, _url = _team_client(args)
+    team = _resolve_team(client, args.team)
+    roster = _team_call(client.team_roster, team["teamId"])
+    if not roster:
+        print(f"\n{team['name']} shares no repos, so there is no switch to flip.\n")
+        return 0
+    repo = _resolve_repo(roster, args.repo, f"on {team['name']}'s roster")
+    on = args.state == "on"
+
+    _team_call(client.set_branch_names, team["teamId"], repo["repoId"], on)
+    print(f"\nbranch names {'shown to' if on else 'hidden from'} {team['name']} "
+          f"for {_repo_label(repo)}")
+    if on:
+        print("  Branch names are free text. `feat/restricted-org-dbs` can say")
+        print("  more than its author meant.")
+    else:
+        # Both halves matter: it is retroactive, and it is per team.
+        print("  This applies to names already published, not just new ones.")
+        print("  Another team with this repo on its roster is unaffected.")
+    print("  cci team sessions   to see it from a reader's side\n")
+    return 0
+
+
+def cmd_team_actors(args: argparse.Namespace) -> int:
+    """Per-person totals inside your scope.
+
+    docs/ACCOUNTS.md §7 rules out ranking and "time saved" on purpose: this
+    measures agent time, not work, and the answer to "who did the most" is
+    wrong in a way that will be quoted anyway. So the rows are ordered by
+    name, not by hours, and the caveat is printed rather than implied.
+    """
+    _cfg, client, _url = _team_client(args)
+    body = _team_call(client.team_actors)
+    actors = body.get("actors") or []
+    if not actors:
+        print("\nno published time in your scope.")
+        print("  cci publish   to send yours\n")
+        return 0
+
+    print(f"\nPEOPLE IN SCOPE  ({len(actors)})")
+    width = max(len(a.get("actor") or "") for a in actors)
+    for a in sorted(actors, key=lambda a: (a.get("actor") or "").casefold()):
+        print(f"  {(a.get('actor') or ''):<{width}} "
+              f" {_hours((a.get('activeMs') or 0) / 3_600_000):>9} "
+              f"  {_plural(a.get('sessions', 0), 'session'):>12}"
+              f"  {_plural(a.get('repos', 0), 'repo'):>9}")
+    _print_withheld_block(body)
+    print("\n  This is agent time, not work done, and it is only the repos you")
+    print("  can see. It does not rank anybody.\n")
+    return 0
+
+
+def cmd_team_daily(args: argparse.Namespace) -> int:
+    """Active time per UTC day, inside your scope."""
+    _cfg, client, _url = _team_client(args)
+    body = _team_call(client.team_daily)
+    days = body.get("days") or []
+    if not days:
+        print("\nno published time in your scope.\n")
+        return 0
+
+    peak = max((d.get("activeMs") or 0) for d in days) or 1
+    print(f"\nDAILY  ({_plural(len(days), 'day')} with activity, UTC)")
+    for d in days[-args.limit:]:
+        ms = d.get("activeMs") or 0
+        print(f"  {d.get('date', '')}  {_bar(ms / peak, 24)} "
+              f"{_hours(ms / 3_600_000):>9}")
+    # UTC, and said so: docs/SERVER_API.md §4.8 buckets by UTC deliberately
+    # because a team spans timezones, and a renderer that does not label the
+    # axis is showing somebody a day that is not theirs.
+    print("\n  Days are UTC, not your local calendar — a team spans timezones.")
+    _print_withheld_block(body)
+    print()
+    return 0
+
+
+def _print_withheld_block(body: dict) -> None:
+    """The hours that could not be published. Never silently omitted.
+
+    docs/ACCOUNTS.md §5: a dashboard that quietly drops part of somebody's
+    week is not private, it is wrong, and the reader cannot tell which.
+    """
+    withheld = body.get("withheld") or {}
+    rows = withheld.get("byActor") or []
+    if not rows:
+        return
+    span = "this range" if withheld.get("rangeFiltered") else "all time"
+    print(f"\nWITHHELD  ({span}, work in no repo at all)")
+    for row in rows:
+        print(f"  {(row.get('actor') or ''):<16} "
+              f"{_hours((row.get('withheldMs') or 0) / 3_600_000)}"
+              f"  in {row.get('withheldProjects', 0)} projects")
 
 
 def cmd_team(args: argparse.Namespace) -> int:
@@ -1875,10 +2526,90 @@ def build_parser() -> argparse.ArgumentParser:
     # repos in scope and the summary -- and making somebody pick a subcommand
     # to see the obvious thing is a worse first run.
     tsub = tm.add_subparsers(dest="team_command", required=False)
+
+    def team_sub(name, helptext, fn, *, team_flag=True):
+        """One `cci team` verb, with the two flags every one of them takes.
+
+        `--team` is added here rather than per-command so that no verb can
+        be added without it. A command that silently acted on "the team" when
+        the caller is on three is a command that changes who reads somebody's
+        work without being asked which team.
+        """
+        sp = tsub.add_parser(name, help=helptext)
+        if team_flag:
+            sp.add_argument("--team", default=None, metavar="NAME|ID",
+                            help="which team; optional when you are on one")
+        sp.add_argument("--server", default=None, metavar="URL")
+        # Wrapped here, so a verb cannot be registered without it and one
+        # added next month exits with a code rather than a traceback.
+        sp.set_defaults(fn=_returns_exit_code(fn))
+        return sp
+
+    team_sub("list", "the teams you are on", cmd_team_list, team_flag=False)
+
+    tnew = team_sub("new", "create a team; you become its admin",
+                    cmd_team_new, team_flag=False)
+    tnew.add_argument("name", help="what to call it")
+
+    team_sub("members", "who is on the team, and who let them in", cmd_team_members)
+
+    tinv = team_sub("invite", "mint a join code — printed once, never again",
+                    cmd_team_invite)
+    tinv.add_argument("--role", choices=("member", "admin"), default="member",
+                      help="what the redeemer becomes (default: member)")
+    tinv.add_argument("--expires-in", default=None, metavar="12h|3d|1w",
+                      help="how long it stays usable (default: 3d, max 30d)")
+    tinv.add_argument("--uses", type=int, default=None, metavar="N",
+                      help="how many people may redeem it (default: 1)")
+    tinv.add_argument("--note", default=None, metavar="TEXT",
+                      help="what it was for, shown in `cci team invites`")
+
+    team_sub("invites", "join codes on this team, without the codes",
+             cmd_team_invites)
+
+    trev = team_sub("revoke", "kill a join code", cmd_team_revoke)
+    trev.add_argument("invite_id", metavar="INVITE-ID")
+
+    tjoin = team_sub("join", "redeem a join code a colleague sent you",
+                     cmd_team_join, team_flag=False)
+    tjoin.add_argument("code", metavar="CODE")
+
+    tleave = team_sub("leave", "leave a team", cmd_team_leave)
+    tleave.add_argument("--yes", action="store_true", help="skip the confirmation")
+
+    trm = team_sub("remove", "remove somebody from the team", cmd_team_remove)
+    trm.add_argument("who", metavar="ACTOR|ACCOUNT-ID")
+
+    trepos = team_sub("repos", "repos you can see, or what one team shares",
+                      cmd_team_repos)
+    trepos.add_argument("--ids", action="store_true",
+                        help="print repo ids too, for copying into `share`")
+
+    tshare = team_sub("share", "put a repo you can see on a team's roster",
+                      cmd_team_share)
+    tshare.add_argument("repo", metavar="NAME|ID")
+    tshare.add_argument("--no-branches", action="store_true",
+                        help="share it with branch names hidden")
+
+    tunshare = team_sub("unshare", "take a repo off a team's roster",
+                        cmd_team_unshare)
+    tunshare.add_argument("repo", metavar="NAME|ID")
+
+    tbranch = team_sub("branches", "show or hide branch names for one repo",
+                       cmd_team_branches)
+    tbranch.add_argument("state", choices=("on", "off"))
+    tbranch.add_argument("repo", metavar="NAME|ID")
+
     tsess = tsub.add_parser("sessions", help="published sessions inside your scope")
     tsess.add_argument("--limit", type=int, default=50)
     tsess.add_argument("--server", default=None, metavar="URL")
     tsess.set_defaults(fn=cmd_team_sessions)
+
+    team_sub("actors", "per-person totals inside your scope",
+             cmd_team_actors, team_flag=False)
+    tdaily = team_sub("daily", "active time per UTC day inside your scope",
+                      cmd_team_daily, team_flag=False)
+    tdaily.add_argument("--limit", type=int, default=30, metavar="DAYS")
 
     syn = sub.add_parser("sync", help="share this machine's data with your others")
     ssub = syn.add_subparsers(dest="sync_command", required=True)
