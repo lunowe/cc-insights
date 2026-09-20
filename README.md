@@ -13,16 +13,52 @@ how much of it is me driving versus agents running on their own.
 The pipeline works end to end: three source adapters, incremental ingest, span
 derivation, cost, a dashboard and a CLI. It runs on Windows, syncs between your
 machines through PostgreSQL, and knows what it may and may not share with
-anyone else. 935 tests.
+anyone else. 953 tests.
 
 ## Install
 
-One command, and then it looks after itself:
+One command, on a machine with nothing set up:
 
 ```bash
-pip install -e .      # from a checkout; see Releasing for the wheel
+curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/main/scripts/install.sh | bash
+```
+
+It finds a Python 3.11+ (and if there is not one, names the command that gets
+you one on your platform), installs through `pipx` when you have it and a
+managed venv under `~/.local/share/cc-insights` when you do not, links `cci`
+into `~/.local/bin`, and finishes by running `cci install` and then
+`cci doctor` — so the last thing on screen is either a green report or the
+exact command that fixes what is wrong. It never prompts: piped from curl it
+*cannot*, since stdin is the script itself. Re-running it upgrades in place.
+`--watch` and `--uninstall` pass straight through:
+
+```bash
+curl -fsSL .../scripts/install.sh | bash -s -- --watch
+curl -fsSL .../scripts/install.sh | bash -s -- --uninstall
+```
+
+If you would rather not pipe a script you have not read, this is the same
+thing with the Python-finding left to you:
+
+```bash
+pipx install cc-insights
 cci install
 ```
+
+### From a checkout
+
+Contributors, and anyone installing before the first release is on PyPI. The
+frontend build comes **first** — the wheel force-includes `frontend/dist`, so
+without it even `pip install -e .` fails with `Forced include not found`:
+
+```bash
+pnpm --dir frontend install && pnpm --dir frontend build
+python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
+.venv/bin/cci install
+```
+
+`scripts/install.sh` run from inside a checkout installs *that checkout*
+rather than PyPI, and builds the frontend for you if it is missing.
 
 `cci install` does the whole first run — config, database, a first ingest, and
 a background job — because every one of those used to be a separate thing to
@@ -241,9 +277,50 @@ migrations/     numbered SQL, applied in order; also force-included
 docs/           FINDINGS.md (ground truth), API.md (frozen contract),
                 REDACTION.md (what may be shared), ACCOUNTS.md (teams,
                 designed not built), ROADMAP.md, probes/
-scripts/        launchd jobs (interval and watch) + installer (macOS),
-                Task Scheduler job (Windows), fixture and price sync
+scripts/        install.sh -- the `curl | bash` bootstrap; install-launchd.sh
+                -- the from-a-checkout wrapper; fixture and price sync
+.github/        ci.yml (tests on push/PR) and release.yml (tag -> PyPI),
+                both of which build the frontend before touching the wheel
 ```
+
+## Releasing
+
+Bump `version` in `pyproject.toml`, then push a matching tag:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+`.github/workflows/release.yml` does the rest, in this order and no other:
+
+1. **Build the frontend.** `pyproject.toml` force-includes `frontend/dist`
+   into `cc_insights/web`, and `frontend/dist` is gitignored because it is a
+   build artifact — so on a fresh checkout it does not exist and hatchling
+   refuses to build at all. Before that guard existed the failure was worse
+   than a broken build: the wheel shipped *without* the dashboard, `cci serve`
+   told people who had no repo to run `npm run build`, and nothing said the
+   release was incomplete. Build the frontend, **then** the wheel.
+2. **Run the full suite.** `tests/test_packaging.py` builds a wheel and looks
+   inside it — dashboard, every migration, the job templates, the entry
+   point. That is the gate; asserting on `pyproject.toml` would only confirm
+   the rule is written down, not that hatchling honoured it.
+3. **Build the wheel and sdist**, then re-check the artifact that is about to
+   be uploaded. `test_packaging.py` *skips* its dashboard assertions when
+   `frontend/dist` is absent, which is right on a laptop and would be a hole
+   here, so the release job repeats the check in a form that cannot skip.
+4. **Publish via trusted publishing.** PyPI mints a short-lived token from the
+   workflow's OIDC identity, so there is no API token in repository secrets.
+   The publisher is configured on PyPI against this repository, the workflow
+   filename `release.yml` and the `pypi` environment; all three are matched,
+   so renaming the file breaks the upload.
+
+The tag is checked against `project.version` before anything is built: PyPI
+takes the version from the metadata and ignores the tag, so a mismatch
+publishes a number the release notes disagree with.
+
+`.github/workflows/ci.yml` runs the same tests on every push and pull request
+— Linux on 3.11/3.12/3.13 plus one macOS leg, because the launchd half of
+`scheduler.py` skips everywhere else.
 
 ## Roadmap
 
