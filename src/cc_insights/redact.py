@@ -64,6 +64,8 @@ FIELDS: tuple[Field, ...] = tuple(
     _f("host", {
         "host_id": (DERIVED, "a UUID, but it silently links one person's machines; "
                              "a team view should name the actor on purpose"),
+        "account_id": (DERIVED, "replaced by actor; it silently links one person's machines; "
+                                "a team view should name the actor on purpose"),
         "hostname": (PRIVATE, "commonly carries a person's name"),
         "os": (PUBLIC, "platform only, no identity"),
         "first_seen": (PRIVATE, "says when this machine was set up, not about any repo"),
