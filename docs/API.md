@@ -259,6 +259,38 @@ type Cost = CostTotals & {
 };
 ```
 
+## `GET /api/live` — the watch-mode stream
+
+Not one of the endpoints above, and deliberately outside the `Filters`
+contract: those are filtered, cacheable and capturable as a fixture, and a
+stream is none of the three.
+
+`cci watch --serve` runs the pipeline in the background and feeds this
+endpoint, so an open dashboard refreshes when a log file grows instead of
+polling. Content type `text/event-stream`.
+
+```
+event: hello
+data: {"generation": 12, "last": {...}, "heartbeatS": 20}
+
+: keep-alive                        <- a comment frame; fires no event
+
+event: change
+data: {"generation": 13, "at": 1789913704558, "changedFiles": 1,
+       "eventsInserted": 3, "sessions": 10, "spans": 1430,
+       "activeMs": 695256036, "cost": 13341.69, "currency": "USD",
+       "durationS": 0.155, "errors": []}
+```
+
+- `spans`, `activeMs` and `cost` are **corpus totals after the cycle**;
+  `eventsInserted` and `sessions` are that cycle's delta.
+- `generation` only advances on a cycle that changed something, so a client
+  may refetch on every `change` without looping.
+- **With no watcher running the path returns `404`.** That is what makes an
+  `EventSource` give up instead of reconnecting forever, and it is how a page
+  learns there is nothing live to listen to. Treat the 404 as "not watching",
+  not as an error worth showing.
+
 ## Errors
 
 `400` with `{"error": "..."}` for a malformed filter. `404` with the same shape
@@ -271,6 +303,8 @@ by `scripts/dump_fixtures.py` from a live database. The frontend must render
 correctly from these with no server running, so the UI can be built and reviewed
 independently of the backend.
 
-The committed capture predates grouping: it has no `groups.json` and no group
-fields, and is regenerated once the detector has run. `dump_fixtures.py`
-already emits both.
+One file per endpoint, both ways: a fixture with no endpoint behind it is dead
+weight the frontend may still be reading, and an endpoint with no fixture is
+one the frontend cannot be built against offline.
+`tests/test_metrics.py::test_every_contract_endpoint_is_implemented` enforces
+it. `/api/live` has no fixture because it is not an endpoint in this sense.

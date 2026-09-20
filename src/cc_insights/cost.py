@@ -43,7 +43,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Sequence
+from typing import Any, Iterable, Iterator, Sequence
 
 from cc_insights import pricing
 from cc_insights.pricing import COMPONENTS, Rates
@@ -54,6 +54,9 @@ NANO = 1_000_000_000
 
 #: Rows buffered before a write.
 _CHUNK = 5_000
+
+#: Ids per `IN (...)` list when re-pricing a scope, matching derive.py.
+_ID_CHUNK = 400
 
 #: Why an event's tokens went unpriced. Stored, not inferred later.
 NO_MODEL = "no_model"
@@ -138,19 +141,46 @@ def nano_for(tokens: int, rate_per_mtok: float) -> int:
     return round(tokens * rate_per_mtok * NANO / 1_000_000)
 
 
-def _token_events(conn: sqlite3.Connection) -> Iterator[sqlite3.Row]:
-    """Every event that either carries tokens or names a model, in thread-time
-    order -- both are needed, because naming a model is what lets a later
-    token-bearing event in the same thread be priced."""
-    return conn.execute(
-        """SELECT e.id, e.session_id, e.thread_id, e.ts, e.model,
-                  e.input_tokens, e.output_tokens, e.cache_read_tokens, e.cache_write_tokens
-           FROM event e
-           WHERE e.model IS NOT NULL
-              OR e.input_tokens IS NOT NULL OR e.output_tokens IS NOT NULL
-              OR e.cache_read_tokens IS NOT NULL OR e.cache_write_tokens IS NOT NULL
-           ORDER BY e.thread_id, e.ts, e.ordinal"""
-    )
+def _chunks(values: Sequence[str]) -> Iterable[Sequence[str]]:
+    for i in range(0, len(values), _ID_CHUNK):
+        yield values[i : i + _ID_CHUNK]
+
+
+_TOKEN_EVENT_SQL = """
+    SELECT e.id, e.session_id, e.thread_id, e.ts, e.model,
+           e.input_tokens, e.output_tokens, e.cache_read_tokens, e.cache_write_tokens
+    FROM e_scope e
+    WHERE e.model IS NOT NULL
+       OR e.input_tokens IS NOT NULL OR e.output_tokens IS NOT NULL
+       OR e.cache_read_tokens IS NOT NULL OR e.cache_write_tokens IS NOT NULL
+    ORDER BY e.thread_id, e.ts, e.ordinal
+"""
+
+
+def _token_events(
+    conn: sqlite3.Connection, scope: Sequence[str] | None
+) -> Iterator[sqlite3.Row]:
+    """Every event that carries tokens or names a model, in thread-time order.
+
+    Both kinds are needed: naming a model is what lets a *later* token-bearing
+    event in the same thread be priced. Ordering by thread then time is what
+    makes that carry-forward well defined.
+
+    A scope is a list of session ids -- what `cci watch` passes after an
+    incremental ingest, so a two-second cycle re-prices the handful of
+    sessions that moved instead of all 66,000 events. Scoping by session is
+    safe precisely because the only thing carried between events is the
+    model, and that never crosses a thread, let alone a session.
+    """
+    if scope is None:
+        yield from conn.execute(_TOKEN_EVENT_SQL.replace("e_scope", "event"))
+        return
+    for chunk in _chunks(list(scope)):
+        marks = ",".join("?" * len(chunk))
+        sql = _TOKEN_EVENT_SQL.replace(
+            "e_scope", f"(SELECT * FROM event WHERE session_id IN ({marks}))"
+        )
+        yield from conn.execute(sql, tuple(chunk))
 
 
 def _price_event(
@@ -171,12 +201,20 @@ def _price_event(
     return costs, missing
 
 
-def derive_costs(conn: sqlite3.Connection) -> CostResult:
-    """Rebuild `event_cost` from scratch. Returns what was and was not priced.
+def derive_costs(
+    conn: sqlite3.Connection, *, session_ids: Sequence[str] | None = None
+) -> CostResult:
+    """Rebuild the cost tables. Returns what was and was not priced.
 
-    Runs in one transaction: a half-priced table would make a dashboard show a
-    total that is neither the old answer nor the new one.
+    With `session_ids`, only those sessions are re-priced and every other
+    session's rows are left alone; the returned `CostResult` then describes
+    the scope, not the corpus. With `None` the whole database is rebuilt,
+    which is what `cci cost` does and what a price change requires.
+
+    Runs in one transaction: a half-priced table would make a dashboard show
+    a total that is neither the old answer nor the new one.
     """
+    scope = list(dict.fromkeys(session_ids)) if session_ids is not None else None
     started = time.perf_counter()
     rates_by_model = pricing.load_rates(conn)
     result = CostResult()
@@ -184,8 +222,7 @@ def derive_costs(conn: sqlite3.Connection) -> CostResult:
 
     conn.execute("BEGIN")
     try:
-        conn.execute("DELETE FROM event_cost")
-        conn.execute("DELETE FROM event_unpriced")
+        _clear(conn, scope)
         priced_batch: list[tuple] = []
         unpriced_batch: list[tuple] = []
         last_thread: str | None = None
@@ -197,7 +234,7 @@ def derive_costs(conn: sqlite3.Connection) -> CostResult:
                 model, attributed, tokens, reason,
             ))
 
-        for row in _token_events(conn):
+        for row in _token_events(conn, scope):
             if row["thread_id"] != last_thread:
                 last_thread, carried = row["thread_id"], None
             if row["model"]:
@@ -266,6 +303,18 @@ def derive_costs(conn: sqlite3.Connection) -> CostResult:
     result.currency = currencies.pop() if len(currencies) == 1 else "mixed"
     result.duration_s = time.perf_counter() - started
     return result
+
+
+def _clear(conn: sqlite3.Connection, scope: Sequence[str] | None) -> None:
+    """Drop the cost rows in scope so they can be rebuilt."""
+    if scope is None:
+        conn.execute("DELETE FROM event_cost")
+        conn.execute("DELETE FROM event_unpriced")
+        return
+    for chunk in _chunks(list(scope)):
+        marks = ",".join("?" * len(chunk))
+        conn.execute(f"DELETE FROM event_cost WHERE session_id IN ({marks})", tuple(chunk))
+        conn.execute(f"DELETE FROM event_unpriced WHERE session_id IN ({marks})", tuple(chunk))
 
 
 def _write_priced(conn: sqlite3.Connection, batch: Sequence[tuple]) -> None:

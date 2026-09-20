@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from cc_insights import cli, derive, metrics, serve
+from cc_insights import cli, derive, metrics, serve, watch
 from cc_insights.config import Config
 from test_metrics import (ALPHA_MS, CODEX_SUB_MS, MIDNIGHT_MS, OMEGA_MS, SUB_MS,
                           TOTAL_MS, UNGROUPED_MS, _insert)
@@ -530,3 +530,121 @@ def test_banner_is_flushed_and_carries_a_well_formed_url(tmp_path, capsys, monke
     assert "CC-Insights is running at" in out
     assert "/api/summary" in out
     assert "//api/" not in out, "double slash: server.url already ends in /"
+
+
+# --------------------------------------------------------------------------
+# the live stream
+# --------------------------------------------------------------------------
+# `/api/live` is deliberately outside `metrics.ENDPOINTS`: those are the
+# filtered, cacheable, fixture-capturable contract, and a stream is none of
+# those. The tests below pin the two behaviours a page depends on -- a 404
+# when nothing is watching, so an EventSource gives up instead of reconnecting
+# forever, and a well-formed frame when something is.
+
+
+@pytest.fixture
+def live_server(cfg: Config):
+    live = watch.LiveState()
+    srv = serve.make_server(cfg, port=0, dist_dir=None, quiet=True, live=live)
+    thread = threading.Thread(target=srv.serve_forever, args=(POLL,), daemon=True)
+    thread.start()
+    try:
+        yield srv, live
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        thread.join(timeout=TIMEOUT)
+
+
+def parse_sse(body: bytes) -> list[tuple[str, dict]]:
+    """(event name, data) per frame. Comment lines are keep-alives, not events."""
+    frames = []
+    name = None
+    for line in body.decode().splitlines():
+        if line.startswith("event: "):
+            name = line[len("event: "):]
+        elif line.startswith("data: "):
+            frames.append((name or "message", json.loads(line[len("data: "):])))
+            name = None
+    return frames
+
+
+def test_the_live_path_is_not_a_metrics_endpoint():
+    assert "live" not in metrics.ENDPOINTS
+    assert serve.LIVE_PATH == "/api/live"
+
+
+def test_live_is_404_when_no_watcher_is_running(server):
+    """A non-200 is what makes an EventSource stop rather than retry forever."""
+    status, payload = get_json(server, "/api/live")
+    assert status == 404 and "cci watch" in payload["error"]
+
+
+def test_live_streams_an_event_stream(live_server):
+    srv, _ = live_server
+    status, headers, body = request(srv, "/api/live?once=1")
+    assert status == 200
+    assert headers.get("Content-Type") == "text/event-stream; charset=utf-8"
+    assert headers.get("Cache-Control") == "no-store"
+
+
+def test_the_first_frame_carries_the_current_generation(live_server):
+    srv, live = live_server
+    live.publish({"eventsInserted": 7, "activeMs": 123})
+    _, _, body = request(srv, "/api/live?once=1")
+    frames = parse_sse(body)
+    assert frames[0][0] == "hello"
+    assert frames[0][1]["generation"] == 1
+    assert frames[0][1]["last"]["eventsInserted"] == 7
+
+
+def test_a_cycle_published_while_listening_arrives_as_a_change(live_server):
+    srv, live = live_server
+
+    got: list = []
+
+    def listen():
+        try:
+            req = urllib.request.Request(srv.url.rstrip("/") + "/api/live")
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+                for _ in range(6):
+                    chunk = resp.readline()
+                    if not chunk:
+                        break
+                    got.append(chunk)
+        except Exception:       # the server is torn down under us at the end
+            pass
+
+    thread = threading.Thread(target=listen, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + TIMEOUT
+    while not got and time.monotonic() < deadline:
+        time.sleep(0.02)
+    live.publish({"eventsInserted": 3, "activeMs": 99})
+
+    deadline = time.monotonic() + TIMEOUT
+    while time.monotonic() < deadline:
+        frames = parse_sse(b"".join(got))
+        if any(name == "change" for name, _ in frames):
+            break
+        time.sleep(0.02)
+
+    frames = dict(parse_sse(b"".join(got)))
+    assert "change" in frames, f"no change frame in {got!r}"
+    assert frames["change"]["eventsInserted"] == 3
+
+
+def test_live_carries_the_cors_headers_like_every_other_response(live_server):
+    srv, _ = live_server
+    _, headers, _ = request(srv, "/api/live?once=1",
+                            headers={"Origin": "http://localhost:5173"})
+    assert headers.get("Access-Control-Allow-Origin") == "http://localhost:5173"
+
+
+def test_a_head_on_live_gets_headers_and_no_stream(live_server):
+    """Streaming a body to a request that asked for none desynchronises the
+    connection."""
+    srv, _ = live_server
+    status, headers, body = request(srv, "/api/live?once=1", method="HEAD")
+    assert status == 200 and body == b""
+    assert headers.get("Content-Type") == "text/event-stream; charset=utf-8"

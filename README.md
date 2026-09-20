@@ -8,16 +8,15 @@ already write, so you can answer: when do I actually use agents and for how
 long, how often do I run them in parallel, which projects consume the time, and
 how much of it is me driving versus agents running on their own.
 
-## Status — Stage 1 complete
+## Status — Stage 2 complete, v1 under way
 
-The pipeline works end to end: two source adapters, incremental ingest, span
-derivation, and a CLI. 196 tests. Stage 2 (dashboard) is specified in
-`PROMPT.md`.
+The pipeline works end to end: three source adapters, incremental ingest, span
+derivation, cost, a dashboard and a CLI. 511 tests.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e . pytest
 .venv/bin/cci init
-.venv/bin/cci ingest      # ~11s cold, ~0.04s warm
+.venv/bin/cci ingest      # ~11s cold, ~0.4s warm
 .venv/bin/cci derive
 .venv/bin/cci stats
 ```
@@ -35,6 +34,35 @@ lost for good:
 ```bash
 ./scripts/install-launchd.sh              # every 15 min; --uninstall to remove
 ```
+
+To watch it happen instead, `cci watch` follows the logs and keeps the database
+current as the agents write it, ~0.15 s per cycle because ingest resumes at
+each file's byte offset and only the sessions that moved are re-derived:
+
+```bash
+.venv/bin/cci watch                  # follow the logs, print a line per change
+.venv/bin/cci watch --serve          # ...and a dashboard that refreshes itself
+```
+
+## What it costs
+
+```bash
+.venv/bin/cci price sync   # load rates for the models you actually ran
+.venv/bin/cci cost         # the breakdown
+```
+
+**$13,272 at published API rates** on this corpus, and the shape of it is the
+finding: **cache reads are 58%** of the total, cache writes 26%, output 14%,
+fresh input 2%. The cheapest component per token is most of the bill.
+
+That figure is a *list-price equivalent*, not a bill — a subscription charges a
+flat monthly fee no matter how many tokens run through it. Rates come from a
+committed snapshot of [pydantic/genai-prices](https://github.com/pydantic/genai-prices),
+keyed by model **and date**, so a vendor's next price change does not rewrite
+last month. Anything it cannot price is reported rather than counted as zero
+(138 M tokens here), and a model priced as a near relative is named, because
+`claude-fable-5-1` priced as `claude-fable-5` is thousands of dollars of
+difference that must not be invisible. `cci price set` overrides any of it.
 
 ## What it found on this machine
 
@@ -99,14 +127,24 @@ src/cc_insights/
   sources/      adapters: claude_code.py, codex.py, opencode.py (contract in base.py)
   ingest.py     adapters -> DB, incremental and idempotent
   derive.py     active spans, attendance, concurrency
+  pricing.py    the dated rate table, from a committed price catalog
+  cost.py       event -> money, and what it could not price
+  watch.py      follow the logs; the tick behind a live dashboard
+  metrics.py    filter-aware queries, one per API endpoint
+  serve.py      the read-only localhost server
   stats.py      read-only summary queries
-  cli.py        cci init | ingest | derive | stats | status | config
+  cli.py        cci init | ingest | derive | cost | price | watch | serve | ...
+  model_prices.json   the price catalog snapshot (scripts/sync_prices.py)
+frontend/       Vite + React dashboard, built into frontend/dist
 migrations/     numbered SQL, applied in order
-docs/           FINDINGS.md (ground truth), ROADMAP.md, probes/
-scripts/        launchd job + installer
+docs/           FINDINGS.md (ground truth), API.md (frozen contract), ROADMAP.md
+scripts/        launchd job + installer, fixture and price sync
 ```
 
 ## Roadmap
 
-`docs/ROADMAP.md` — more adapters, real cost tracking, Postgres/multi-machine,
-outcome correlation. "Time saved" is explicitly deferred and explains why.
+`docs/ROADMAP.md`. v1 has landed its first three: the opencode adapter, real
+cost tracking, and watch mode. Next in v1 is session annotation (tagging a
+session client/ticket/billable after the fact). Then Postgres and
+multi-machine, then outcome correlation. "Time saved" is explicitly deferred,
+and the roadmap explains why.

@@ -177,6 +177,10 @@ class IngestStats:
     events_inserted: int = 0     # genuinely new rows; 0 on a clean re-run
     sessions_touched: int = 0
     threads_touched: int = 0
+    #: The sessions this run actually wrote to, so a caller can re-derive just
+    #: those instead of the corpus. `cci watch` lives on this: a scoped derive
+    #: and re-price is two hundredths of a second where the full pass is two.
+    session_ids: set[str] = field(default_factory=set)
     projects_written: int = 0
     bytes_read: int = 0          # newly consumed this run
     duration_s: float = 0.0
@@ -621,6 +625,7 @@ class _Run:
             self.conn.executemany(_LINK_PARENT, links)
 
         self.stats.sessions_touched = len(self.sessions)
+        self.stats.session_ids.update(self.sessions)
         self.stats.threads_touched = len(self.threads)
 
 

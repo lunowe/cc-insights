@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from cc_insights import (
     pricing,
     serve,
     stats,
+    watch as watch_mod,
 )
 
 
@@ -656,6 +658,85 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return serve.run(cfg, port=args.port, open_browser=not args.no_open)
 
 
+# ------------------------------------------------------------------- watch --
+
+
+def _cycle_line(cycle: watch_mod.Cycle) -> str:
+    when = datetime.fromtimestamp(cycle.at / 1000).strftime("%H:%M:%S")
+    if cycle.errors:
+        return f"{when}  {len(cycle.errors)} error(s): {cycle.errors[0]}"
+    # The delta, then where it left the corpus -- in that order, because the
+    # second is the number someone glancing at a terminal is looking for.
+    return (
+        f"{when}  +{cycle.events_inserted:,} events \u00b7 {cycle.sessions} session(s)"
+        f"  \u2192  {cycle.active_ms / 3_600_000:,.1f} h total"
+        f", {_money(cycle.cost_total, cycle.currency)}"
+        f"  ({cycle.duration_s:.2f}s)"
+    )
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    """Follow the logs and keep the database current until Ctrl-C.
+
+    With `--serve` the dashboard runs alongside in this process and refreshes
+    itself as the logs grow; the loop feeds it through `/api/live`. The server
+    owns the main thread there because it is the thing that must answer
+    promptly, and the loop is the background work.
+    """
+    cfg, conn = _open_db(args)
+    interval = args.interval
+    stop = threading.Event()
+    quiet = args.quiet
+
+    def report(cycle: watch_mod.Cycle) -> None:
+        # A cycle that changed nothing prints nothing: a watcher that scrolls
+        # while you are not working is a watcher you stop reading.
+        if not quiet and (cycle.did_work or cycle.errors):
+            print(_cycle_line(cycle), flush=True)
+
+    if not args.serve:
+        print(f"watching {cfg.db_path} every {interval:g}s — Ctrl-C to stop", flush=True)
+        try:
+            watch_mod.watch(conn, cfg, interval_s=interval, sources=args.source,
+                            on_cycle=report, stop=stop)
+        except KeyboardInterrupt:
+            print()
+        finally:
+            conn.close()
+        return 0
+
+    # The handle `_open_db` returned belongs to this thread and sqlite3
+    # refuses to let another one use it. It has already done its job -- it is
+    # how we know the database exists and is migrated -- so it is closed here
+    # and the loop opens its own inside the worker. The server, meanwhile,
+    # opens a read-only handle per request thread. WAL is what lets one writer
+    # and several readers overlap without blocking.
+    conn.close()
+    live = watch_mod.LiveState()
+    worker: threading.Thread | None = None
+
+    def loop() -> None:
+        writer = db.connect(cfg.db_path)
+        try:
+            watch_mod.watch(writer, cfg, interval_s=interval, sources=args.source,
+                            live=live, on_cycle=report, stop=stop)
+        finally:
+            writer.close()
+
+    def start_loop(_server) -> None:
+        nonlocal worker
+        worker = threading.Thread(target=loop, name="cci-watch", daemon=True)
+        worker.start()
+
+    try:
+        return serve.run(cfg, port=args.port, open_browser=not args.no_open,
+                         live=live, on_ready=start_loop)
+    finally:
+        stop.set()
+        if worker is not None:
+            worker.join(timeout=5)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="cci", description="CC-Insights — coding-agent usage tracking")
     p.add_argument("--version", action="version", version=f"cc-insights {__version__}")
@@ -745,6 +826,20 @@ def build_parser() -> argparse.ArgumentParser:
     gren.add_argument("group")
     gren.add_argument("new_name", metavar="new-name")
     gren.set_defaults(fn=cmd_group_rename)
+
+    wat = sub.add_parser("watch", help="follow the logs and keep the database current")
+    wat.add_argument("--interval", type=float, default=watch_mod.DEFAULT_INTERVAL_S,
+                     help=f"seconds between scans (default: {watch_mod.DEFAULT_INTERVAL_S:g})")
+    wat.add_argument("--source", action="append",
+                     help="limit to a source (repeatable): claude_code, codex, opencode")
+    wat.add_argument("--serve", action="store_true",
+                     help="also serve the dashboard, refreshing it as the logs grow")
+    wat.add_argument("--port", type=int, default=serve.DEFAULT_PORT,
+                     help=f"port for --serve (default: {serve.DEFAULT_PORT})")
+    wat.add_argument("--no-open", action="store_true",
+                     help="with --serve, do not open a browser window")
+    wat.add_argument("--quiet", action="store_true", help="print nothing per cycle")
+    wat.set_defaults(fn=cmd_watch)
 
     srv = sub.add_parser("serve", help="serve the dashboard and JSON API on localhost")
     srv.add_argument("--port", type=int, default=serve.DEFAULT_PORT,
