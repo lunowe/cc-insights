@@ -115,8 +115,11 @@ def test_install_writes_a_valid_plist_naming_the_real_cci(agents, fake_cci, tmp_
     d = plistlib.loads(job.read_bytes())
     assert d["Label"] == scheduler.LABEL
     assert d["StartInterval"] == 900
+    # `init` leads so a migration cannot stop capture; `sync auto` trails so
+    # an unreachable server cannot. Both ends of the line are load-bearing.
     assert d["ProgramArguments"][2] == (
-        f"{fake_cci} init && {fake_cci} ingest && {fake_cci} derive"
+        f"{fake_cci} init && {fake_cci} ingest && {fake_cci} derive "
+        f"&& {fake_cci} sync auto"
     )
     assert d["StandardOutPath"] == str(tmp_path / "logs" / "ingest.log")
 

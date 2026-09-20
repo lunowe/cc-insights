@@ -117,22 +117,41 @@ other before it loads either, and `--uninstall` removes both.
 
 ### Several machines
 
-`cci sync` shares one person's machines through a PostgreSQL database. Each
-machine ingests its own logs locally, pushes the rows it owns, and pulls the
-others' back down — local SQLite stays the source of truth and the dashboard
-never changes.
+Each machine ingests its own logs locally, pushes the rows it owns, and pulls
+the others' back down — local SQLite stays the source of truth and the
+dashboard never changes. There are two ways to be the thing in the middle,
+and both are supported.
+
+**Sign in.** The short path, and the one the background job uses:
+
+```bash
+cci login --server https://your-instance   # device code; approve it in a browser
+cci sync push                              # send this machine's rows
+cci sync pull                              # bring the other machines' rows down
+cci sync status                            # who has pushed what
+```
+
+`cci login` claims this host for your account and stores the token in
+`credentials.toml`, mode 0600 — never in `config.toml`, which is plain text
+people copy around. After that the 15-minute job pushes on its own, and
+`cci logout` clears and revokes the credential.
+
+**Or run your own PostgreSQL.** Still a first-class mode, not dead code:
 
 ```bash
 pip install -e '.[postgres]'
 export CC_INSIGHTS_SYNC_URL=postgresql://user@host/cci   # or sync_url in config.toml
-cci sync push      # send this machine's rows
-cci sync pull      # bring the other machines' rows down
-cci sync status    # who has pushed what
+cci sync push --direct
 ```
 
-Re-running either is safe: every id is a content hash, so a row that crosses
-twice collapses instead of duplicating. `ingest_file` is deliberately never
-sent — it is bookkeeping about local paths with no analytical value.
+A configured `sync_url` wins over being signed in, `--account` and `--direct`
+force either, and every command prints which one it used.
+
+Re-running any of it is safe: every id is a content hash, so a row that
+crosses twice collapses instead of duplicating. A push that is interrupted
+resumes rather than restarting, and a push with nothing new to say costs zero
+requests. `ingest_file` is deliberately never sent — it is bookkeeping about
+local paths with no analytical value.
 
 ### Sharing with other people
 
@@ -141,6 +160,8 @@ goes through a different pipe, and a different set of rules:
 
 ```bash
 cci privacy        # what would and would not cross a team boundary. Sends nothing.
+cci publish        # send the redacted projection. Asks first, and says what it withholds.
+cci team           # the repos in scope, and the scope-aware summary
 ```
 
 `docs/REDACTION.md` has the design. The short version: publishing `project_id`
@@ -150,10 +171,16 @@ are re-keyed on the repo's remote, the boundary is repo access, and work with
 no remote stays local, counted rather than silently dropped. The projection
 runs on your laptop; the shared database never receives a path.
 
-Teams and auth follow, and `docs/ACCOUNTS.md` is now the design for them:
-one private instance, two stores rather than one filtered on read, GitHub
-OAuth, and a `cci login` that makes a second machine a sign-in instead of a
-database URL. The privacy plumbing is in place; what is left is the server.
+`cci publish` prints what it is withholding *before* it sends anything, and
+asks for confirmation the first time on each machine — it is the one command
+that puts your data somewhere other people read, so it should not be one you
+can run by accident. It refuses outright while the projection fails its own
+audit, or while any schema column is unclassified.
+
+`docs/ACCOUNTS.md` is the design and `docs/SERVER_API.md` is the frozen wire
+contract: one private instance, two stores rather than one filtered on read,
+GitHub device-code sign-in, and a `cci login` that makes a second machine a
+sign-in instead of a database URL.
 ## What it costs
 
 ```bash

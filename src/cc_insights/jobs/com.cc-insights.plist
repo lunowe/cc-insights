@@ -13,7 +13,7 @@
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>__CCI__ init &amp;&amp; __CCI__ ingest &amp;&amp; __CCI__ derive</string>
+        <string>__CCI__ init &amp;&amp; __CCI__ ingest &amp;&amp; __CCI__ derive &amp;&amp; __CCI__ sync auto</string>
     </array>
 
     <!-- `init` first, and it is not redundant. It applies pending migrations,
@@ -24,6 +24,14 @@
          pruned on a rolling basis — the exact loss this job exists to
          prevent. `init` is idempotent and additive, so on every ordinary
          run it costs one query and changes nothing.
+
+         `sync auto` LAST, and the ordering is the whole safety argument.
+         Capture has already happened by the time it runs, so a server that
+         is unreachable cannot cost a single event — ingest succeeds whether
+         or not the network does. It is also the one step that exits 0 on
+         failure, deliberately: a non-zero exit here would report the whole
+         run as failed and hide a real ingest failure behind a network one.
+         When nobody has run `cci login` it does nothing at all.
 
          Every 15 minutes. The job is cheap: a warm run reads only files whose
          size or mtime changed and takes ~0.04s. -->

@@ -8,13 +8,17 @@ a command that exists but does nothing is worse than one that does not exist.
 from __future__ import annotations
 
 import argparse
+import os
+import sqlite3
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from cc_insights import (
     __version__,
+    account,
     backfill as backfill_mod,
     config as config_mod,
     cost as cost_mod,
@@ -26,6 +30,7 @@ from cc_insights import (
     paths,
     pricing,
     redact,
+    remote,
     scheduler,
     serve,
     stats,
@@ -840,8 +845,14 @@ def cmd_install(args: argparse.Namespace) -> int:
     # cannot stop capture; print what is actually scheduled, not a tidier
     # version of it. See the comment in the plists.
     runs = f"{cci} init && {cci} watch --quiet" if mode == scheduler.WATCH \
-        else f"{cci} init && {cci} ingest && {cci} derive"
+        else f"{cci} init && {cci} ingest && {cci} derive && {cci} sync auto"
     print(f"  runs     {runs}")
+    if account.token_for(account.load(cfg.config_dir)):
+        print("  pushes   after each run, to your account")
+    else:
+        # Said out loud, because "install once and a second machine just
+        # works" is the promise and sign-in is the step that makes it true.
+        print("  pushes   nothing — `cci login` to share with your other machines")
     print("  cadence  " + ("follows the logs, ~2s behind" if mode == scheduler.WATCH
                            else "every 15 minutes, and once now"))
     if job_file is not None:
@@ -920,6 +931,368 @@ def cmd_privacy(args: argparse.Namespace) -> int:
     return 1 if (checked.leaks or unclassified) else 0
 
 
+# ------------------------------------------------------------------ account --
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _resolve_server(cfg, args, credential) -> str | None:
+    return config_mod.server_url_for(
+        cfg, getattr(args, "server", None),
+        credential.server_url if credential is not None else None,
+    )
+
+
+def _no_server_message(cfg) -> str:
+    return (
+        "no account server configured. Point this machine at yours:\n"
+        "  cci login --server https://your-instance\n"
+        f"  (or export CC_INSIGHTS_SERVER, or set server_url in {cfg.path})"
+    )
+
+
+def _account_client(args, cfg, *, need_token: bool = True):
+    """An authenticated client, or exit with the line that fixes it."""
+    credential = account.load(cfg.config_dir)
+    url = _resolve_server(cfg, args, credential)
+    if not url:
+        print(_no_server_message(cfg), file=sys.stderr)
+        raise SystemExit(1)
+    token = account.token_for(credential)
+    if need_token and not token:
+        print("not signed in.\n  cci login", file=sys.stderr)
+        raise SystemExit(1)
+    return remote.Client(url, token), credential, url
+
+
+def _claim_host(cfg, account_id: str) -> str:
+    """Record on the local host row which account owns this machine.
+
+    `host_id` is NOT replaced and must never be. It is baked into every
+    session id, so reassigning it forks the entire history into a duplicate
+    set of rows -- docs/ACCOUNTS.md §4 says so and the atomic write in
+    `config.py` guards the same property. A host is *claimed by* an account
+    and keeps its identity.
+    """
+    if not cfg.db_path.exists():
+        return "will be claimed when `cci init` creates the database"
+    conn = db.connect(cfg.db_path)
+    try:
+        db.upsert_host(conn, cfg.host_id, cfg.hostname, config_mod.host_os())
+        conn.execute("UPDATE host SET account_id = ? WHERE host_id = ?",
+                     (account_id, cfg.host_id))
+    except sqlite3.OperationalError:
+        # A database older than migration 006 has no account_id column. Not
+        # fatal: the credential is stored and everything else works, and
+        # `init` leads every job line precisely so this repairs itself.
+        return "run `cci init` to finish claiming this host"
+    finally:
+        conn.close()
+    return f"claimed ({cfg.host_id})"
+
+
+def cmd_login(args: argparse.Namespace) -> int:
+    """Sign in with the device grant, then claim this machine for the account.
+
+    A redirect flow is not an option here and docs/ACCOUNTS.md §6 says why: a
+    CLI cannot reliably receive a browser callback, and the device grant works
+    identically over SSH -- which is the case that matters, because the second
+    machine is usually not the one in front of you.
+    """
+    cfg = config_mod.load(args.config_dir)
+    credential = account.load(cfg.config_dir)
+    url = _resolve_server(cfg, args, credential)
+    if not url:
+        print(_no_server_message(cfg), file=sys.stderr)
+        return 1
+
+    client = remote.Client(url)
+    try:
+        flow = client.device_start(f"cci {__version__} on {cfg.hostname}")
+    except remote.RemoteError as exc:
+        print(f"cannot start sign-in: {exc}", file=sys.stderr)
+        return 1
+
+    # Both codes, and the user code is the one a person types. Printing the
+    # device code instead would have somebody paste a bearer-equivalent
+    # secret into a web form.
+    print()
+    print(f"  Open this page   {flow.verification_uri}")
+    print(f"  Enter this code  {flow.user_code}")
+    print()
+    print(f"  or go straight to {flow.verification_uri_complete}")
+    print()
+    print("waiting for approval", end="", flush=True)
+
+    def waiting(seconds: int, why: str) -> None:
+        if why == remote.SLOW_DOWN:
+            print(f"[server asked us to slow to {seconds}s]", end="", flush=True)
+        else:
+            print(".", end="", flush=True)
+
+    try:
+        identity = client.device_await(flow, on_wait=waiting)
+    except remote.RemoteError as exc:
+        print(f"\n\n{exc}", file=sys.stderr)
+        return 1
+    print()
+
+    account.save(
+        account.Credential(identity.token, identity.account_id, url, _now_ms()),
+        cfg.config_dir,
+    )
+    claimed = _claim_host(cfg, identity.account_id)
+
+    print()
+    print(f"signed in as {identity.actor}")
+    print(f"  account     {identity.account_id}")
+    print(f"  server      {url}")
+    print(f"  credential  {cfg.config_dir / 'credentials.toml'}  (0600, never config.toml)")
+    print(f"  this host   {cfg.hostname} — {claimed}")
+
+    # Teams are shown because publishing is scoped by them, and somebody who
+    # is in none should learn that here rather than from an empty `cci team`.
+    try:
+        teams = remote.Client(url, identity.token).whoami().get("teams") or []
+    except remote.RemoteError:
+        teams = []
+    if teams:
+        print("  teams       " + ", ".join(f"{t['name']} ({t['role']})" for t in teams))
+
+    print()
+    print("  cci sync push   send this machine's history to your account")
+    print("  cci sync pull   bring your other machines' history down")
+    print("  cci publish     share the redacted projection with your team")
+    return 0
+
+
+def cmd_logout(args: argparse.Namespace) -> int:
+    """Clear the stored credential, and revoke it if the server can be reached."""
+    cfg = config_mod.load(args.config_dir, create=False)
+    credential = account.load(cfg.config_dir)
+    if credential is None:
+        print("not signed in — nothing to clear")
+        if os.environ.get("CC_INSIGHTS_TOKEN"):
+            # Not ours to remove, and reporting a sign-out that did not happen
+            # would be worse than saying nothing.
+            print("  CC_INSIGHTS_TOKEN is set in this shell and still applies")
+        return 0
+
+    try:
+        remote.Client(credential.server_url, credential.token).logout()
+        outcome = "revoked on the server"
+        reachable = True
+    except remote.RemoteError as exc:
+        outcome = f"not revoked — {exc.code or 'the server could not be reached'}"
+        reachable = False
+
+    account.clear(cfg.config_dir)
+    print("signed out.")
+    print(f"  credential  removed from {cfg.config_dir / 'credentials.toml'}")
+    print(f"  token       {outcome}")
+    if not reachable:
+        print("  it stays valid until revoked from a machine that can reach the server")
+    return 0
+
+
+# ------------------------------------------------------------------ publish --
+
+
+def _print_withholding(pub: redact.Publication, audit: redact.Audit) -> None:
+    """What is about to cross the boundary, and what is not, before it moves.
+
+    Printed BEFORE the first request, never after. This is the one command
+    that sends somebody's data to a place other people read, and a summary
+    that arrives after the send is a receipt, not a decision.
+    """
+    total = pub.total_ms or 1
+    print("\nSENDING — behind a git remote, so repo access answers who may see it")
+    print(f"  {len(pub.repos)} repos · {len(pub.sessions):,} sessions · "
+          f"{len(pub.spans):,} spans · {_hours(pub.published_ms / 3_600_000)} "
+          f"· {pub.published_ms / total:.0%}")
+    print("  repo id, remote URL, branch, source, timings and counts. No paths,")
+    print("  no hostnames, no project ids, no prompt or response text, no events.")
+
+    print("\nWITHHELD — no remote, so nothing in the data can answer "
+          "'may they see this?'")
+    print(f"  {pub.withheld_projects} projects · "
+          f"{_hours(pub.withheld_ms / 3_600_000)} · {pub.withheld_ms / total:.0%}")
+    print("  The hours are sent as a total; the work they describe is not.")
+    print("  Counted, not dropped: a view that quietly omits your time is not")
+    print("  private, it is wrong, and the reader cannot tell the difference.")
+
+    if audit.warnings:
+        print(f"\n  {len(audit.warnings)} thing(s) to glance at "
+              "(ordinary words collide; see docs/REDACTION.md §5):")
+        for line in audit.warnings[:5]:
+            print(f"    {line}")
+
+
+def cmd_publish(args: argparse.Namespace) -> int:
+    """Send `redact.publication()` to the team store, after saying what it is."""
+    cfg, conn = _open_db(args)
+    try:
+        client, _credential, url = _account_client(args, cfg)
+
+        try:
+            who = client.whoami()
+        except remote.RemoteError as exc:
+            print(f"\n{exc}", file=sys.stderr)
+            return 1
+        actor, account_id = who["actor"], who["accountId"]
+
+        # The actor comes from the server, never from a flag or the local
+        # username: the store checks it and a mismatch is a 403, and a client
+        # that guessed would fail after printing a report that described a
+        # send that could not happen.
+        pub = redact.publication(conn, actor, host_id=cfg.host_id)
+        try:
+            audit = remote.check_publishable(conn, pub)
+        except remote.Unsafe as exc:
+            print(f"\nREFUSING TO PUBLISH\n  {exc}", file=sys.stderr)
+            return 1
+
+        print(f"\npublishing as {actor} to {url}")
+        _print_withholding(pub, audit)
+
+        if args.dry_run:
+            print("\n--dry-run: nothing was sent.\n")
+            return 0
+
+        first_time = not remote.has_published(cfg.config_dir, url, account_id)
+        if first_time and not args.yes:
+            print("\nThis is the first publish from this machine. Other people will")
+            print("be able to read the rows above, for the repos you share with them.")
+            answer = input("Type 'publish' to continue: ").strip()
+            if answer != "publish":
+                print("nothing was sent.")
+                return 1
+
+        try:
+            results = remote.publish(conn, client, pub, host_id=cfg.host_id,
+                                     on_part=lambda kind, n: print(f"  {kind:<10} {n:>8,}"))
+        except remote.RemoteError as exc:
+            print(f"\n{exc}", file=sys.stderr)
+            return 1
+
+        sent = sum(r.applied for r in results.values())
+        rejected = sum(r.rejected for r in results.values())
+        remote.record_publish(cfg.config_dir, url, account_id,
+                              confirmed=True, rows=sent)
+        print(f"\npublished {sent:,} rows" + (f", {rejected:,} rejected" if rejected else ""))
+        print("  cci team   to see it from the reader's side\n")
+        return 0
+    finally:
+        conn.close()
+
+
+# --------------------------------------------------------------------- team --
+
+
+def cmd_team(args: argparse.Namespace) -> int:
+    """Repos in scope and the scope-aware aggregate.
+
+    Everything here is computed inside the caller's scope at request time.
+    There is no rollup, and docs/ACCOUNTS.md §5 is why: a precomputed total
+    that spans a repo the reader cannot see leaks that repo's existence the
+    moment they read it.
+    """
+    cfg = config_mod.load(args.config_dir, create=False)
+    client, _credential, url = _account_client(args, cfg)
+    try:
+        repos = client.team_repos()
+        summary = client.team_summary()
+    except remote.RemoteError as exc:
+        print(f"\n{exc}", file=sys.stderr)
+        return 1
+
+    print(f"\n{url}")
+    if not repos:
+        print("\nno repos in scope yet.")
+        print("  cci publish   to share this machine's repos")
+        print("  a teammate adding you to a team roster also puts theirs here\n")
+        return 0
+
+    print(f"\nREPOS IN SCOPE  ({len(repos)})")
+    width = max(len(r.get("name") or "") for r in repos)
+    for repo in sorted(repos, key=lambda r: (r.get("name") or "").casefold()):
+        via = ", ".join(repo.get("via") or []) or "unknown"
+        branches = "" if repo.get("branchNamesPublished", True) else "  [branch names off]"
+        print(f"  {(repo.get('name') or ''):<{width}}  {repo.get('remoteUrl', '')}"
+              f"  via {via}{branches}")
+
+    scope = summary.get("scope") or {}
+    print(f"\nSUMMARY  {scope.get('repos', 0)} repos · {scope.get('teams', 0)} teams")
+    print(f"  active    {_hours(summary.get('activeMs', 0) / 3_600_000)}"
+          "   in repos you can see")
+    print(f"  sessions  {summary.get('sessions', 0):,}")
+    print(f"  spans     {summary.get('spans', 0):,}")
+
+    by_role = summary.get("byRole") or {}
+    if by_role:
+        parts = [f"{name} {_hours((by_role.get(key) or 0) / 3_600_000)}"
+                 for name, key in (("human", "human"), ("autonomous", "autonomous"),
+                                   ("unattended", "unattendedRoot"))]
+        print("  by role   " + " · ".join(parts))
+
+    for row in summary.get("bySource") or []:
+        print(f"    {row.get('source', ''):<14} "
+              f"{_hours((row.get('activeMs') or 0) / 3_600_000)}")
+
+    withheld = summary.get("withheld") or {}
+    if withheld.get("byActor"):
+        # Labelled "all time" deliberately, even when the rest of the page is
+        # a range: `redact` has no time dimension for withheld work, because
+        # the work it describes has no repo to hang a query on. The payload
+        # says `rangeFiltered: false` so a renderer can say this without
+        # having to know the reason.
+        span = "all time" if not withheld.get("rangeFiltered") else "this range"
+        print(f"\nWITHHELD  ({span}, not narrowed by any filter)")
+        for row in withheld["byActor"]:
+            own = "  ← you" if row.get("publishedMs") is not None else ""
+            print(f"  {row.get('actor', ''):<16} "
+                  f"{_hours((row.get('withheldMs') or 0) / 3_600_000)}"
+                  f"  in {row.get('withheldProjects', 0)} projects{own}")
+        print("  This is work in no repo at all. It is counted here and nowhere")
+        print("  else, and it does not add up with `active` — the difference is")
+        print("  work in repos you cannot see, which is deliberately not reported.")
+    print()
+    return 0
+
+
+def cmd_team_sessions(args: argparse.Namespace) -> int:
+    """Published sessions inside the caller's scope, newest first."""
+    cfg = config_mod.load(args.config_dir, create=False)
+    client, _credential, _url = _account_client(args, cfg)
+    try:
+        body = client.team_sessions(limit=args.limit)
+    except remote.RemoteError as exc:
+        print(f"\n{exc}", file=sys.stderr)
+        return 1
+
+    rows = body.get("sessions") or []
+    if not rows:
+        print("no sessions in scope.")
+        return 0
+    print(f"\n{'actor':<14} {'source':<12} {'branch':<22} {'active':>9}  started")
+    for s in rows:
+        when = datetime.fromtimestamp((s.get("startedAt") or 0) / 1000).strftime(
+            "%Y-%m-%d %H:%M")
+        # `gitBranch` is null both when a session never had a branch and when
+        # a team switched branch names off. Indistinguishable on purpose --
+        # §4.5 -- so there is one rendering and no observer can tell them apart.
+        branch = s.get("gitBranch") or "—"
+        print(f"{(s.get('actor') or ''):<14} {(s.get('source') or ''):<12} "
+              f"{branch[:22]:<22} "
+              f"{_hours((s.get('activeMs') or 0) / 3_600_000):>9}  {when}")
+    if body.get("nextCursor"):
+        print(f"\n  more available — raise --limit (showing {len(rows)})")
+    print()
+    return 0
+
+
 # --------------------------------------------------------------------- sync --
 
 
@@ -938,12 +1311,12 @@ def _open_sync(args: argparse.Namespace):
         )
         raise SystemExit(1)
     try:
-        remote = sync.connect_remote(url)
+        shared = sync.connect_remote(url)
     except Exception as exc:
         conn.close()
         print(f"cannot reach the shared database: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
-    return cfg, conn, remote
+    return cfg, conn, shared
 
 
 def _print_sync(stats: sync.SyncStats) -> None:
@@ -955,31 +1328,207 @@ def _print_sync(stats: sync.SyncStats) -> None:
     print(f"  {'total':<15} {stats.total:>8,} rows")
 
 
+#: The two transports, and how a command decides which one it is talking to.
+DIRECT = "direct"
+ACCOUNT = "account"
+
+
+def _backend(args: argparse.Namespace, cfg) -> str:
+    """Direct PostgreSQL or the account server, from what is configured.
+
+    An explicitly configured `sync_url` wins over being signed in, and the
+    order is not arbitrary. docs/ACCOUNTS.md §3 keeps direct Postgres "a
+    supported mode, not dead code" for anyone running their own database,
+    and setting that URL is a deliberate act; signing in is also needed for
+    `cci publish` and for team reads, so it does not on its own say anything
+    about where sync should go. `--direct` and `--account` override, and
+    every command prints which one it used.
+    """
+    if getattr(args, "url", None) or getattr(args, "direct", False):
+        return DIRECT
+    if getattr(args, "account", False):
+        return ACCOUNT
+    if config_mod.sync_url_for(cfg):
+        return DIRECT
+    if account.token_for(account.load(cfg.config_dir)):
+        return ACCOUNT
+    return "none"
+
+
+def _no_backend_message(cfg) -> str:
+    """Every way in, named. This is the failure a first-time user hits."""
+    return (
+        "nothing to sync with. Pick one:\n"
+        "  cci login --server https://your-instance        your account (recommended)\n"
+        "  cci sync push --url postgresql://user@host/db   a database you run\n"
+        "  export CC_INSIGHTS_SYNC_URL=postgresql://user@host/db\n"
+        f"  sync_url = \"postgresql://...\"   in {cfg.path}"
+    )
+
+
+def _print_transfer(stats: remote.TransferStats) -> None:
+    for table, n in stats.rows.items():
+        resumed = stats.resumed.get(table)
+        note = f"   (resumed after {resumed:,})" if resumed else ""
+        print(f"  {table:<15} {n:>8,}{note}")
+    if stats.skipped:
+        # Named rather than counted: "unchanged" is the answer to "why did my
+        # push do nothing", and a number does not answer it.
+        print(f"  {'unchanged':<15} {'—':>8}   {', '.join(stats.skipped)}")
+    if stats.total:
+        print(f"  {'total':<15} {stats.total:>8,} rows in {stats.requests} requests")
+    else:
+        print(f"  {stats.direction}: everything is already up to date")
+
+
 def cmd_sync_push(args: argparse.Namespace) -> int:
-    cfg, conn, remote = _open_sync(args)
+    cfg = config_mod.load(args.config_dir, create=False)
+    backend = _backend(args, cfg)
+    if backend == "none":
+        # SystemExit, matching `_open_sync`: one convention for "there is
+        # nothing configured to talk to", whichever backend was being sought.
+        print(_no_backend_message(cfg), file=sys.stderr)
+        raise SystemExit(1)
+
+    if backend == ACCOUNT:
+        _, conn = _open_db(args)
+        client, _credential, url = _account_client(args, cfg)
+        print(f"push → your account at {url}")
+        try:
+            _print_transfer(remote.push(conn, client, cfg.host_id,
+                                        config_dir=cfg.config_dir, force=args.full))
+        except remote.RemoteError as exc:
+            print(f"\n{exc}", file=sys.stderr)
+            return 1
+        finally:
+            conn.close()
+        return 0
+
+    cfg, conn, shared = _open_sync(args)
+    print("push → the shared PostgreSQL database (direct)")
     try:
-        _print_sync(sync.push(conn, remote, cfg.host_id))
+        _print_sync(sync.push(conn, shared, cfg.host_id))
     finally:
         conn.close()
-        remote.close()
+        shared.close()
     return 0
 
 
 def cmd_sync_pull(args: argparse.Namespace) -> int:
-    _, conn, remote = _open_sync(args)
-    try:
-        _print_sync(sync.pull(conn, remote))
-    finally:
-        conn.close()
-        remote.close()
+    cfg = config_mod.load(args.config_dir, create=False)
+    backend = _backend(args, cfg)
+    if backend == "none":
+        # SystemExit, matching `_open_sync`: one convention for "there is
+        # nothing configured to talk to", whichever backend was being sought.
+        print(_no_backend_message(cfg), file=sys.stderr)
+        raise SystemExit(1)
+
+    if backend == ACCOUNT:
+        _, conn = _open_db(args)
+        client, _credential, url = _account_client(args, cfg)
+        print(f"pull ← your account at {url}")
+        try:
+            _print_transfer(remote.pull(conn, client, config_dir=cfg.config_dir,
+                                        force=args.full))
+        except remote.RemoteError as exc:
+            print(f"\n{exc}", file=sys.stderr)
+            return 1
+        finally:
+            conn.close()
+    else:
+        _, conn, shared = _open_sync(args)
+        print("pull ← the shared PostgreSQL database (direct)")
+        try:
+            _print_sync(sync.pull(conn, shared))
+        finally:
+            conn.close()
+            shared.close()
     print("\nrun `cci derive` if you want spans recomputed over the pulled events")
     return 0
 
 
-def cmd_sync_status(args: argparse.Namespace) -> int:
-    cfg, conn, remote = _open_sync(args)
+def cmd_sync_auto(args: argparse.Namespace) -> int:
+    """Push after the scheduled ingest, when signed in. Never fails the job.
+
+    This is the last step of `cci init && cci ingest && cci derive && cci sync
+    auto`, and the ordering is the whole safety argument. Capture has already
+    happened by the time this runs, so a server that is unreachable cannot
+    cost a single event.
+
+    **It returns 0 even when it could not connect.** That is deliberate. A
+    non-zero exit here makes launchd record the run as failed and, worse,
+    hides a real ingest failure behind a network one -- and the failure this
+    project is most exposed to is the silent kind, so the loud signal has to
+    stay attached to the thing that actually loses history.
+    """
     try:
-        rows = remote.execute(
+        cfg = config_mod.load(args.config_dir, create=False)
+    except Exception as exc:                            # pragma: no cover
+        print(f"auto-push skipped: unreadable config ({exc})", file=sys.stderr)
+        return 0
+
+    credential = account.load(cfg.config_dir)
+    token = account.token_for(credential)
+    if not token:
+        if args.verbose:
+            print("auto-push: not signed in — nothing to do")
+        return 0
+    url = _resolve_server(cfg, args, credential)
+    if not url or not cfg.db_path.exists():
+        return 0
+
+    try:
+        conn = db.connect(cfg.db_path)
+    except sqlite3.Error as exc:                        # pragma: no cover
+        print(f"auto-push skipped: {exc}", file=sys.stderr)
+        return 0
+    try:
+        stats = remote.push(conn, remote.Client(url, token), cfg.host_id,
+                            config_dir=cfg.config_dir)
+    except Exception as exc:
+        # Bare `Exception` on purpose, and it is the narrow case where that is
+        # right: this runs unattended every 15 minutes, and there is no
+        # failure here worth stopping a capture pipeline over. The message
+        # still lands in ingest.err, and `cci doctor` reports a stale push.
+        print(f"auto-push skipped: {exc}", file=sys.stderr)
+        return 0
+    finally:
+        conn.close()
+
+    if stats.total and args.verbose:
+        print(f"auto-push: {stats.total:,} rows in {stats.requests} requests")
+    return 0
+
+
+def cmd_sync_status(args: argparse.Namespace) -> int:
+    cfg = config_mod.load(args.config_dir, create=False)
+    if _backend(args, cfg) == ACCOUNT:
+        client, _credential, url = _account_client(args, cfg)
+        try:
+            body = client.personal_status()
+        except remote.RemoteError as exc:
+            print(f"\n{exc}", file=sys.stderr)
+            return 1
+        print(f"\nyour account at {url}")
+        if not body.get("hosts"):
+            print("nothing pushed yet — run `cci sync push`")
+            return 0
+        print(f"\n{'hostname':<20} {'os':<16}  first seen")
+        for host in body["hosts"]:
+            mine = "  ← this machine" if host["hostId"] == cfg.host_id else ""
+            when = datetime.fromtimestamp((host.get("firstSeen") or 0) / 1000)
+            print(f"{(host.get('hostname') or '')[:20]:<20} "
+                  f"{(host.get('os') or '')[:16]:<16}  "
+                  f"{when:%Y-%m-%d}{mine}")
+        print()
+        for row in body.get("tables") or []:
+            print(f"  {row['table']:<15} {row['rows']:>8,}")
+        print(f"  {'total':<15} {body.get('totalRows', 0):>8,} rows\n")
+        return 0
+
+    cfg, conn, shared = _open_sync(args)
+    try:
+        rows = shared.execute(
             """SELECT h.host_id, h.hostname, h.os,
                       count(DISTINCT s.id) AS sessions,
                       coalesce(sum(s.active_ms), 0) AS active_ms
@@ -989,11 +1538,12 @@ def cmd_sync_status(args: argparse.Namespace) -> int:
         ).fetchall()
     finally:
         conn.close()
-        remote.close()
+        shared.close()
 
     if not rows:
         print("the shared database is empty — run `cci sync push`")
         return 0
+    print("the shared PostgreSQL database (direct)\n")
     print(f"{'hostname':<20} {'os':<16} {'sessions':>9} {'active':>10}")
     for host_id, hostname, os_name, sessions, active_ms in rows:
         mine = "  ← this machine" if host_id == cfg.host_id else ""
@@ -1020,6 +1570,54 @@ def _cycle_line(cycle: watch_mod.Cycle) -> str:
     )
 
 
+#: How often `cci watch` pushes, at most. The loop ticks every two seconds
+#: and pushing at that rate would be a request storm buying nothing -- a
+#: teammate's view being five minutes behind is not a problem anybody has.
+#: Faster than the 15-minute job on purpose, because watch mode is for people
+#: who want to see work as it happens.
+WATCH_PUSH_EVERY_S = 300
+
+
+def _auto_pusher(cfg, args):
+    """A throttled push for the watch loop, or None when not signed in.
+
+    Opens its own read connection per push rather than borrowing the loop's.
+    That handle belongs to the loop thread and is busy writing; WAL takes a
+    second reader without either one blocking, and push only ever reads.
+    """
+    credential = account.load(cfg.config_dir)
+    token = account.token_for(credential)
+    url = _resolve_server(cfg, args, credential)
+    if not token or not url:
+        return None
+
+    last = {"at": 0.0}
+
+    def maybe_push(cycle: watch_mod.Cycle) -> None:
+        if not cycle.did_work:
+            return
+        now = time.monotonic()
+        if last["at"] and now - last["at"] < WATCH_PUSH_EVERY_S:
+            return
+        last["at"] = now
+        conn = None
+        try:
+            conn = db.connect(cfg.db_path)
+            remote.push(conn, remote.Client(url, token), cfg.host_id,
+                        config_dir=cfg.config_dir)
+        except Exception as exc:
+            # Never kill the watcher. `watch.py` makes the same call for a bad
+            # log file and gives the reason: a watcher that exits on the first
+            # error is a watcher that is not running when it matters, and the
+            # logs it would have read are pruned on a rolling basis.
+            print(f"auto-push skipped: {exc}", file=sys.stderr, flush=True)
+        finally:
+            if conn is not None:
+                conn.close()
+
+    return maybe_push
+
+
 def cmd_watch(args: argparse.Namespace) -> int:
     """Follow the logs and keep the database current until Ctrl-C.
 
@@ -1027,17 +1625,26 @@ def cmd_watch(args: argparse.Namespace) -> int:
     itself as the logs grow; the loop feeds it through `/api/live`. The server
     owns the main thread there because it is the thing that must answer
     promptly, and the loop is the background work.
+
+    When signed in it also pushes, at most every `WATCH_PUSH_EVERY_S`. That
+    is the watch-mode counterpart of `cci sync auto` in the interval job, and
+    it is here rather than in `watch.py` because pushing is not part of
+    keeping the local database current -- the loop must stay something that
+    works with no account at all.
     """
     cfg, conn = _open_db(args)
     interval = args.interval
     stop = threading.Event()
     quiet = args.quiet
+    pusher = _auto_pusher(cfg, args)
 
     def report(cycle: watch_mod.Cycle) -> None:
         # A cycle that changed nothing prints nothing: a watcher that scrolls
         # while you are not working is a watcher you stop reading.
         if not quiet and (cycle.did_work or cycle.errors):
             print(_cycle_line(cycle), flush=True)
+        if pusher is not None:
+            pusher(cycle)
 
     if not args.serve:
         print(f"watching {cfg.db_path} every {interval:g}s — Ctrl-C to stop", flush=True)
@@ -1191,6 +1798,8 @@ def build_parser() -> argparse.ArgumentParser:
     wat.add_argument("--no-open", action="store_true",
                      help="with --serve, do not open a browser window")
     wat.add_argument("--quiet", action="store_true", help="print nothing per cycle")
+    wat.add_argument("--server", default=None, metavar="URL",
+                     help="account server to push to (default: the saved credential)")
     wat.set_defaults(fn=cmd_watch)
 
     srv = sub.add_parser("serve", help="serve the dashboard and JSON API on localhost")
@@ -1226,20 +1835,83 @@ def build_parser() -> argparse.ArgumentParser:
     )
     priv.set_defaults(fn=cmd_privacy)
 
+    log = sub.add_parser(
+        "login",
+        help="sign in to your account server and claim this machine",
+        description="Device-code sign-in. Prints a code, you approve it in a "
+                    "browser, and this machine is claimed for the account.",
+    )
+    log.add_argument("--server", default=None, metavar="URL",
+                     help="account server (default: $CC_INSIGHTS_SERVER, then "
+                          "server_url in config, then the saved credential)")
+    log.set_defaults(fn=cmd_login)
+
+    sub.add_parser(
+        "logout", help="clear the stored credential and revoke it"
+    ).set_defaults(fn=cmd_logout, server=None)
+
+    pub = sub.add_parser(
+        "publish",
+        help="share the redacted projection with your team",
+        description="Sends redact.publication() and nothing else: no paths, "
+                    "no hostnames, no project ids, no events. Prints what is "
+                    "withheld before anything moves.",
+    )
+    pub.add_argument("--yes", action="store_true",
+                     help="skip the first-use confirmation")
+    pub.add_argument("--dry-run", action="store_true",
+                     help="print the report and send nothing")
+    pub.add_argument("--server", default=None, metavar="URL")
+    pub.set_defaults(fn=cmd_publish)
+
+    tm = sub.add_parser("team", help="what your team can see, and what you share")
+    tm.add_argument("--server", default=None, metavar="URL")
+    tm.set_defaults(fn=cmd_team)
+    # Not `required=True`: `cci team` on its own is the useful default -- the
+    # repos in scope and the summary -- and making somebody pick a subcommand
+    # to see the obvious thing is a worse first run.
+    tsub = tm.add_subparsers(dest="team_command", required=False)
+    tsess = tsub.add_parser("sessions", help="published sessions inside your scope")
+    tsess.add_argument("--limit", type=int, default=50)
+    tsess.add_argument("--server", default=None, metavar="URL")
+    tsess.set_defaults(fn=cmd_team_sessions)
+
     syn = sub.add_parser("sync", help="share this machine's data with your others")
     ssub = syn.add_subparsers(dest="sync_command", required=True)
     for name, helptext, fn in (
-        ("push", "send this host's rows to the shared database", cmd_sync_push),
+        ("push", "send this host's rows to your account or shared database", cmd_sync_push),
         ("pull", "bring every host's rows down into the local database", cmd_sync_pull),
-        ("status", "show what the shared database holds, per host", cmd_sync_status),
+        ("status", "show what the other side holds, per host", cmd_sync_status),
     ):
         sp = ssub.add_parser(name, help=helptext)
         sp.add_argument(
             "--url",
             default=None,
-            help="PostgreSQL URL (default: $CC_INSIGHTS_SYNC_URL, then sync_url in config)",
+            help="PostgreSQL URL, and forces the direct backend "
+                 "(default: $CC_INSIGHTS_SYNC_URL, then sync_url in config)",
         )
+        sp.add_argument("--server", default=None, metavar="URL",
+                        help="account server URL")
+        backend = sp.add_mutually_exclusive_group()
+        backend.add_argument("--account", action="store_true",
+                             help="force the account server")
+        backend.add_argument("--direct", action="store_true",
+                             help="force direct PostgreSQL")
+        sp.add_argument("--full", action="store_true",
+                        help="re-send everything, ignoring what is already there")
         sp.set_defaults(fn=fn)
+
+    auto = ssub.add_parser(
+        "auto",
+        help="push if signed in; do nothing otherwise. For the background job.",
+        description="What the scheduled job runs after ingest and derive. "
+                    "Exits 0 even when the server is unreachable, so a network "
+                    "failure can never be mistaken for a capture failure.",
+    )
+    auto.add_argument("--verbose", action="store_true",
+                      help="say what happened even when nothing did")
+    auto.add_argument("--server", default=None, metavar="URL")
+    auto.set_defaults(fn=cmd_sync_auto)
 
     return p
 

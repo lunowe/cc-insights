@@ -246,7 +246,52 @@ def select_sql(table: Table, *, owned: bool) -> str:
     return sql
 
 
-def order_by_parent(table: Table, rows: list[tuple]) -> list[tuple]:
+def set_fragments(table: Table) -> dict[str, str]:
+    """`set_clause` split into one assignment per column.
+
+    The HTTP transport in `remote.py` upserts a *subset* of the columns -- the
+    account server does not model `host.account_id`, and an optional column may
+    be absent -- and a whole-clause string cannot be narrowed: an assignment
+    mentioning `excluded.account_id` is invalid SQL the moment that column is
+    not in the INSERT. Splitting here rather than writing a second copy of the
+    merge rules keeps one source of truth for the three places a blind
+    overwrite would lose something.
+
+    `{}` for a table with no custom clause, which means "overwrite every
+    non-key column" and needs no fragments to say so.
+
+    The split counts parentheses rather than splitting on every ", ", and
+    that is not defensive coding -- `host.account_id` is
+    `coalesce(excluded.account_id, host.account_id)`, whose comma is inside
+    the call. A naive split produced a fragment keyed
+    `host.account_id)` and silently dropped the real assignment.
+    """
+    if not table.set_clause:
+        return {}
+    clause = table.set_clause
+    pieces: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(clause):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            pieces.append(clause[start:i])
+            start = i + 1
+    pieces.append(clause[start:])
+
+    out: dict[str, str] = {}
+    for piece in pieces:
+        fragment = piece.strip()
+        column, _, _rest = fragment.partition(" = ")
+        out[column.strip()] = fragment
+    return out
+
+
+def order_by_parent(table: Table, rows: list[tuple],
+                    columns: Sequence[str] | None = None) -> list[tuple]:
     """Parents before children, for a table that references itself.
 
     `thread.parent_thread_id` points at another thread, and a subagent can be
@@ -254,11 +299,16 @@ def order_by_parent(table: Table, rows: list[tuple]) -> list[tuple]:
     Inserting a child first fails the foreign key, and relying on the order the
     rows happen to come back in is how that becomes an intermittent failure
     that only shows up on somebody else's machine.
+
+    `columns` says what the rows actually carry, for callers whose projection
+    is not `table.columns` -- the HTTP transport sends and receives a subset.
+    Defaulting to `table.columns` keeps every existing caller unchanged.
     """
     if table.parent is None:
         return rows
-    id_at = table.columns.index(table.key[0])
-    parent_at = table.columns.index(table.parent)
+    layout = tuple(columns) if columns is not None else table.columns
+    id_at = layout.index(table.key[0])
+    parent_at = layout.index(table.parent)
 
     pending = {r[id_at]: r for r in rows}
     placed: list[tuple] = []

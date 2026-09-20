@@ -281,3 +281,31 @@ def active() -> JobStatus | None:
         if job.healthy:
             return job
     return None
+
+
+def installed_command(mode: str) -> str | None:
+    """The command line the job on this machine actually runs, or None.
+
+    Read back from the job file rather than regenerated from the template,
+    because the question worth asking is what is scheduled *right now*. A job
+    written by an older version keeps running that older version's line until
+    somebody reinstalls -- so an upgrade that adds a step to the pipeline is
+    invisible until a check like this one looks. That is the same class of
+    silent drift `init`-leads-the-line exists to survive.
+
+    None when the file is absent, unreadable, or on a platform whose
+    scheduler does not store the command somewhere this can parse. None means
+    "cannot tell", never "no", and callers must not report it as a fault.
+    """
+    if sys.platform != "darwin":
+        return None
+    path = _plist_path(mode)
+    try:
+        with path.open("rb") as stream:
+            body = plistlib.load(stream)
+    except (OSError, ValueError):
+        return None
+    argv = body.get("ProgramArguments")
+    if not isinstance(argv, list) or not argv:
+        return None
+    return str(argv[-1])
