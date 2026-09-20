@@ -78,6 +78,55 @@ Each project takes the **first** rule that matches. Strongest evidence first.
    costs trust in every number on the page.
 5. **ungrouped** — no group. Renders as a group of one. Legal, not an error.
 
+## Paths belong to a machine, not to this one
+
+Every rule above reads paths, and from v2 on the machine rendering them is
+usually not the machine they came from. `src/cc_insights/paths.py` therefore
+takes the *flavor* of a path from the string — a drive letter, a UNC prefix,
+a leading `/` — never from `os.name`. Asking `os.path` instead is not a
+cosmetic bug: on a Mac, `os.path.basename(r"C:\Users\you\Coding\repo")`
+returns the whole string, so rule 3 finds no checkout to anchor on and every
+project on a colleague's box collapses into one group named after their
+whole path. Three consequences worth stating:
+
+- **Windows comparison folds case, POSIX does not.** The filesystems differ,
+  so `.Claude\Worktrees` is a rule-3 match on Windows and is not one on a Mac.
+- **The `$HOME` rule cannot be looked up for a foreign path.** `anchorable`
+  still asks the live OS for the local flavor, and additionally refuses the
+  well-known shapes structurally — `/Users/<n>`, `/home/<n>`, `/root`,
+  `C:\Users\<n>`, and the parent of each. Without that, the home-directory
+  failure described under rule 4 simply arrives over the wire instead.
+- **Foreign paths are never stat-ed.** `os.path.isdir` would answer False for
+  a live worktree on another host and mark it dead, discarding what the
+  machine that owns it learned. The probe skips them and keeps the cache.
+
+Stored `root_path` values are never rewritten: `project_id = hash(root_path)`,
+so normalizing a path in place would fork the history. Only comparison is
+canonical; storage and display keep the original string.
+
+## The probe cache is a fact about one disk
+
+Because `project_id = hash(root_path)`, two machines with the same layout —
+a laptop and a desktop both at `/Users/you/Coding/X`, two CI boxes at
+`/home/ci/work` — are **one** `project` row. So the cached probe results live
+in `project_probe`, keyed `(project_id, host_id)`, and every reader says which
+machine it means:
+
+- **The ladder** (`load_probes`) prefers the local host's row, falling back to
+  the most recently probed other one. `path_exists` and `git_common_dir`
+  describe a disk and the disk we can act on is this one; `git_remote`
+  describes the *repository*, so a colleague's answer is a good stand-in — and
+  it is what lets rule 1 group a project this machine never checked out.
+- **Writing back** records only what this machine learned, falling back to
+  what this machine previously learned. A remote borrowed from another host
+  informs the ladder but is never copied into our own row, or first-hand and
+  second-hand answers become indistinguishable.
+- **"Is this path gone?"** (`PATH_EXISTS_ANY`) is `MAX` across every host.
+  Live on any machine means not gone. Deleting a checkout on the laptop must
+  not put `(gone)` next to a project the desktop is working in right now —
+  that tells the person who is right that they are wrong. `MAX` of no rows is
+  still `NULL`, so "never probed" stays distinct from "missing".
+
 A rule-3 or rule-4 match should adopt the ancestor's rule-1 group where one
 exists, so a worktree and its parent checkout land in the *same* group rather
 than two same-named ones.

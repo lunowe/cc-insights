@@ -21,10 +21,16 @@ rule 4 resolves its anchor transitively: ``slm-finetune/latex`` follows
 
 An ancestor must be a real parent, never a home directory -- see `anchorable`.
 
-Filesystem probing is cached into `project.git_remote` / `git_common_dir` /
-`path_exists` / `detected_at`, so a path that later disappears keeps what was
-learned while it existed, and so `detect(probe_fs=False)` is a pure function of
-the database -- which is what makes the tests hermetic and offline.
+Filesystem probing is cached in `project_probe`, keyed by (project_id,
+host_id), so a path that later disappears keeps what was learned while it
+existed, and so `detect(probe_fs=False)` is a pure function of the database --
+which is what makes the tests hermetic and offline.
+
+The cache is per-MACHINE, not per-project, and that is load-bearing:
+`project_id = hash(root_path)`, so a laptop and a desktop that both keep work
+at `/Users/you/Coding/X` share one project row while describing two different
+disks. Readers say which machine they mean -- `load_probes` prefers the local
+answer, `PATH_EXISTS_ANY` asks across all of them. See migration 004.
 
 Credentials are stripped from every remote before it is stored. Real remotes
 here carry a username; this database is designed to be shareable.
@@ -40,6 +46,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
+from cc_insights import paths
 from cc_insights.db import now_ms
 from cc_insights.ids import make_id
 
@@ -184,27 +191,28 @@ class WorktreeShape:
     shape: str = ""
 
 
-def _segments(path: str) -> list[str]:
-    return [s for s in path.replace("\\", "/").split("/") if s]
-
-
 def worktree_shape(root_path: str) -> WorktreeShape | None:
-    """Recognize the three known worktree layouts. Never touches the disk."""
-    segs = _segments(root_path)
-    absolute = root_path.startswith("/")
+    """Recognize the three known worktree layouts. Never touches the disk.
+
+    The layout names are matched case-insensitively on a Windows path, and the
+    ancestor is rebuilt in the path's own separator, so a `.claude\\worktrees`
+    checkout pushed from a Windows box still finds its parent in `by_path`.
+    """
+    flav = paths.flavor(root_path)
+    anchor, segs = paths.split(root_path)
+    lookup = [g.casefold() for g in segs] if flav == paths.WINDOWS else segs
 
     # `.../<repo>/.claude/worktrees/<name>` -- scan from the right so a nested
     # checkout resolves to the innermost repository.
     for i in range(len(segs) - 3, 0, -1):
-        if segs[i] == ".claude" and segs[i + 1] == "worktrees":
-            prefix = "/".join(segs[:i])
-            ancestor = ("/" + prefix) if absolute else prefix
+        if lookup[i] == ".claude" and lookup[i + 1] == "worktrees":
+            ancestor = paths.join(anchor, segs[:i], flav=flav)
             return WorktreeShape(segs[i - 1], ancestor, ".claude/worktrees")
 
     # `~/.t3/worktrees/<repo>/<name>` and `~/conductor/workspaces/<repo>/<name>`
     for parent, child in ((".t3", "worktrees"), ("conductor", "workspaces")):
         for i in range(len(segs) - 4, -1, -1):
-            if segs[i] == parent and segs[i + 1] == child:
+            if lookup[i] == parent and lookup[i + 1] == child:
                 return WorktreeShape(segs[i + 2], None, f"{parent}/{child}")
     return None
 
@@ -325,26 +333,92 @@ def group_id_for(origin: str, match_key: str | None) -> str:
     return make_id(origin, match_key)
 
 
-def load_projects(conn: sqlite3.Connection) -> list[Project]:
+#: "Is this path still there?", answered across every machine that has looked.
+#:
+#: MAX over the per-host answers, which is deliberate: live on ANY machine
+#: means the project is not gone. A checkout deleted on the laptop must not
+#: put `(gone)` next to a project the desktop is still working in -- and the
+#: aggregate keeps the tri-state, because MAX of no rows is NULL, which still
+#: means "never probed" rather than "missing".
+#:
+#: Correlated subquery rather than a join: `project` is the roster and must
+#: stay one row per project regardless of how many machines probed it.
+PATH_EXISTS_ANY = """(
+    SELECT max(pp.path_exists) FROM project_probe pp
+    WHERE pp.project_id = p.project_id
+)"""
+
+
+def local_host_id(conn: sqlite3.Connection) -> str | None:
+    """The host_id, when this database has seen exactly one machine.
+
+    Ambiguous by design once sync lands: with two hosts there is no "the"
+    machine, so callers that need to attribute a probe must say which.
+    """
+    rows = conn.execute("SELECT host_id FROM host LIMIT 2").fetchall()
+    return rows[0][0] if len(rows) == 1 else None
+
+
+def load_probes(conn: sqlite3.Connection, host_id: str | None) -> dict[str, sqlite3.Row]:
+    """One probe row per project, resolved across machines.
+
+    `host_id` wins where it has an answer; otherwise the most recently probed
+    other machine does. Two reasons that is the right preference rather than
+    an arbitrary one:
+
+    * `path_exists` and `git_common_dir` describe a disk, and the disk we can
+      act on is this one.
+    * `git_remote` describes the repository, not the disk, so a colleague's
+      answer is a perfectly good stand-in when we have none -- and it is what
+      lets rule 1 group a project this machine has never checked out.
+
+    Ordering avoids a bare `detected_at DESC`: SQLite sorts NULLs first under
+    DESC and PostgreSQL sorts them last, so the coalesce is what keeps the two
+    engines agreeing. Ties break on host_id so the answer never depends on row
+    order.
+    """
     rows = conn.execute(
-        """SELECT project_id, root_path, name, group_id, group_pinned,
-                  git_remote, git_common_dir, path_exists, detected_at
+        """SELECT project_id, host_id, git_remote, git_common_dir,
+                  path_exists, detected_at
+           FROM project_probe
+           ORDER BY coalesce(detected_at, 0) DESC, host_id ASC"""
+    ).fetchall()
+
+    best: dict[str, sqlite3.Row] = {}
+    for r in rows:
+        pid = r["project_id"]
+        current = best.get(pid)
+        if current is None:
+            best[pid] = r
+        elif r["host_id"] == host_id and current["host_id"] != host_id:
+            best[pid] = r
+    return best
+
+
+def load_projects(conn: sqlite3.Connection, host_id: str | None = None) -> list[Project]:
+    """Every project with its probe cache resolved for `host_id`."""
+    probes = load_probes(conn, host_id)
+    rows = conn.execute(
+        """SELECT project_id, root_path, name, group_id, group_pinned
            FROM project ORDER BY root_path"""
     ).fetchall()
-    return [
-        Project(
-            project_id=r["project_id"],
-            root_path=r["root_path"],
-            name=r["name"],
-            group_id=r["group_id"],
-            pinned=bool(r["group_pinned"]),
-            git_remote=r["git_remote"],
-            git_common_dir=r["git_common_dir"],
-            path_exists=r["path_exists"],
-            detected_at=r["detected_at"],
+    out: list[Project] = []
+    for r in rows:
+        probe = probes.get(r["project_id"])
+        out.append(
+            Project(
+                project_id=r["project_id"],
+                root_path=r["root_path"],
+                name=r["name"],
+                group_id=r["group_id"],
+                pinned=bool(r["group_pinned"]),
+                git_remote=probe["git_remote"] if probe else None,
+                git_common_dir=probe["git_common_dir"] if probe else None,
+                path_exists=probe["path_exists"] if probe else None,
+                detected_at=probe["detected_at"] if probe else None,
+            )
         )
-        for r in rows
-    ]
+    return out
 
 
 class _Planner:
@@ -356,7 +430,7 @@ class _Planner:
 
     def __init__(self, projects: list[Project]) -> None:
         self.projects = projects
-        self.by_path = {p.root_path: p for p in projects}
+        self.by_path = {paths.key(p.root_path): p for p in projects}
         self.plans: dict[str, GroupPlan] = {}
         self.assigned: dict[str, str] = {}   # project_id -> group_id
         self.rule_of: dict[str, str] = {}    # project_id -> origin that matched
@@ -369,7 +443,7 @@ class _Planner:
 
         self.by_basename: dict[str, list[Project]] = {}
         for p in projects:
-            self.by_basename.setdefault(os.path.basename(p.root_path).lower(), []).append(p)
+            self.by_basename.setdefault(paths.basename(p.root_path).casefold(), []).append(p)
 
     # ---------------------------------------------------------------- utils
 
@@ -445,20 +519,23 @@ class _Planner:
             gid = self.group_of(p)
             if not gid or self.rule_of.get(p.project_id) != ORIGIN_GIT_REMOTE:
                 continue
-            remote_group_by_path[p.root_path] = gid
+            remote_group_by_path[paths.key(p.root_path)] = gid
             if p.git_common_dir:
-                remote_group_by_common.setdefault(_norm_dir(p.git_common_dir), gid)
+                remote_group_by_common.setdefault(paths.key(p.git_common_dir), gid)
 
         for p in self.unassigned():
             if not p.git_common_dir:
                 continue
-            common = _norm_dir(p.git_common_dir)
-            main_root = os.path.dirname(common) if os.path.basename(common) == ".git" else common
-            adopted = remote_group_by_path.get(main_root) or remote_group_by_common.get(common)
+            common = paths.key(p.git_common_dir)
+            raw = paths.normalize(p.git_common_dir)
+            main_root = paths.dirname(raw) if paths.basename(raw).casefold() == ".git" else raw
+            adopted = remote_group_by_path.get(paths.key(main_root)) or (
+                remote_group_by_common.get(common)
+            )
             if adopted:
                 self.assign(p, adopted, ORIGIN_GIT_COMMON_DIR)
                 continue
-            name = os.path.basename(main_root) or common
+            name = paths.basename(main_root) or common
             gid = self.ensure_plan(ORIGIN_GIT_COMMON_DIR, common, name)
             self.assign(p, gid, ORIGIN_GIT_COMMON_DIR)
 
@@ -493,7 +570,7 @@ class _Planner:
             # 1. The shape spelled out the parent checkout -- follow it.
             adopted = None
             if shape.ancestor and anchorable(shape.ancestor):
-                parent = self.by_path.get(shape.ancestor)
+                parent = self.by_path.get(paths.key(shape.ancestor))
                 if parent is not None:
                     adopted = self.group_of(parent)
                     if adopted is None and not parent.pinned:
@@ -519,23 +596,21 @@ class _Planner:
         `$HOME` and everything at or above it are filtered out here rather
         than at the call site, so no rule can accidentally anchor on them.
         """
-        prefix = p.root_path.rstrip("/")
         found = [
             q
             for q in self.projects
             if q.project_id != p.project_id
-            and q.root_path != prefix
-            and prefix.startswith(q.root_path.rstrip("/") + "/")
+            and paths.is_ancestor(q.root_path, p.root_path)
             and anchorable(q.root_path)
         ]
-        found.sort(key=lambda q: len(q.root_path.rstrip("/")), reverse=True)
+        found.sort(key=lambda q: len(paths.split(q.root_path)[1]), reverse=True)
         return found
 
     def rule_path_ancestor(self) -> None:
         # Shallowest first, so an anchor is resolved before its descendants and
         # a chain (slm-finetune/latex -> slm-finetune -> ...) lands in one
         # group rather than two.
-        for p in sorted(self.unassigned(), key=lambda q: len(_segments(q.root_path))):
+        for p in sorted(self.unassigned(), key=lambda q: len(paths.split(q.root_path)[1])):
             if p.project_id in self.assigned:
                 continue
             for anc in self._ancestors(p):
@@ -559,10 +634,6 @@ class _Planner:
         self.rule_path_ancestor()
 
 
-def _norm_dir(path: str) -> str:
-    return os.path.normpath(path).rstrip("/") or "/"
-
-
 def anchorable(root_path: str) -> bool:
     """May this project root adopt the paths that sit inside it?
 
@@ -581,13 +652,17 @@ def anchorable(root_path: str) -> bool:
     as a group of one.
 
     `Path.home()` is resolved per call rather than baked in at import, so this
-    stays correct on another machine and under a test's patched HOME.
+    stays correct on another machine and under a test's patched HOME. It can
+    only answer for the machine we are running on, though, so the well-known
+    home layouts are also refused structurally -- see `paths.is_home_like`,
+    which is what keeps this honest for a path pushed from another host.
     """
-    path = _norm_dir(root_path)
-    if path == os.path.dirname(path):        # "/" and any drive root
+    if paths.is_root(root_path) or paths.is_home_like(root_path):
         return False
-    home = _norm_dir(str(Path.home()))
-    return not (path == home or home.startswith(path + "/"))
+    home = str(Path.home())
+    if paths.flavor(root_path) != paths.flavor(home):
+        return True
+    return not (paths.same(root_path, home) or paths.is_ancestor(root_path, home))
 
 
 # --------------------------------------------------------------------------
@@ -598,24 +673,40 @@ def anchorable(root_path: str) -> bool:
 def detect(
     conn: sqlite3.Connection,
     *,
+    host_id: str | None = None,
     probe_fs: bool = True,
     dry_run: bool = False,
 ) -> GroupingResult:
     """Run the detection ladder and (unless `dry_run`) write the result.
 
+    `host_id` is the machine whose disk the probe describes. It defaults to
+    the only host this database knows, which is every database until sync
+    lands; after that a caller has to say, because a probe filed under the
+    wrong machine tells the other one its live checkout is gone.
+
     With `probe_fs=False` nothing is executed and nothing is stat-ed: the run
-    is a pure function of the cached `git_remote` / `git_common_dir` columns
-    and the logged paths. That is the hermetic, offline mode the tests use.
+    is a pure function of the cached `project_probe` rows and the logged
+    paths. That is the hermetic, offline mode the tests use, and it needs no
+    host at all.
 
     Re-running changes nothing the second time: ids are derived from the
     natural key, names of existing groups are preserved, and rows are only
     written when a value actually differs.
     """
+    if host_id is None:
+        host_id = local_host_id(conn)
+
     result = GroupingResult(dry_run=dry_run)
-    projects = load_projects(conn)
+    projects = load_projects(conn, host_id)
 
     if probe_fs:
-        _probe_all(conn, projects, result, write=not dry_run)
+        if host_id is None:
+            raise RuntimeError(
+                "cannot probe without a host_id: this database knows several "
+                "machines (or none), and a probe has to say whose disk it "
+                "describes. Pass host_id=<this machine's id>."
+            )
+        _probe_all(conn, projects, result, host_id=host_id, write=not dry_run)
 
     planner = _Planner(projects)
     planner.run()
@@ -645,10 +736,34 @@ def _probe_all(
     projects: list[Project],
     result: GroupingResult,
     *,
+    host_id: str,
     write: bool,
 ) -> None:
+    """Probe this machine's paths and record the answers under `host_id`.
+
+    The row written describes THIS disk only. `p.git_remote` may have been
+    resolved from another machine by `load_probes` -- useful for the ladder,
+    but copying it into our own row would launder a colleague's answer into a
+    first-hand one, and the next reader could not tell them apart. So the
+    write falls back to what this host previously learned, never to what some
+    other host knows.
+    """
+    own = {
+        r["project_id"]: r
+        for r in conn.execute(
+            """SELECT project_id, git_remote, git_common_dir
+               FROM project_probe WHERE host_id = ?""",
+            (host_id,),
+        )
+    }
     ts = now_ms()
     for p in projects:
+        if paths.flavor(p.root_path) != paths.LOCAL:
+            # A path from another machine. `os.path.isdir` would say False and
+            # we would record path_exists = 0, marking a colleague's live
+            # worktree dead. Not probing leaves the cached answer -- whatever
+            # the host that owns the path last learned -- untouched.
+            continue
         try:
             probe = probe_path(p.root_path)
         except Exception as exc:                       # never abort the run
@@ -656,20 +771,31 @@ def _probe_all(
             continue
         result.probed += 1
 
+        prior = own.get(p.project_id)
+        remote = prior["git_remote"] if prior else None
+        common = prior["git_common_dir"] if prior else None
+
         p.path_exists = 1 if probe.exists else 0
         p.detected_at = ts
         if probe.exists and probe.git_ran:
             # Only overwrite when git actually answered. A path that has since
             # disappeared -- or a machine without git -- keeps what it learned.
+            remote, common = probe.remote, probe.common_dir
             p.git_remote = probe.remote
             p.git_common_dir = probe.common_dir
 
         if write:
             conn.execute(
-                """UPDATE project
-                   SET git_remote = ?, git_common_dir = ?, path_exists = ?, detected_at = ?
-                   WHERE project_id = ?""",
-                (p.git_remote, p.git_common_dir, p.path_exists, p.detected_at, p.project_id),
+                """INSERT INTO project_probe
+                       (project_id, host_id, git_remote, git_common_dir,
+                        path_exists, detected_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT (project_id, host_id) DO UPDATE SET
+                       git_remote     = excluded.git_remote,
+                       git_common_dir = excluded.git_common_dir,
+                       path_exists    = excluded.path_exists,
+                       detected_at    = excluded.detected_at""",
+                (p.project_id, host_id, remote, common, p.path_exists, p.detected_at),
             )
 
 
@@ -957,7 +1083,9 @@ def list_groups(conn: sqlite3.Connection) -> list[GroupView]:
 
     loose: list[GroupView] = []
     for r in conn.execute(
-        "SELECT project_id, root_path, name, group_id, group_pinned, path_exists FROM project"
+        f"""SELECT p.project_id, p.root_path, p.name, p.group_id, p.group_pinned,
+                   {PATH_EXISTS_ANY} AS path_exists
+            FROM project p"""
     ):
         m = Member(
             project_id=r["project_id"],

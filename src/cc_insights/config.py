@@ -16,7 +16,29 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DEFAULT_CONFIG_DIR = Path(os.environ.get("CC_INSIGHTS_HOME", "~/.config/cc-insights")).expanduser()
+from cc_insights import paths
+
+
+def default_config_dir() -> Path:
+    """Where the config lives when nothing overrides it.
+
+    `~/.config/cc-insights` everywhere except Windows, which has no XDG
+    convention and puts per-user application state in `%APPDATA%`. A Windows
+    install that predates this and already has `~/.config/cc-insights` keeps
+    working by passing `--config-dir` or setting CC_INSIGHTS_HOME -- the
+    host_id lives in that file and must never be regenerated.
+    """
+    override = os.environ.get("CC_INSIGHTS_HOME")
+    if override:
+        return Path(override).expanduser()
+    if paths.LOCAL == paths.WINDOWS:
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "cc-insights"
+    return Path("~/.config/cc-insights").expanduser()
+
+
+DEFAULT_CONFIG_DIR = default_config_dir()
 DEFAULT_IDLE_THRESHOLD_S = 300
 
 # Why 300s: measured on the real corpus, the inter-event gap distribution has a
@@ -33,6 +55,45 @@ DEFAULT_SOURCE_GLOBS: dict[str, list[str]] = {
     "codex": ["~/.codex/sessions/*/*/*/*.jsonl", "~/.codex/archived_sessions/**/*.jsonl"],
 }
 
+# Windows keeps `~` meaningful (`os.path.expanduser` resolves it to
+# %USERPROFILE%), so the globs above already find the usual `.claude` and
+# `.codex` directories there. These are the *other* places an installer may
+# have put them. A pattern that matches nothing costs one failed glob, so
+# guessing wide is cheap and guessing narrow loses history permanently.
+WINDOWS_EXTRA_GLOBS: dict[str, list[str]] = {
+    "claude_code": [
+        "%APPDATA%/claude/projects/*/*.jsonl",
+        "%APPDATA%/claude/projects/*/*/subagents/**/*.jsonl",
+        "%LOCALAPPDATA%/claude/projects/*/*.jsonl",
+        "%LOCALAPPDATA%/claude/projects/*/*/subagents/**/*.jsonl",
+    ],
+    "codex": [
+        "%APPDATA%/codex/sessions/*/*/*/*.jsonl",
+        "%APPDATA%/codex/archived_sessions/**/*.jsonl",
+        "%LOCALAPPDATA%/codex/sessions/*/*/*/*.jsonl",
+        "%LOCALAPPDATA%/codex/archived_sessions/**/*.jsonl",
+    ],
+}
+
+
+def default_source_globs() -> dict[str, list[str]]:
+    """The shipped globs for this platform."""
+    globs = {name: list(patterns) for name, patterns in DEFAULT_SOURCE_GLOBS.items()}
+    if paths.LOCAL == paths.WINDOWS:
+        for name, extra in WINDOWS_EXTRA_GLOBS.items():
+            here = globs.setdefault(name, [])
+            here.extend(p for p in extra if p not in here)
+    return globs
+
+
+def expand_glob(pattern: str | os.PathLike[str]) -> str:
+    """`~` and `%APPDATA%` / `$HOME` resolved, in that order.
+
+    An undefined variable is left verbatim, so a Windows-only pattern read on a
+    Mac stays `%APPDATA%/...` and simply matches nothing.
+    """
+    return os.path.expanduser(os.path.expandvars(str(pattern)))
+
 
 @dataclass(slots=True)
 class Config:
@@ -40,8 +101,10 @@ class Config:
     hostname: str
     db_path: Path
     idle_threshold_s: int = DEFAULT_IDLE_THRESHOLD_S
-    source_globs: dict[str, list[str]] = field(default_factory=lambda: dict(DEFAULT_SOURCE_GLOBS))
+    source_globs: dict[str, list[str]] = field(default_factory=default_source_globs)
     config_dir: Path = DEFAULT_CONFIG_DIR
+    #: PostgreSQL URL for `cci sync`. Optional: everything else works without it.
+    sync_url: str | None = None
 
     @property
     def path(self) -> Path:
@@ -49,7 +112,7 @@ class Config:
 
     def globs_for(self, source: str) -> list[Path]:
         """Expanded glob patterns for one source."""
-        return [Path(p).expanduser() for p in self.source_globs.get(source, [])]
+        return [Path(expand_glob(p)) for p in self.source_globs.get(source, [])]
 
     def to_toml(self) -> str:
         lines = [
@@ -57,17 +120,25 @@ class Config:
             "# host_id is generated once and must never change -- it is part of every",
             "# session id. Changing it duplicates your entire history.",
             "",
-            f'host_id = "{self.host_id}"',
-            f'hostname = "{self.hostname}"',
-            f'db_path = "{self._db_path_for_toml()}"',
+            f"host_id = {_toml_str(self.host_id)}",
+            f"hostname = {_toml_str(self.hostname)}",
+            f"db_path = {_toml_str(self._db_path_for_toml())}",
             "",
             "# Seconds of silence that ends an active span. See docs/FINDINGS.md.",
             f"idle_threshold_s = {self.idle_threshold_s}",
             "",
-            "[source_globs]",
         ]
+        if self.sync_url:
+            lines += [
+                "# Shared PostgreSQL database for `cci sync`. CC_INSIGHTS_SYNC_URL",
+                "# overrides this -- prefer the environment if the URL carries a",
+                "# password, since this file is plain text.",
+                f"sync_url = {_toml_str(self.sync_url)}",
+                "",
+            ]
+        lines.append("[source_globs]")
         for name, globs in self.source_globs.items():
-            rendered = ", ".join(f'"{g}"' for g in globs)
+            rendered = ", ".join(_toml_str(g) for g in globs)
             lines.append(f"{name} = [{rendered}]")
         return "\n".join(lines) + "\n"
 
@@ -92,6 +163,18 @@ class Config:
         return self.path
 
 
+def _toml_str(value: str) -> str:
+    """A TOML basic string. The escaping is not cosmetic.
+
+    A Windows `db_path` is `C:\\Users\\you\\AppData\\...`, and in a TOML basic
+    string `\\U` and `\\A` are escape sequences -- one is an invalid unicode
+    escape and the other is simply not a valid escape, so an unescaped Windows
+    path makes the config file this function just wrote unparseable on the
+    next run.
+    """
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def _resolve_db_path(raw: str, config_dir: Path) -> Path:
     """A relative db_path belongs to the directory its config was read from."""
     p = Path(raw).expanduser()
@@ -111,8 +194,9 @@ def load(config_dir: Path | None = None, *, create: bool = True) -> Config:
             db_path=_resolve_db_path(raw["db_path"], config_dir),
             idle_threshold_s=int(raw.get("idle_threshold_s", DEFAULT_IDLE_THRESHOLD_S)),
             source_globs={k: list(v) for k, v in (raw.get("source_globs") or {}).items()}
-            or dict(DEFAULT_SOURCE_GLOBS),
+            or default_source_globs(),
             config_dir=config_dir,
+            sync_url=raw.get("sync_url"),
         )
 
     cfg = Config(
@@ -124,6 +208,16 @@ def load(config_dir: Path | None = None, *, create: bool = True) -> Config:
     if create:
         cfg.save()
     return cfg
+
+
+def sync_url_for(cfg: "Config", override: str | None = None) -> str | None:
+    """Where `cci sync` talks to: the flag, then the environment, then config.
+
+    The environment sits above the config file on purpose. A PostgreSQL URL
+    usually carries a password, and config.toml is plain text that people copy
+    around -- `_db_path_for_toml` exists because someone already did.
+    """
+    return override or os.environ.get("CC_INSIGHTS_SYNC_URL") or cfg.sync_url
 
 
 def host_os() -> str:

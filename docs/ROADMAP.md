@@ -23,16 +23,35 @@ The schema already carries `host_id` on every row and every id is a
 content hash, so the same logical row computes the same id on any machine.
 That was deliberate: this is a backend swap plus a sync path, not a migration.
 
-### Windows support
+### Windows support — done
 
 Needed before "multi-machine" means anything, since the second box is often
 not a Mac.
 
-- Log locations differ (`%APPDATA%`, `%USERPROFILE%`); the source globs are
-  already config, so this is adapter-local.
-- No launchd. Task Scheduler, or a long-running `cci watch`.
-- Path handling must stop assuming POSIX separators — `grouping.py`'s
-  worktree shapes and ancestor logic are the exposed spots.
+- **Path handling no longer assumes POSIX separators.** `src/cc_insights/paths.py`
+  takes the flavor from the path string, not from `os.name`, and `grouping.py`,
+  `ingest.py` and `cli.py` read paths only through it.
+- Config dir is `%APPDATA%\cc-insights` on Windows; `CC_INSIGHTS_HOME` still
+  overrides. Source globs expand `%APPDATA%`-style variables and ship extra
+  Windows candidates alongside the `~`-relative ones.
+- `scripts/install-task.ps1` registers the Task Scheduler job: same cadence,
+  same commands, same log files as the launchd one. A long-running `cci watch`
+  is still the nicer answer and belongs with v1's watch mode.
+- Fixed on the way: a Windows `db_path` written into `config.toml` unescaped is
+  not valid TOML (`\U`, `\A` are escape sequences), so the file the tool had
+  just written was unreadable on the next run — and an unreadable `host_id` is
+  a regenerated `host_id`, which forks the whole history.
+
+**What this turned out to be about.** The framing above said "run on Windows".
+The real requirement is that *any* machine can reason about *any* other
+machine's paths, because after sync the box rendering the dashboard is usually
+not the box the path came from. On a Mac, `os.path.basename` of a Windows path
+returns the whole string, `os.path.isdir` calls a live remote worktree dead,
+and `$HOME` cannot be looked up for a host you are not on. So the flavor lives
+in the path, comparison is flavor-aware (Windows folds case, POSIX does not),
+and stored paths are never rewritten — `project_id = hash(root_path)`, so
+normalizing in place would fork the history rather than fix it. See
+docs/GROUPING.md § "Paths belong to a machine, not to this one".
 
 ### Postgres + sync
 
@@ -40,6 +59,46 @@ Same migrations, same portable SQL. Each machine ingests locally and pushes
 normalized rows; local stays the source of truth and sync is append-only.
 Because ids are content hashes, a row pushed twice from two machines collapses
 rather than duplicating.
+
+Two prerequisites are done, both of them things that had to be settled before
+the first sync writes rather than after:
+
+- **Paths are flavor-aware**, so a row pulled from another host groups
+  correctly instead of poisoning the ladder.
+- **The probe cache is per-machine** (migration 004). It used to live on
+  `project`, but `project_id = hash(root_path)`, so a laptop and a desktop
+  that both keep work at `/Users/you/Coding/X` are one project row describing
+  two different disks — whichever machine ran `cci group auto` last overwrote
+  the other. It now lives in `project_probe (project_id, host_id)`, and the
+  readers are explicit: the ladder prefers the local machine's answer and
+  falls back to the freshest other one, while "is this path gone" is answered
+  across all of them, because live on any machine means not gone.
+
+**Done.** `cci sync push` / `pull` / `status`, over a shared PostgreSQL.
+
+The shape follows from what was already true. Every id is a content hash, so
+the transfer is an upsert with no coordination and no merge — a row pushed
+twice collapses. Local stays the source of truth: Postgres is a meeting point,
+each machine pushes the rows it owns and pulls everyone else's back into its
+own SQLite file, and the dashboard, `metrics`, `stats` and `derive` keep
+reading SQLite without knowing any of it happened. That is why the read path
+needed no porting at all.
+
+- The migrations stayed one source of truth. The only thing the `.sql` files
+  cannot express is integer width — SQLite's INTEGER is 64-bit, PostgreSQL's
+  is int4 (max 2.1e9), and epoch-ms is ~1.79e12 — so `db.translate_ddl`
+  widens every INTEGER to BIGINT on the way out. No second schema to drift.
+- **Conflicts have explicit rules, not last-writer-wins.** A pin is a human
+  saying where a project belongs, so a push from a machine that never heard
+  about it must not unpin it. `host.first_seen` only ever moves backwards.
+- **`ingest_file` is never synced**: bookkeeping about how far this machine
+  read each local log, whose only content is a full local path. No analytical
+  value, pure leakage.
+- psycopg is an optional extra (`pip install 'cc-insights[postgres]'`). The
+  base install stays dependency-free.
+
+Still one person's several machines. Sharing beyond that is the next section,
+and it is blocked on redaction, not on transport.
 
 ### Accounts and teams
 

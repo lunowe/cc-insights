@@ -109,7 +109,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence, TypeVar
 
-from cc_insights import db, ids
+from cc_insights import db, ids, paths
 from cc_insights.config import Config
 from cc_insights.sources.base import RawEvent, SourceAdapter
 from cc_insights.sources.claude_code import ClaudeCodeAdapter
@@ -149,13 +149,17 @@ def project_root(cwd: str | None) -> str | None:
     text = cwd.strip()
     if not text:
         return None
-    root = os.path.normpath(text)
+    root = paths.normalize(text)
     return root or None
 
 
 def project_name(root_path: str) -> str:
-    """Display name for a project root: its last path segment."""
-    return os.path.basename(root_path.rstrip("/")) or root_path
+    """Display name for a project root: its last path segment.
+
+    Flavor-aware, so a Windows `cwd` read back on a Mac is still named `repo`
+    and not `C:\\Users\\you\\Coding\\repo`.
+    """
+    return paths.basename(root_path) or root_path
 
 
 # --------------------------------------------------------------------------

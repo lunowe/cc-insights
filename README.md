@@ -33,8 +33,41 @@ agent log directories are pruned on a rolling basis and uncaptured history is
 lost for good:
 
 ```bash
-./scripts/install-launchd.sh              # every 15 min; --uninstall to remove
+./scripts/install-launchd.sh              # macOS; --uninstall to remove
 ```
+
+On Windows the same job runs through Task Scheduler:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-task.ps1   # -Uninstall to remove
+```
+
+Same cadence, same two commands, same log files under the config directory —
+which is `%APPDATA%\cc-insights` on Windows and `~/.config/cc-insights`
+everywhere else. `CC_INSIGHTS_HOME` overrides both.
+
+### Several machines
+
+`cci sync` shares one person's machines through a PostgreSQL database. Each
+machine ingests its own logs locally, pushes the rows it owns, and pulls the
+others' back down — local SQLite stays the source of truth and the dashboard
+never changes.
+
+```bash
+pip install -e '.[postgres]'
+export CC_INSIGHTS_SYNC_URL=postgresql://user@host/cci   # or sync_url in config.toml
+cci sync push      # send this machine's rows
+cci sync pull      # bring the other machines' rows down
+cci sync status    # who has pushed what
+```
+
+Re-running either is safe: every id is a content hash, so a row that crosses
+twice collapses instead of duplicating. `ingest_file` is deliberately never
+sent — it is bookkeeping about local paths with no analytical value.
+
+This is **your** machines, not your team's. A `root_path` still reads
+`~/Coding/<client-name>`, and sharing beyond one person needs the redaction
+layer described in `docs/ROADMAP.md`.
 
 ## What it found on this machine
 
@@ -101,9 +134,11 @@ src/cc_insights/
   derive.py     active spans, attendance, concurrency
   stats.py      read-only summary queries
   cli.py        cci init | ingest | derive | stats | status | config
+  paths.py      path reasoning that takes the OS from the path, not the host
+  sync.py       push/pull between local SQLite and a shared PostgreSQL
 migrations/     numbered SQL, applied in order
 docs/           FINDINGS.md (ground truth), ROADMAP.md, probes/
-scripts/        launchd job + installer
+scripts/        launchd job + installer (macOS), Task Scheduler job (Windows)
 ```
 
 ## Roadmap

@@ -88,7 +88,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, Iterable, Iterator, Sequence
 
 from cc_insights import ids
-from cc_insights.config import DEFAULT_SOURCE_GLOBS, Config
+from cc_insights.config import Config, default_source_globs, expand_glob
 from cc_insights.sources.base import EventKind, RawEvent
 
 SOURCE_NAME = "codex"
@@ -301,7 +301,7 @@ class CodexAdapter:
             return list(self._globs)
         if self._config is not None:
             return [str(p) for p in self._config.globs_for(SOURCE_NAME)]
-        return list(DEFAULT_SOURCE_GLOBS[SOURCE_NAME])
+        return list(default_source_globs()[SOURCE_NAME])
 
     def discover(
         self, globs: Sequence[str | os.PathLike[str]] | None = None
@@ -313,7 +313,7 @@ class CodexAdapter:
         """
         found: dict[str, Path] = {}
         for pattern in self._patterns(globs):
-            expanded = os.path.expanduser(pattern)
+            expanded = expand_glob(pattern)
             for hit in _glob.glob(expanded, recursive=True):
                 path = Path(hit)
                 if path.is_file():

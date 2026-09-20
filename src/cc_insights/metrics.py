@@ -56,6 +56,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, Mapping, Sequence
 
 from cc_insights import db, derive
+from cc_insights.grouping import PATH_EXISTS_ANY
 from cc_insights.config import Config
 
 __all__ = [
@@ -534,7 +535,7 @@ def projects(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
         SELECT p.project_id AS projectId, p.name AS name, p.root_path AS rootPath,
                p.group_id AS groupId, g.name AS groupName,
                p.group_pinned AS groupPinned,
-               p.path_exists AS pathExists,
+               {PATH_EXISTS_ANY} AS pathExists,
                coalesce(sum(sp.ended_at - sp.started_at), 0) AS activeMs,
                count(DISTINCT s.id) AS sessions, count(DISTINCT sp.thread_id) AS threads,
                min(sp.started_at) AS firstTs, max(sp.ended_at) AS lastTs

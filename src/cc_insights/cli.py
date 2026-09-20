@@ -19,8 +19,10 @@ from cc_insights import (
     derive,
     grouping,
     ingest,
+    paths,
     serve,
     stats,
+    sync,
 )
 
 
@@ -254,12 +256,12 @@ HOME = str(Path.home())
 
 
 def _tilde(path: str) -> str:
-    """`/Users/me/Coding/x` -> `~/Coding/x`. Paths are the bulk of this output."""
-    if path == HOME:
-        return "~"
-    if path.startswith(HOME + "/"):
-        return "~" + path[len(HOME):]
-    return path
+    """`/Users/me/Coding/x` -> `~/Coding/x`. Paths are the bulk of this output.
+
+    A path from another machine has a home directory we cannot know, so it is
+    printed in full rather than abbreviated against the wrong one.
+    """
+    return paths.abbreviate_home(path, HOME)
 
 
 def _open_grouped_db(args: argparse.Namespace):
@@ -338,9 +340,18 @@ def cmd_group_list(args: argparse.Namespace) -> int:
 
 
 def cmd_group_auto(args: argparse.Namespace) -> int:
-    _, conn = _open_grouped_db(args)
+    cfg, conn = _open_grouped_db(args)
     try:
-        r = grouping.detect(conn, probe_fs=not args.no_probe, dry_run=args.dry_run)
+        # The probe describes THIS machine's disk, so it is filed under this
+        # machine's host_id rather than whichever host the database happens to
+        # list first. Once a database holds several, that is the difference
+        # between a cache and a lie.
+        r = grouping.detect(
+            conn,
+            host_id=cfg.host_id,
+            probe_fs=not args.no_probe,
+            dry_run=args.dry_run,
+        )
         if args.dry_run:
             hours = grouping.project_hours(conn)
             names = {
@@ -474,6 +485,91 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return serve.run(cfg, port=args.port, open_browser=not args.no_open)
 
 
+# --------------------------------------------------------------------- sync --
+
+
+def _open_sync(args: argparse.Namespace):
+    """Local database, shared database, and this machine's id -- or exit."""
+    cfg, conn = _open_db(args)
+    url = config_mod.sync_url_for(cfg, args.url)
+    if not url:
+        conn.close()
+        print(
+            "no shared database configured. Set one of:\n"
+            "  cci sync push --url postgresql://user@host/db\n"
+            "  export CC_INSIGHTS_SYNC_URL=postgresql://user@host/db\n"
+            f"  sync_url = \"postgresql://...\"   in {cfg.path}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    try:
+        remote = sync.connect_remote(url)
+    except Exception as exc:
+        conn.close()
+        print(f"cannot reach the shared database: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    return cfg, conn, remote
+
+
+def _print_sync(stats: sync.SyncStats) -> None:
+    if not stats.rows:
+        print(f"{stats.direction}: nothing to send")
+        return
+    for table, n in stats.rows.items():
+        print(f"  {table:<15} {n:>8,}")
+    print(f"  {'total':<15} {stats.total:>8,} rows")
+
+
+def cmd_sync_push(args: argparse.Namespace) -> int:
+    cfg, conn, remote = _open_sync(args)
+    try:
+        _print_sync(sync.push(conn, remote, cfg.host_id))
+    finally:
+        conn.close()
+        remote.close()
+    return 0
+
+
+def cmd_sync_pull(args: argparse.Namespace) -> int:
+    _, conn, remote = _open_sync(args)
+    try:
+        _print_sync(sync.pull(conn, remote))
+    finally:
+        conn.close()
+        remote.close()
+    print("\nrun `cci derive` if you want spans recomputed over the pulled events")
+    return 0
+
+
+def cmd_sync_status(args: argparse.Namespace) -> int:
+    cfg, conn, remote = _open_sync(args)
+    try:
+        rows = remote.execute(
+            """SELECT h.host_id, h.hostname, h.os,
+                      count(DISTINCT s.id) AS sessions,
+                      coalesce(sum(s.active_ms), 0) AS active_ms
+               FROM host h LEFT JOIN session s ON s.host_id = h.host_id
+               GROUP BY h.host_id, h.hostname, h.os
+               ORDER BY active_ms DESC"""
+        ).fetchall()
+    finally:
+        conn.close()
+        remote.close()
+
+    if not rows:
+        print("the shared database is empty — run `cci sync push`")
+        return 0
+    print(f"{'hostname':<20} {'os':<16} {'sessions':>9} {'active':>10}")
+    for host_id, hostname, os_name, sessions, active_ms in rows:
+        mine = "  ← this machine" if host_id == cfg.host_id else ""
+        print(
+            f"{hostname[:20]:<20} {(os_name or '')[:16]:<16} "
+            f"{sessions:>9,} {_hours(active_ms / 3_600_000):>10}{mine}"
+        )
+    print()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="cci", description="CC-Insights — coding-agent usage tracking")
     p.add_argument("--version", action="version", version=f"cc-insights {__version__}")
@@ -540,6 +636,21 @@ def build_parser() -> argparse.ArgumentParser:
     srv.add_argument("--no-open", action="store_true",
                      help="do not open a browser window")
     srv.set_defaults(fn=cmd_serve)
+    syn = sub.add_parser("sync", help="share this machine's data with your others")
+    ssub = syn.add_subparsers(dest="sync_command", required=True)
+    for name, helptext, fn in (
+        ("push", "send this host's rows to the shared database", cmd_sync_push),
+        ("pull", "bring every host's rows down into the local database", cmd_sync_pull),
+        ("status", "show what the shared database holds, per host", cmd_sync_status),
+    ):
+        sp = ssub.add_parser(name, help=helptext)
+        sp.add_argument(
+            "--url",
+            default=None,
+            help="PostgreSQL URL (default: $CC_INSIGHTS_SYNC_URL, then sync_url in config)",
+        )
+        sp.set_defaults(fn=fn)
+
     return p
 
 

@@ -9,6 +9,12 @@ description = "Local-first tracker and visualizer for coding-agent usage"
 requires-python = ">=3.11"
 dependencies = []
 
+# Sync is the only thing that needs a third-party package, and it is the only
+# thing you can use the tool for years without touching. Keeping the base
+# install dependency-free is a feature, not an accident.
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.1"]
+
 [project.scripts]
 cci = "cc_insights.cli:main"
 

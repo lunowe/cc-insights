@@ -1,4 +1,7 @@
+import pathlib
+
 from cc_insights import config as config_mod
+from cc_insights import paths
 
 
 def test_first_run_generates_and_persists_host_id(tmp_path):
@@ -58,3 +61,63 @@ def test_a_database_deliberately_outside_the_config_dir_stays_absolute(tmp_path)
     cfg.save()
     assert f'db_path = "{elsewhere}"' in cfg.path.read_text()
     assert config_mod.load(tmp_path / "cfg", create=False).db_path == elsewhere
+
+
+# ------------------------------------------------------------------ windows --
+
+
+def test_a_windows_db_path_round_trips_through_toml(tmp_path):
+    """`\\U` and `\\A` are TOML escape sequences, and a Windows path is full of them.
+
+    Unescaped, `C:\\Users\\you\\AppData\\...` makes the config file this code
+    just wrote unparseable on the very next run -- the host_id becomes
+    unreadable, and a regenerated host_id forks the entire history.
+    """
+    import tomllib
+
+    cfg = config_mod.load(tmp_path)
+    cfg.db_path = pathlib.PureWindowsPath(r"C:\Users\you\AppData\Roaming\cc-insights\cci.db")
+    written = cfg.to_toml()
+
+    assert tomllib.loads(written)["db_path"] == str(cfg.db_path)
+
+
+def test_a_glob_with_an_undefined_variable_survives_verbatim():
+    """A Windows-only pattern read on a Mac must match nothing, not explode."""
+    assert config_mod.expand_glob("%NOT_A_REAL_VAR%/x/*.jsonl") == "%NOT_A_REAL_VAR%/x/*.jsonl"
+
+
+def test_expand_glob_resolves_home_and_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("CCI_TEST_ROOT", str(tmp_path))
+    assert config_mod.expand_glob("$CCI_TEST_ROOT/x") == f"{tmp_path}/x"
+    assert not config_mod.expand_glob("~/x").startswith("~")
+
+
+def test_windows_gets_extra_source_locations(monkeypatch):
+    """The shipped globs grow on Windows and are untouched everywhere else."""
+    monkeypatch.setattr(paths, "LOCAL", paths.POSIX)
+    assert config_mod.default_source_globs() == config_mod.DEFAULT_SOURCE_GLOBS
+
+    monkeypatch.setattr(paths, "LOCAL", paths.WINDOWS)
+    on_windows = config_mod.default_source_globs()
+    for source, patterns in config_mod.DEFAULT_SOURCE_GLOBS.items():
+        assert set(patterns) <= set(on_windows[source]), "the defaults must never be lost"
+    assert any("%APPDATA%" in p for p in on_windows["claude_code"])
+
+
+def test_the_config_dir_follows_the_platform(monkeypatch):
+    monkeypatch.delenv("CC_INSIGHTS_HOME", raising=False)
+    monkeypatch.setattr(paths, "LOCAL", paths.WINDOWS)
+    monkeypatch.setenv("APPDATA", r"C:\Users\you\AppData\Roaming")
+    assert config_mod.default_config_dir().name == "cc-insights"
+    assert "AppData" in str(config_mod.default_config_dir())
+
+    monkeypatch.setattr(paths, "LOCAL", paths.POSIX)
+    assert config_mod.default_config_dir() == pathlib.Path("~/.config/cc-insights").expanduser()
+
+
+def test_cc_insights_home_still_wins_on_every_platform(monkeypatch, tmp_path):
+    monkeypatch.setenv("CC_INSIGHTS_HOME", str(tmp_path))
+    for flavor in (paths.WINDOWS, paths.POSIX):
+        monkeypatch.setattr(paths, "LOCAL", flavor)
+        assert config_mod.default_config_dir() == tmp_path

@@ -1,5 +1,11 @@
-"""The launchd template is the only artifact that touches the user's machine,
-so it is checked rather than eyeballed."""
+"""The scheduler templates are the only artifacts that touch the user's
+machine, so they are checked rather than eyeballed.
+
+The PowerShell job can only be checked as text here: there is no `pwsh` on the
+machines this suite runs on, so what follows asserts parity with the launchd
+job (same commands, same cadence, same log files, an uninstall path) and not
+that the script executes. Executing it is a manual step on Windows -- see
+README."""
 
 import plistlib
 import shutil
@@ -11,6 +17,7 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 PLIST = SCRIPTS / "com.cc-insights.plist"
 INSTALL = SCRIPTS / "install-launchd.sh"
+INSTALL_TASK = SCRIPTS / "install-task.ps1"
 
 
 def test_template_carries_both_placeholders():
@@ -46,3 +53,42 @@ def test_install_script_is_valid_bash_and_has_an_uninstall_path():
     assert subprocess.run(["bash", "-n", str(INSTALL)], capture_output=True).returncode == 0
     assert "--uninstall" in INSTALL.read_text()
     assert INSTALL.stat().st_mode & 0o111, "install script must be executable"
+
+
+# ------------------------------------------------------- windows: the task --
+
+
+def test_the_windows_task_matches_the_launchd_job():
+    """Two schedulers, one contract. A divergence here is a silent data gap."""
+    ps = INSTALL_TASK.read_text()
+    plist = PLIST.read_text()
+
+    assert "-Uninstall" in ps, "there must be a way back off the machine"
+    assert "Unregister-ScheduledTask" in ps
+
+    # Same cadence as StartInterval=900, spelled in minutes.
+    assert "$IntervalMinutes = 15" in ps
+    assert "<integer>900</integer>" in plist
+
+    # Same two commands, in the same order, short-circuiting the same way: a
+    # failed ingest must not be followed by a derive over half-written rows.
+    assert ps.index("ingest") < ps.index("derive")
+    assert "&&" in ps
+
+    # Same two log files, so `cci`'s config directory is the one place to look.
+    assert "'ingest.log'" in ps and "'ingest.err'" in ps
+    assert "ingest.log" in plist and "ingest.err" in plist
+
+
+def test_the_windows_task_respects_the_config_dir_override():
+    """Logging somewhere the CLI never looks is worse than not logging."""
+    ps = INSTALL_TASK.read_text()
+    assert "CC_INSIGHTS_HOME" in ps
+    assert "'cc-insights'" in ps and "APPDATA" in ps
+
+
+def test_the_windows_task_never_asks_for_elevation():
+    """It reads one user's logs; it has no business running as anyone else."""
+    ps = INSTALL_TASK.read_text()
+    assert "RunLevel Highest" not in ps
+    assert "-LogonType Interactive" in ps

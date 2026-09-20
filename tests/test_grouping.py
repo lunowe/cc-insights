@@ -1,9 +1,9 @@
 """Project-group detection.
 
 Everything here runs with ``probe_fs=False`` unless it says otherwise: the
-detection ladder is a pure function of the cached `git_remote` /
-`git_common_dir` columns and the logged paths, so the whole suite is hermetic
-and offline. The worktree tests deliberately use paths that do NOT exist --
+detection ladder is a pure function of the cached `project_probe` rows and the
+logged paths, so the whole suite is hermetic and offline. Which machine owns
+which cached answer is tested separately, in test_probe_per_host.py. The worktree tests deliberately use paths that do NOT exist --
 on the author's corpus ten logged paths are already gone and hold 18 h, and
 recovering them is the reason rule 3 exists at all.
 
@@ -24,8 +24,23 @@ from cc_insights import cli, grouping, ids
 
 GIT = shutil.which("git")
 
+#: The machine every helper here files its probe results under. Migration 004
+#: moved the cache off `project` and onto `(project_id, host_id)`, so a test
+#: fixture now has to say which disk it is describing -- exactly as a real
+#: probe does.
+HOST = "h1"
+
 
 # ------------------------------------------------------------------ helpers --
+
+
+def add_host(conn: sqlite3.Connection, host_id: str = HOST) -> str:
+    conn.execute(
+        "INSERT OR IGNORE INTO host (host_id, hostname, os, first_seen, last_seen)"
+        " VALUES (?, 'box', 'test', 0, 0)",
+        (host_id,),
+    )
+    return host_id
 
 
 def add_project(
@@ -38,25 +53,37 @@ def add_project(
     exists: int | None = None,
     pinned: int = 0,
     group_id: str | None = None,
+    host_id: str = HOST,
 ) -> str:
     pid = ids.project_id(root_path)
     conn.execute(
         """INSERT INTO project
-           (project_id, root_path, name, group_id, group_pinned,
-            git_remote, git_common_dir, path_exists)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+           (project_id, root_path, name, group_id, group_pinned)
+           VALUES (?, ?, ?, ?, ?)""",
         (
             pid,
             root_path,
             name or root_path.rstrip("/").rsplit("/", 1)[-1],
             group_id,
             pinned,
-            remote,
-            common_dir,
-            exists,
         ),
     )
+    add_host(conn, host_id)
+    if remote is not None or common_dir is not None or exists is not None:
+        conn.execute(
+            """INSERT INTO project_probe
+               (project_id, host_id, git_remote, git_common_dir, path_exists, detected_at)
+               VALUES (?, ?, ?, ?, ?, 0)""",
+            (pid, host_id, remote, common_dir, exists),
+        )
     return pid
+
+
+def probe_row(conn: sqlite3.Connection, project_id: str, host_id: str = HOST):
+    return conn.execute(
+        "SELECT * FROM project_probe WHERE project_id = ? AND host_id = ?",
+        (project_id, host_id),
+    ).fetchone()
 
 
 def add_time(conn: sqlite3.Connection, project_id: str, hours: float, tag: str = "") -> None:
@@ -104,8 +131,11 @@ def dump(conn: sqlite3.Connection) -> tuple:
             "SELECT * FROM project_group ORDER BY group_id"
         ).fetchall(),
         conn.execute(
-            """SELECT project_id, group_id, group_pinned, git_remote, git_common_dir,
-                      path_exists, detected_at FROM project ORDER BY project_id"""
+            "SELECT project_id, group_id, group_pinned FROM project ORDER BY project_id"
+        ).fetchall(),
+        conn.execute(
+            """SELECT project_id, host_id, git_remote, git_common_dir, path_exists,
+                      detected_at FROM project_probe ORDER BY project_id, host_id"""
         ).fetchall(),
     )
 
@@ -513,7 +543,7 @@ def test_auto_keeps_an_empty_manual_group(conn):
 def test_auto_sweeps_an_automatic_group_nobody_is_in(conn):
     add_project(conn, "/w/repo", remote="https://github.com/o/repo.git")
     grouping.detect(conn, probe_fs=False)
-    conn.execute("UPDATE project SET git_remote = 'https://github.com/o/other.git'")
+    conn.execute("UPDATE project_probe SET git_remote = 'https://github.com/o/other.git'")
 
     r = grouping.detect(conn, probe_fs=False)
 
@@ -580,7 +610,7 @@ def test_probe_of_a_missing_path_keeps_what_was_cached(conn, tmp_path):
 
     grouping.detect(conn, probe_fs=True)
 
-    row = conn.execute("SELECT * FROM project WHERE project_id = ?", (pid,)).fetchone()
+    row = probe_row(conn, pid)
     assert row["path_exists"] == 0
     assert row["git_remote"] == "https://github.com/o/repo.git"   # not wiped
     assert row["git_common_dir"] == "/w/repo/.git"
