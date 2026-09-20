@@ -172,6 +172,27 @@ cci publish        # send the redacted projection. Asks first, and says what it 
 cci team           # the repos in scope, and the scope-aware summary
 ```
 
+Teams themselves are `cci team <verb>` — `list`, `new`, `members`, `repos`,
+`share`, `unshare`, `branches on|off`, `sessions`, `actors`, `daily`. Getting
+a colleague in takes two commands and two people:
+
+```bash
+cci team invite            # you, an admin: mints a join code, printed once
+cci team join <code>       # them: redeems it with their own sign-in
+```
+
+The redemption *is* the consent — there is no way to add somebody by id, and
+no way to look an account id up. The code is a bearer secret: 256 bits, stored
+hashed, single-use and good for three days unless you say otherwise, and shown
+exactly once because it genuinely cannot be shown again. `cci team invites`
+lists what is outstanding and who redeemed what; `cci team revoke <id>` kills
+one that went astray.
+
+Joining a team does not widen what anyone can see on its own. A new member
+sees what the team's rosters already shared, and the existing members see
+nothing new of them — `cci team share` is the only command that changes what
+other people can read.
+
 `docs/REDACTION.md` has the design. The short version: publishing `project_id`
 publishes `root_path`, because the id *is* `sha256(root_path)` and a colleague
 can hash a guess — 555 guesses recovered 20% of this corpus. So published rows
