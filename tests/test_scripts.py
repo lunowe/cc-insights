@@ -45,9 +45,11 @@ def test_substituted_plist_is_valid_and_correct(tmp_path):
     assert d["RunAtLoad"] is True
     assert d["ProgramArguments"][:2] == ["/bin/sh", "-c"]
     # The && must survive as a shell operator, not stay XML-escaped.
-    # `init` leads so an upgrade that adds a migration cannot stop the job.
+    # `init` leads so an upgrade that adds a migration cannot stop the job,
+    # and `sync auto` trails so a network failure cannot: by the time it
+    # runs, every event this cycle was going to capture is already on disk.
     assert d["ProgramArguments"][2] == (
-        "/opt/cci init && /opt/cci ingest && /opt/cci derive"
+        "/opt/cci init && /opt/cci ingest && /opt/cci derive && /opt/cci sync auto"
     )
     assert d["StandardOutPath"] == "/var/log/cci/ingest.log"
     assert d["StandardErrorPath"] == "/var/log/cci/ingest.err"

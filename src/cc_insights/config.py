@@ -116,6 +116,12 @@ class Config:
     config_dir: Path = DEFAULT_CONFIG_DIR
     #: PostgreSQL URL for `cci sync`. Optional: everything else works without it.
     sync_url: str | None = None
+    #: Account server for `cci login`. Unlike `sync_url` this is not a secret --
+    #: it is an address, and the credential it authenticates with lives in
+    #: `credentials.toml`. It is here so an organisation can ship one config
+    #: rather than telling everybody to remember a URL, and `cci login
+    #: --server` still wins over it.
+    server_url: str | None = None
 
     @property
     def path(self) -> Path:
@@ -145,6 +151,13 @@ class Config:
                 "# overrides this -- prefer the environment if the URL carries a",
                 "# password, since this file is plain text.",
                 f"sync_url = {_toml_str(self.sync_url)}",
+                "",
+            ]
+        if self.server_url:
+            lines += [
+                "# Account server for `cci login`. An address, not a secret --",
+                "# the token it authenticates with is in credentials.toml, 0600.",
+                f"server_url = {_toml_str(self.server_url)}",
                 "",
             ]
         lines.append("[source_globs]")
@@ -293,6 +306,7 @@ def load(config_dir: Path | None = None, *, create: bool = True) -> Config:
             source_globs=_merge_source_globs(raw.get("source_globs")),
             config_dir=config_dir,
             sync_url=raw.get("sync_url"),
+            server_url=raw.get("server_url"),
         )
 
     cfg = Config(
@@ -314,6 +328,20 @@ def sync_url_for(cfg: "Config", override: str | None = None) -> str | None:
     around -- `_db_path_for_toml` exists because someone already did.
     """
     return override or os.environ.get("CC_INSIGHTS_SYNC_URL") or cfg.sync_url
+
+
+def server_url_for(cfg: "Config", override: str | None = None,
+                   stored: str | None = None) -> str | None:
+    """Which account server to talk to: flag, environment, config, credential.
+
+    `stored` is the URL inside the saved credential and comes LAST on purpose.
+    A token is only valid at the server that issued it, so the credential is
+    the authoritative answer for "where is this token good" -- but it must not
+    override somebody deliberately pointing a command at a different instance,
+    which is how they would ever sign in to one.
+    """
+    return (override or os.environ.get("CC_INSIGHTS_SERVER")
+            or cfg.server_url or stored)
 
 
 def host_os() -> str:

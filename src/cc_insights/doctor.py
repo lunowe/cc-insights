@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from cc_insights import assets, config as config_mod, db, scheduler
+from cc_insights import account, assets, config as config_mod, db, remote, scheduler
 
 OK = "ok"
 WARN = "warn"
@@ -36,6 +36,18 @@ FAIL = "fail"
 #: have aged out from under it.
 STALE_WARN_S = 3600
 STALE_FAIL_S = 86_400
+
+#: How stale the last successful push may be before it is worth mentioning.
+#: A day, where a missed *ingest* is an hour, and the gap is the point: a push
+#: that has not run loses nothing. Local SQLite stays the source of truth, so
+#: the only cost is that the other machine's view is behind. That is a WARN
+#: and never a FAIL -- reserving FAIL for the failures that destroy history
+#: is what keeps a FAIL worth reading.
+PUSH_STALE_WARN_S = 86_400
+
+#: How long `doctor` will wait on the account server. Short: this command is
+#: meant to be cheap to ask, and an unreachable server is itself the answer.
+ACCOUNT_TIMEOUT_S = 5.0
 
 
 @dataclass(frozen=True)
@@ -208,6 +220,115 @@ def _sync(cfg: config_mod.Config) -> list[Check]:
     return [Check("sync", OK, "configured")]
 
 
+def _account(cfg: config_mod.Config) -> list[Check]:
+    """Signed in, still accepted, and actually pushing. Three failures, three checks.
+
+    They are separate because the fixes are: `cci login`, nothing (wait for
+    the network), and `cci sync push`. Collapsing them into one "account"
+    line would name at most one of those, and the other two would be the ones
+    somebody had.
+
+    Not being signed in is OK, not a warning. Local-first is the default and
+    the tool is complete without an account; saying otherwise would nag every
+    single-machine user forever.
+    """
+    credential = account.load(cfg.config_dir)
+    token = account.token_for(credential)
+    url = config_mod.server_url_for(
+        cfg, None, credential.server_url if credential is not None else None
+    )
+    if not token:
+        return [Check("account", OK, "not signed in — this machine only")]
+    if not url:
+        return [Check(
+            "account", WARN,
+            "a token is set but no server URL is configured",
+            "cci login --server https://your-instance",
+        )]
+
+    out: list[Check] = []
+    account_id = credential.account_id if credential is not None else None
+    try:
+        who = remote.Client(url, token, timeout_s=ACCOUNT_TIMEOUT_S).whoami()
+    except remote.AuthRequired:
+        out.append(Check("account", FAIL,
+                         f"{url} rejected this credential — it is expired or revoked",
+                         "cci login"))
+        who = None
+    except remote.Unreachable as exc:
+        # A WARN, never a FAIL. The server being down costs nothing locally,
+        # and a red line here would send somebody looking for a broken
+        # install when the answer is "try again later".
+        out.append(Check("account", WARN,
+                         f"cannot reach {url} ({exc.code or 'network'}) — "
+                         "capture is unaffected",
+                         "check the network; nothing local is broken"))
+        who = None
+    except Exception as exc:                             # pragma: no cover
+        # Doctor must never be the command that crashes on a broken install.
+        out.append(Check("account", WARN, f"could not be checked: {exc}", None))
+        who = None
+    else:
+        teams = who.get("teams") or []
+        detail = f"signed in as {who.get('actor')} at {url}"
+        if teams:
+            detail += f" — {len(teams)} team(s)"
+        out.append(Check("account", OK, detail))
+        account_id = who.get("accountId") or account_id
+
+    if account_id:
+        out.append(_last_push(cfg, url, account_id))
+    return out
+
+
+def _last_push(cfg: config_mod.Config, url: str, account_id: str) -> Check:
+    try:
+        last = remote.last_push_at(cfg.config_dir, url, account_id)
+    except Exception:                                    # pragma: no cover
+        return Check("last push", WARN, "the transfer state could not be read",
+                     "cci sync push")
+    if last is None:
+        return Check("last push", WARN,
+                     "never — your other machines cannot see this one yet",
+                     "cci sync push")
+    age = max(0.0, time.time() - last / 1000)
+    if age < PUSH_STALE_WARN_S:
+        return Check("last push", OK, _ago(age))
+    return Check("last push", WARN, _ago(age) + " — your other machines are behind",
+                 "cci sync push  (or `cci install` to schedule it)")
+
+
+def _auto_push(cfg: config_mod.Config) -> list[Check]:
+    """Whether the installed job actually pushes, for somebody who is signed in.
+
+    An upgrade that adds a step to the pipeline does not rewrite the job file
+    already on disk, so a machine that signed in after installing keeps
+    running the old line and never pushes. Nothing errors and nothing is
+    lost -- the second machine is simply, permanently, out of date, which is
+    the product ask quietly not working.
+    """
+    if not account.token_for(account.load(cfg.config_dir)):
+        return []
+    job = scheduler.active()
+    if job is None:
+        return []
+    command = scheduler.installed_command(job.mode)
+    if command is None:
+        return []                       # cannot tell; never reported as a fault
+    if job.mode == scheduler.WATCH:
+        # `cci watch` pushes from inside its own loop (see `_auto_pusher` in
+        # cli.py), so the job line has nothing to say about it either way.
+        return [Check("auto-push", OK, "the watcher pushes as it goes")]
+    if "sync auto" in command:
+        return [Check("auto-push", OK, "the background job pushes after each run")]
+    return [Check(
+        "auto-push", WARN,
+        "the background job predates auto-push, so this machine only pushes "
+        "when you run `cci sync push` by hand",
+        "cci install  (rewrites the job)",
+    )]
+
+
 def run(cfg: config_mod.Config) -> list[Check]:
     """Every check, in the order they matter. Never raises on a bad install."""
     conn: sqlite3.Connection | None = None
@@ -219,6 +340,10 @@ def run(cfg: config_mod.Config) -> list[Check]:
     try:
         checks = _schema(cfg, conn) + _capture(cfg, conn) + _contents(conn)
         checks += _dashboard() + _sync(cfg)
+        # Account last: it is the only check that touches the network, so a
+        # slow or unreachable server delays the answer to "is it capturing?"
+        # by as little as possible -- and that question is the urgent one.
+        checks += _account(cfg) + _auto_push(cfg)
     finally:
         if conn is not None:
             conn.close()
