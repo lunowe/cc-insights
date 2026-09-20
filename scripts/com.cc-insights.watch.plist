@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template for the WATCH job. `install-launchd.sh` with the watch flag
+  substitutes __CCI__ and __LOGDIR__ and writes the result to
+  ~/Library/LaunchAgents/. Do not load this file directly.
+
+  The difference from the 15-minute job: this one process stays up and follows
+  the logs, so the database is seconds behind the agents rather than minutes.
+  It is the same pipeline either way. Install one or the other, never both, or
+  two writers will contend for the same database.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cc-insights.watch</string>
+
+    <!-- Quiet, because launchd's log would otherwise grow a line per cycle
+         forever and nobody reads it. Errors still go to the .err file. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>__CCI__</string>
+        <string>watch</string>
+        <string>--quiet</string>
+    </array>
+
+    <!-- A long-running job, restarted if it dies. Throttled so a process that
+         fails immediately (an unmigrated database, say) retries every half
+         minute rather than spinning. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__LOGDIR__/watch.log</string>
+    <key>StandardErrorPath</key>
+    <string>__LOGDIR__/watch.err</string>
+
+    <!-- Stay out of the way of interactive work. A scan is 50 ms of stat every
+         two seconds; at Background priority that is invisible. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

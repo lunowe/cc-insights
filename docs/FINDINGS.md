@@ -120,6 +120,46 @@ events — genuinely parallel work, not replay.
 one whose `payload.id` is the root session id rather than the thread id; taking
 the last, or re-resolving per line, corrupts the thread count.
 
+## 3b. opencode keeps everything in one SQLite database
+
+No log files. opencode 1.18 writes `~/.local/share/opencode/opencode.db` (WAL)
+with `session` / `message` / `part` tables, each row's payload a JSON blob in a
+`data` column. The `storage/**.json` layout older releases used is gone; only
+`session_diff` and `migration` remain under `storage/`.
+
+Measured on this machine (2026-09-20): **18 sessions — 9 roots and 9
+subagents — 614 messages, 2,434 parts of which 728 are tool calls**, from
+2026-02-16. The adapter turns that into **2,649 events across 9 sessions and
+18 threads**, 2.56 h active.
+
+Three consequences that shaped the adapter:
+
+- **A subagent is a session row with `parent_id` set**, spawned by the `task`
+  tool, with `agent` naming its type ("general", "explore"). Same shape as
+  Codex, reached differently: the root's id is the session id for the whole
+  tree, each row's own id is the thread id.
+- **There is no byte offset to resume from**, and a WAL database's size and
+  mtime sit unchanged while `-wal` accumulates, so any watermark keyed on them
+  would skip real work. The adapter reports `byte_end = 0` on every event and
+  the store is re-read in full each run — 2,649 events in 60 ms, with dedup
+  collapsing what was already stored.
+- **Two rows carry two real timestamps each.** A tool part has
+  `state.time.start` / `state.time.end`; an assistant message has
+  `time.created` / `time.completed` (580 of 583 assistant messages record the
+  second). Taking only the first would end a session when its last turn
+  *began*. Both halves are emitted; only the first carries tokens.
+
+⚠️ **`message.data` for a user turn embeds file contents** — `summary.diffs`
+carries the complete `before` text of every file touched — and `part.data`
+holds prompts, tool arguments and command output. This is the one source where
+the no-content rule needs a test rather than a convention, and it has one:
+`tests/test_opencode.py::test_no_message_content_reaches_a_raw_event`.
+
+opencode's own `session.cost` / `message.cost` columns are **0 on every row**
+here: subscription and free-tier routes report no per-call price. Cost comes
+from token counts and one pricing table for every source, never from this
+column.
+
 ## 4. Dedup keys — different per source, both traps fatal
 
 `native_event_id` must be unique **within its session**.
@@ -182,6 +222,63 @@ The pattern: every number here is only as good as the script that produced it.
 8. **Logs are a rolling window.** Claude reaches back only to June while Codex
    reaches February. Unrecorded history is lost permanently — which is why
    ingest is urgent and dashboards are not.
+
+## 6b. Cost: the cheapest token is most of the bill
+
+Measured 2026-09-20 over the whole corpus, at published API rates:
+
+| component | tokens | list-price equivalent | share |
+| --- | --- | --- | --- |
+| cache read | 11,130 M | $7,824 | **59%** |
+| cache write | 358 M | $3,448 | 26% |
+| output | 50 M | $1,872 | 14% |
+| fresh input | 59 M | $216 | 2% |
+
+**Cache reads outnumber fresh input tokens roughly 190 to 1** and are the
+majority of the cost despite being the cheapest component per token. Two
+consequences, both load-bearing:
+
+- Pricing all input at the input rate overstates the total by more than an
+  order of magnitude; ignoring cache entirely understates it by 85%. The four
+  components must be priced separately, which is why `model_price` has four
+  rate columns and `event_cost` four cost columns.
+- Any future "reduce my spend" advice that starts with output tokens is
+  looking at 14% of the bill.
+
+Three further facts a total has to disclose, all of them measured here:
+
+1. **138 M tokens could not be priced at all** — `gpt-6-astra` (113 M) and
+   opencode's free-tier routes. Reported, never counted as zero.
+2. **12,412 Codex events record usage without naming a model.** The model is
+   carried forward from earlier in the same thread. Getting a model and
+   getting a price are different things: 11,097 were priced this way, 1,221
+   inherited `gpt-6-astra`, which has no rate, and 46 have nothing to inherit
+   at all.
+3. **The price catalog was wrong about two models, both in the same
+   direction: too expensive.**
+   - It priced `claude-fable-5-1` as `claude-fable-5`. Fable 5.1 charges
+     0.025x base input for a cache hit where every other model charges 0.1x
+     — $0.25 against $1.00 per MTok — and on a corpus that is 59% cache
+     reads that one substitution was **$2,752, or 21% of the total**.
+   - It carried a price rise for `claude-sonnet-5` on 2026-09-01 to $3/$15
+     that never happened; those are Sonnet 4.6's rates.
+
+   Both are corrected in `src/cc_insights/price_overrides.json`, checked
+   against the vendor's own pricing page. The corpus total fell from $13,418
+   to **$10,674**. A near relative is a defensible default and an
+   indefensible secret, which is why `pricing.approximations()` exists and
+   every surface prints it.
+
+4. **41% of cache-write tokens are 1-hour writes, and we price them as
+   5-minute ones.** 144.7M of 351.2M. Anthropic charges 2x base input for a
+   1-hour write against 1.25x for a 5-minute one, so on Fable-tier models
+   that is $20/MTok against $12.50. The logs *do* carry the split
+   (`usage.cache_creation.ephemeral_1h_input_tokens`), but the adapter reads
+   only the combined `cache_creation_input_tokens`, so the database cannot
+   tell them apart and the total is understated by roughly **$1,085**.
+   Fixing it needs a column on `event`, an adapter change, and a re-ingest —
+   and a re-ingest cannot recover the split for sessions whose logs have
+   already aged out. Recorded here rather than quietly rounded away.
 
 ## 7. Scale
 

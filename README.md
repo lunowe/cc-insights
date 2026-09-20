@@ -8,16 +8,15 @@ already write, so you can answer: when do I actually use agents and for how
 long, how often do I run them in parallel, which projects consume the time, and
 how much of it is me driving versus agents running on their own.
 
-## Status — Stage 1 complete
+## Status — Stage 2 complete, v1 under way
 
-The pipeline works end to end: two source adapters, incremental ingest, span
-derivation, and a CLI. 196 tests. Stage 2 (dashboard) is specified in
-`PROMPT.md`.
+The pipeline works end to end: three source adapters, incremental ingest, span
+derivation, cost, a dashboard and a CLI. 511 tests.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e . pytest
 .venv/bin/cci init
-.venv/bin/cci ingest      # ~11s cold, ~0.04s warm
+.venv/bin/cci ingest      # ~11s cold, ~0.4s warm
 .venv/bin/cci derive
 .venv/bin/cci stats
 ```
@@ -45,6 +44,20 @@ powershell -ExecutionPolicy Bypass -File scripts\install-task.ps1   # -Uninstall
 Same cadence, same two commands, same log files under the config directory —
 which is `%APPDATA%\cc-insights` on Windows and `~/.config/cc-insights`
 everywhere else. `CC_INSIGHTS_HOME` overrides both.
+
+To watch it happen instead, `cci watch` follows the logs and keeps the database
+current as the agents write it, ~0.15 s per cycle because ingest resumes at
+each file's byte offset and only the sessions that moved are re-derived:
+
+```bash
+.venv/bin/cci watch                  # follow the logs, print a line per change
+.venv/bin/cci watch --serve          # ...and a dashboard that refreshes itself
+./scripts/install-launchd.sh --watch # ...or leave it running in the background
+```
+
+Install one background job or the other, not both: two writers on one database
+is the one way to make this contend with itself. The installer unloads the
+other before it loads either, and `--uninstall` removes both.
 
 ### Several machines
 
@@ -82,6 +95,33 @@ no remote stays local, counted rather than silently dropped. The projection
 runs on your laptop; the shared database never receives a path.
 
 Teams and auth follow. The privacy plumbing is in place for them.
+## What it costs
+
+```bash
+.venv/bin/cci price sync   # load rates for the models you actually ran
+.venv/bin/cci cost         # the breakdown
+```
+
+**$10,674 at published API rates** on this corpus, and the shape of it is the
+finding: **cache reads are 48%** of the total, cache writes 32%, output 18%,
+fresh input 2%. The cheapest component per token is most of the bill.
+
+That figure is a *list-price equivalent*, not a bill — a subscription charges a
+flat monthly fee no matter how many tokens run through it. Rates come from a
+committed snapshot of [pydantic/genai-prices](https://github.com/pydantic/genai-prices),
+keyed by model **and date**, so a vendor's next price change does not rewrite
+last month. Anything it cannot price is reported rather than counted as zero
+(138 M tokens here).
+
+Three layers, most specific first: the catalog, then
+`src/cc_insights/price_overrides.json` — corrections checked against the
+vendor's own pricing page and shipped with the code — then `cci price set`,
+which a human owns and no sync touches. The middle layer exists because the
+catalog's errors are not small and a fix kept in one laptop's database is
+lost on the next machine: it priced **Claude Fable 5.1 as Fable 5**, whose
+cache reads cost four times as much ($1.00 against $0.25 per MTok), which was
+**$2,752 — 21% of the total** — and it carried a Sonnet 5 price rise that
+never happened.
 
 ## What it found on this machine
 
@@ -143,20 +183,33 @@ an implementer who refused an acceptance number they could not reproduce. See
 
 ```
 src/cc_insights/
-  sources/      adapters: claude_code.py, codex.py (contract in base.py)
+  sources/      adapters: claude_code.py, codex.py, opencode.py (contract in base.py)
   ingest.py     adapters -> DB, incremental and idempotent
   derive.py     active spans, attendance, concurrency
+  pricing.py    the dated rate table, from a committed price catalog
+  cost.py       event -> money, and what it could not price
+  watch.py      follow the logs; the tick behind a live dashboard
+  metrics.py    filter-aware queries, one per API endpoint
+  serve.py      the read-only localhost server
   stats.py      read-only summary queries
-  cli.py        cci init | ingest | derive | stats | status | config
+  cli.py        cci init | ingest | derive | cost | price | watch | serve |
+                sync | privacy | ...
   paths.py      path reasoning that takes the OS from the path, not the host
   sync.py       push/pull between local SQLite and a shared PostgreSQL
   redact.py     what may cross a team boundary, and in what shape
+  model_prices.json   the price catalog snapshot (scripts/sync_prices.py)
+frontend/       Vite + React dashboard, built into frontend/dist
 migrations/     numbered SQL, applied in order
-docs/           FINDINGS.md (ground truth), ROADMAP.md, probes/
-scripts/        launchd job + installer (macOS), Task Scheduler job (Windows)
+docs/           FINDINGS.md (ground truth), API.md (frozen contract),
+                REDACTION.md (what may be shared), ROADMAP.md, probes/
+scripts/        launchd jobs (interval and watch) + installer (macOS),
+                Task Scheduler job (Windows), fixture and price sync
 ```
 
 ## Roadmap
 
-`docs/ROADMAP.md` — more adapters, real cost tracking, Postgres/multi-machine,
-outcome correlation. "Time saved" is explicitly deferred and explains why.
+`docs/ROADMAP.md`. v1 has landed its first three: the opencode adapter, real
+cost tracking, and watch mode. Next in v1 is session annotation (tagging a
+session client/ticket/billable after the fact). Then Postgres and
+multi-machine, then outcome correlation. "Time saved" is explicitly deferred,
+and the roadmap explains why.

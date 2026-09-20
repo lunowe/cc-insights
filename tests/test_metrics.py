@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from cc_insights import config as config_mod, db, derive, metrics
+from cc_insights import config as config_mod, cost as cost_mod, db, derive, metrics
 from cc_insights.config import Config
 from cc_insights.metrics import FilterError, Filters
 from cc_insights.sources.base import EventKind
@@ -173,11 +173,35 @@ def _insert(conn: sqlite3.Connection) -> None:
              tid, f"native-e{n}", ts, n, str(kind), model, i, o, cr, cw))
 
 
+# Prices, arranged so every way cost can be incomplete has a witness:
+#
+#   opus    fully priced
+#   sonnet  priced, but as a NEIGHBOUR (matched_id names another model) and
+#           with no cache-write rate -- the two ways a rate can be partial
+#   gpt     no rate at all
+#
+# Which makes `approximations`, `unpricedModels` and both `unpriced` reasons
+# non-empty in the synthetic corpus, so a rename in any of them fails here
+# rather than in someone's browser.
+def _insert_prices(conn: sqlite3.Connection) -> None:
+    for model, rates, matched in (
+        ("opus", (15.0, 75.0, 1.5, 18.75), "anthropic/opus"),
+        ("sonnet", (3.0, 15.0, 0.3, None), "anthropic/sonnet-neighbour"),
+    ):
+        conn.execute(
+            "INSERT INTO model_price (model, effective_from, input_mtok, output_mtok,"
+            " cache_read_mtok, cache_write_mtok, currency, origin, matched_id, note,"
+            " updated_at) VALUES (?, 0, ?, ?, ?, ?, 'USD', 'genai-prices', ?, NULL, ?)",
+            (model, *rates, matched, A_START))
+
+
 @pytest.fixture
 def small(conn: sqlite3.Connection, tmp_path: Path):
-    """The synthetic corpus, with spans produced by the real derive engine."""
+    """The synthetic corpus, with spans and costs from the real engines."""
     _insert(conn)
+    _insert_prices(conn)
     derive.derive(conn, idle_threshold_s=300)
+    cost_mod.derive_costs(conn)
     cfg = Config(host_id="h1", hostname="test-host", db_path=tmp_path / "test.db",
                  idle_threshold_s=300, config_dir=tmp_path)
     return conn, cfg
@@ -308,11 +332,12 @@ def test_output_shape_still_carries_every_committed_field(small, name):
 
 def test_every_contract_endpoint_is_implemented():
     assert metrics.ENDPOINTS == ("meta", "summary", "timeline", "daily", "concurrency",
-                                 "projects", "groups", "agents", "heatmap")
+                                 "projects", "groups", "agents", "heatmap", "cost")
     captured = {p.name.removesuffix(".json") for p in FIXTURES.glob("*.json")}
-    assert captured <= set(metrics.ENDPOINTS), "a fixture with no endpoint behind it"
-    # Only `groups` may be missing, and only until the fixtures are regenerated.
-    assert set(metrics.ENDPOINTS) - captured <= {"groups"}
+    # One fixture per endpoint, both ways: a fixture with no endpoint behind it
+    # is dead weight the frontend may still be reading, and an endpoint with no
+    # fixture is one the frontend cannot be built against offline.
+    assert captured == set(metrics.ENDPOINTS)
 
 
 def test_unknown_endpoint_name_raises():
@@ -827,11 +852,13 @@ def test_a_filter_that_matches_nothing_yields_contract_shaped_emptiness(small):
     s = metrics.summary(conn, f)
     assert s["activeMs"] == 0 and s["sessions"] == 0 and s["spans"] == 0
     assert s["bySource"] == [] and s["tokens"]["input"] == 0
+    # Cost narrows with everything else, and says so rather than omitting it.
+    assert s["cost"]["total"] == 0 and s["cost"]["unpricedTokens"] == 0
     assert metrics.timeline(conn, f) == {"spans": [], "truncated": False,
                                          "limit": metrics.TIMELINE_LIMIT}
-    assert metrics.daily(conn, f) == {"days": []}
+    assert metrics.daily(conn, f) == {"days": [], "currency": "USD"}
     assert metrics.heatmap(conn, f) == {"cells": []}
-    assert metrics.projects(conn, f) == {"projects": []}
+    assert metrics.projects(conn, f) == {"projects": [], "currency": "USD"}
     assert metrics.groups(conn, f) == {"groups": [],
                                        "ungrouped": {"projects": 0, "activeMs": 0}}
     assert metrics.agents(conn, f) == {"agents": []}

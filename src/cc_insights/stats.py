@@ -13,6 +13,8 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field
 
+from cc_insights import pricing
+
 
 @dataclass(slots=True)
 class Summary:
@@ -32,6 +34,11 @@ class Summary:
     agents: list[tuple[str, int, float]] = field(default_factory=list)
     models: list[tuple[str, int]] = field(default_factory=list)
     tokens: tuple[int, int, int] = (0, 0, 0)
+    #: List-price equivalent of every priced event, in nano-currency-units,
+    #: with the tokens no rate covered. Never a bill -- see cost.py.
+    cost_nano: int = 0
+    cost_currency: str = "USD"
+    unpriced_tokens: int = 0
 
 
 _H = 3_600_000.0  # ms per hour
@@ -92,8 +99,9 @@ def summarize(conn: sqlite3.Connection) -> Summary:
         )
     ]
 
-    # Claude records a real agent TYPE; Codex records a random per-thread
-    # nickname, which would otherwise flood this list with one-offs.
+    # Claude Code and opencode both record a real agent TYPE ("Explore",
+    # "general"); Codex records a random per-thread nickname, which would
+    # otherwise flood this list with one-offs.
     s.agents = [
         (r[0], r[1], r[2] / _H)
         for r in conn.execute(
@@ -101,7 +109,8 @@ def summarize(conn: sqlite3.Connection) -> Summary:
                FROM thread t
                JOIN span sp ON sp.thread_id = t.id
                JOIN session s ON s.id = t.session_id
-               WHERE t.agent_name IS NOT NULL AND s.source = 'claude_code'
+               WHERE t.agent_name IS NOT NULL
+                 AND s.source IN ('claude_code', 'opencode')
                GROUP BY 1 ORDER BY 3 DESC LIMIT 8"""
         )
     ]
@@ -119,4 +128,18 @@ def summarize(conn: sqlite3.Connection) -> Summary:
                   coalesce(sum(cache_read_tokens), 0) FROM event"""
     ).fetchone()
     s.tokens = (row[0], row[1], row[2])
+
+    s.cost_nano = _scalar(
+        conn,
+        """SELECT coalesce(sum(input_nano + output_nano + cache_read_nano
+                            + cache_write_nano), 0) FROM event_cost""",
+    )
+    # Read from the table that records what went unpriced, not from an
+    # anti-join against what did. An event can be in BOTH tables -- a model
+    # priced for input and output but not for cache writes -- and the
+    # anti-join scored that event's unpriced portion as zero, printing an
+    # authoritative "excludes 0 tokens" over real missing money.
+    s.unpriced_tokens = _scalar(
+        conn, "SELECT coalesce(sum(tokens), 0) FROM event_unpriced")
+    s.cost_currency = pricing.currency_in_use(conn)
     return s

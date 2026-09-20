@@ -3,7 +3,7 @@
   {
    "weekday": 0,
    "hour": 0,
-   "activeMs": 8879501
+   "activeMs": 8970152
   },
   {
    "weekday": 0,
@@ -38,7 +38,7 @@
   {
    "weekday": 0,
    "hour": 13,
-   "activeMs": 2000025
+   "activeMs": 2865590
   },
   {
    "weekday": 0,
@@ -353,7 +353,7 @@
   {
    "weekday": 4,
    "hour": 11,
-   "activeMs": 9426871
+   "activeMs": 9511987
   },
   {
    "weekday": 4,
@@ -403,17 +403,17 @@
   {
    "weekday": 4,
    "hour": 21,
-   "activeMs": 3225244
+   "activeMs": 6237393
   },
   {
    "weekday": 4,
    "hour": 22,
-   "activeMs": 5601808
+   "activeMs": 5996861
   },
   {
    "weekday": 4,
    "hour": 23,
-   "activeMs": 8750764
+   "activeMs": 11899530
   },
   {
    "weekday": 5,
@@ -438,12 +438,12 @@
   {
    "weekday": 5,
    "hour": 19,
-   "activeMs": 3011519
+   "activeMs": 4271452
   },
   {
    "weekday": 5,
    "hour": 20,
-   "activeMs": 9385758
+   "activeMs": 9465044
   },
   {
    "weekday": 5,
@@ -453,7 +453,7 @@
   {
    "weekday": 5,
    "hour": 22,
-   "activeMs": 4890540
+   "activeMs": 5161635
   },
   {
    "weekday": 5,
@@ -493,17 +493,17 @@
   {
    "weekday": 6,
    "hour": 14,
-   "activeMs": 1639624
+   "activeMs": 1787162
   },
   {
    "weekday": 6,
    "hour": 15,
-   "activeMs": 1650987
+   "activeMs": 6879282
   },
   {
    "weekday": 6,
    "hour": 16,
-   "activeMs": 5404401
+   "activeMs": 10236764
   },
   {
    "weekday": 6,

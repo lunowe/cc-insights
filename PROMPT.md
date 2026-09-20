@@ -3,9 +3,11 @@
 > Single source of truth for the build. Work packages fan out to subagents in
 > parallel once Stage 0 is merged.
 >
-> **Status: Stage 0 complete. WP1 (fixtures), WP2 (Claude adapter) and WP3
-> (Codex adapter) delivered; 116 tests green. WP2b (subagent transcripts) in
-> flight. Next: WP4 (ingest), WP5 (derivation).**
+> **Status: Stages 0-2 complete; WP1-WP12 delivered, 516 tests green.** This
+> document is the build spec that got it there and is kept as written, not as
+> a live status board. Current state and what is next: `README.md` and
+> `docs/ROADMAP.md`. v1 has since added the opencode adapter, cost tracking
+> and watch mode; `cci export` (WP11) is the one v0 package still outstanding.
 >
 > ⚠️ Ground truth was corrected on 2026-09-19 — three bugs, including a glob
 > that missed 52% of the Claude Code corpus. **Every acceptance number below

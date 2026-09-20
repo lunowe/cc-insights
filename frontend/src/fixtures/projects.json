@@ -8,11 +8,12 @@
    "groupName": "atlas-chat",
    "groupPinned": false,
    "pathExists": true,
-   "activeMs": 200521549,
-   "sessions": 109,
-   "threads": 209,
+   "activeMs": 208198876,
+   "sessions": 112,
+   "threads": 220,
    "firstTs": 1771509392842,
-   "lastTs": 1789862003583
+   "lastTs": 1789862003583,
+   "cost": 3086.989709
   },
   {
    "projectId": "2cc665728dc737965416c0355e85453a",
@@ -26,7 +27,8 @@
    "sessions": 1,
    "threads": 122,
    "firstTs": 1788291806192,
-   "lastTs": 1789648032624
+   "lastTs": 1789648032624,
+   "cost": 2438.424393
   },
   {
    "projectId": "cd93b31db46aeeaec1173987b66bf117",
@@ -36,11 +38,12 @@
    "groupName": "skill-planner",
    "groupPinned": false,
    "pathExists": true,
-   "activeMs": 63000393,
-   "sessions": 71,
-   "threads": 78,
+   "activeMs": 64137053,
+   "sessions": 72,
+   "threads": 79,
    "firstTs": 1770565158571,
-   "lastTs": 1789591765312
+   "lastTs": 1789591765312,
+   "cost": 566.181714
   },
   {
    "projectId": "148f6478127fd369399e329d4263efd0",
@@ -54,7 +57,8 @@
    "sessions": 24,
    "threads": 41,
    "firstTs": 1788297400749,
-   "lastTs": 1789845294986
+   "lastTs": 1789845294986,
+   "cost": 468.783356
   },
   {
    "projectId": "03c14aa31eaabeec88ba83b08922d11f",
@@ -68,7 +72,8 @@
    "sessions": 15,
    "threads": 63,
    "firstTs": 1784195809107,
-   "lastTs": 1788161452281
+   "lastTs": 1788161452281,
+   "cost": 715.797827
   },
   {
    "projectId": "ee432c67eef10ccd5a942cef55838898",
@@ -82,7 +87,8 @@
    "sessions": 1,
    "threads": 18,
    "firstTs": 1785688957165,
-   "lastTs": 1785779297964
+   "lastTs": 1785779297964,
+   "cost": 306.087988
   },
   {
    "projectId": "0e7fd09c47687478002b4a540953dbb6",
@@ -96,7 +102,8 @@
    "sessions": 5,
    "threads": 18,
    "firstTs": 1787341774299,
-   "lastTs": 1789734957805
+   "lastTs": 1789734957805,
+   "cost": 506.441854
   },
   {
    "projectId": "fdddb9845a6dd3bb1562d4babcac5ae1",
@@ -110,7 +117,23 @@
    "sessions": 2,
    "threads": 32,
    "firstTs": 1788016708369,
-   "lastTs": 1788122318675
+   "lastTs": 1788122318675,
+   "cost": 512.110892
+  },
+  {
+   "projectId": "72d7ccef2e626422ec1bf7083ce5b5b5",
+   "name": "CC-Insights",
+   "rootPath": "/Users/dev/Coding/CC-Insights",
+   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
+   "groupName": "CC-Insights",
+   "groupPinned": false,
+   "pathExists": true,
+   "activeMs": 18367052,
+   "sessions": 3,
+   "threads": 17,
+   "firstTs": 1789840454632,
+   "lastTs": 1789914631012,
+   "cost": 349.976199
   },
   {
    "projectId": "5ca2fdad5c27154f62653b067d8cb747",
@@ -124,7 +147,8 @@
    "sessions": 11,
    "threads": 17,
    "firstTs": 1788125998580,
-   "lastTs": 1789592485088
+   "lastTs": 1789592485088,
+   "cost": 289.480252
   },
   {
    "projectId": "d4611906d9b616828da419e65122ced6",
@@ -138,7 +162,8 @@
    "sessions": 1,
    "threads": 12,
    "firstTs": 1789551779496,
-   "lastTs": 1789561521288
+   "lastTs": 1789561521288,
+   "cost": 169.62475
   },
   {
    "projectId": "4b0269c48a882a65ce3b4e605acd6ebd",
@@ -152,7 +177,8 @@
    "sessions": 4,
    "threads": 11,
    "firstTs": 1787083539961,
-   "lastTs": 1789648281605
+   "lastTs": 1789648281605,
+   "cost": 244.992503
   },
   {
    "projectId": "ff041bda397db10a6eed9062ac4a9386",
@@ -166,7 +192,8 @@
    "sessions": 10,
    "threads": 13,
    "firstTs": 1781523435999,
-   "lastTs": 1788862136533
+   "lastTs": 1788862136533,
+   "cost": 106.27275
   },
   {
    "projectId": "dd30cd7a5feecbaf313b0abcf0ac9371",
@@ -180,21 +207,8 @@
    "sessions": 1,
    "threads": 13,
    "firstTs": 1788339798913,
-   "lastTs": 1788347715306
-  },
-  {
-   "projectId": "72d7ccef2e626422ec1bf7083ce5b5b5",
-   "name": "CC-Insights",
-   "rootPath": "/Users/dev/Coding/CC-Insights",
-   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
-   "groupName": "CC-Insights",
-   "groupPinned": false,
-   "pathExists": true,
-   "activeMs": 10443879,
-   "sessions": 1,
-   "threads": 11,
-   "firstTs": 1789840454632,
-   "lastTs": 1789909193810
+   "lastTs": 1788347715306,
+   "cost": 215.552592
   },
   {
    "projectId": "35cb72a79700c3d2044ae6089f54d2db",
@@ -208,7 +222,8 @@
    "sessions": 1,
    "threads": 7,
    "firstTs": 1788951030094,
-   "lastTs": 1788962541387
+   "lastTs": 1788962541387,
+   "cost": 148.610641
   },
   {
    "projectId": "fc8cdd3f6a94dbe9be23a60b44312a08",
@@ -222,7 +237,8 @@
    "sessions": 2,
    "threads": 10,
    "firstTs": 1789037525950,
-   "lastTs": 1789647898170
+   "lastTs": 1789647898170,
+   "cost": 174.390383
   },
   {
    "projectId": "49034d51d6da20f6d44b2f126e3c6971",
@@ -236,21 +252,23 @@
    "sessions": 12,
    "threads": 12,
    "firstTs": 1787779155040,
-   "lastTs": 1788161285418
+   "lastTs": 1788161285418,
+   "cost": 25.65693
   },
   {
    "projectId": "f4cb984af32a4030fef0492b6c700f2f",
    "name": "classification",
    "rootPath": "/Users/dev/Coding/census-pipeline/classification",
-   "groupId": null,
-   "groupName": null,
+   "groupId": "f0289f228130d5ad771ba299970fe198",
+   "groupName": "census-pipeline",
    "groupPinned": false,
    "pathExists": true,
    "activeMs": 6175751,
    "sessions": 1,
    "threads": 1,
    "firstTs": 1788520015838,
-   "lastTs": 1788942174269
+   "lastTs": 1788942174269,
+   "cost": 92.893929
   },
   {
    "projectId": "9fac61faec1c810193163cc6a061d1ee",
@@ -264,7 +282,8 @@
    "sessions": 4,
    "threads": 4,
    "firstTs": 1778680525477,
-   "lastTs": 1784809365812
+   "lastTs": 1784809365812,
+   "cost": 22.215578
   },
   {
    "projectId": "de5817485e3cdf9e9b04f2af29ebca7c",
@@ -278,7 +297,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1788436299647,
-   "lastTs": 1788440465504
+   "lastTs": 1788440465504,
+   "cost": 59.124673
   },
   {
    "projectId": "293356e36a51e46517f9179d07fb0249",
@@ -292,7 +312,23 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1775765741168,
-   "lastTs": 1775768794848
+   "lastTs": 1775768794848,
+   "cost": 9.23228
+  },
+  {
+   "projectId": "11bfb04b60bea55b7329bf2b288e9fda",
+   "name": "v2-windows-paths",
+   "rootPath": "/Users/dev/Coding/CC-Insights/.claude/worktrees/v2-windows-paths",
+   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
+   "groupName": "CC-Insights",
+   "groupPinned": false,
+   "pathExists": true,
+   "activeMs": 2344416,
+   "sessions": 2,
+   "threads": 3,
+   "firstTs": 1789912341788,
+   "lastTs": 1789914489371,
+   "cost": 63.890617
   },
   {
    "projectId": "885643d322f6939e542f7ec9811979a3",
@@ -306,7 +342,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1786269054927,
-   "lastTs": 1786271567350
+   "lastTs": 1786271567350,
+   "cost": 5.962092
   },
   {
    "projectId": "f3ac45d78301151c9b709f8ba493c4ca",
@@ -320,7 +357,8 @@
    "sessions": 2,
    "threads": 2,
    "firstTs": 1786119089912,
-   "lastTs": 1786219904964
+   "lastTs": 1786219904964,
+   "cost": 9.911561
   },
   {
    "projectId": "a36cc49d5648366c2d47e3648ae60bc2",
@@ -334,7 +372,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1787694526629,
-   "lastTs": 1787696128828
+   "lastTs": 1787696128828,
+   "cost": 26.756737
   },
   {
    "projectId": "8a005df7741cc85140327c47f6f32a96",
@@ -348,7 +387,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1788646572815,
-   "lastTs": 1788648931795
+   "lastTs": 1788648931795,
+   "cost": 0.0
   },
   {
    "projectId": "b836d59044e4790df0856f80f782f8fb",
@@ -362,7 +402,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1784795869985,
-   "lastTs": 1785269972988
+   "lastTs": 1785269972988,
+   "cost": 8.394286
   },
   {
    "projectId": "bc7ac6a0ff4065376913a474bb92fe2b",
@@ -376,7 +417,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1788340479990,
-   "lastTs": 1788341625754
+   "lastTs": 1788341625754,
+   "cost": 4.658995
   },
   {
    "projectId": "d4328ed648737fbb6f44b8a7851b4a0e",
@@ -390,7 +432,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1788018752302,
-   "lastTs": 1788019852121
+   "lastTs": 1788019852121,
+   "cost": 2.627082
   },
   {
    "projectId": "98b7e848d2b9842187b178018923f128",
@@ -404,7 +447,8 @@
    "sessions": 2,
    "threads": 2,
    "firstTs": 1776266547742,
-   "lastTs": 1776637410463
+   "lastTs": 1776637410463,
+   "cost": 2.498957
   },
   {
    "projectId": "279e18189a90d7775539220ebe47d19e",
@@ -418,7 +462,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1786220096898,
-   "lastTs": 1786222383817
+   "lastTs": 1786222383817,
+   "cost": 7.753684
   },
   {
    "projectId": "aefb682b53028a41188bd76d413fcc9c",
@@ -432,7 +477,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1789832816320,
-   "lastTs": 1789833488013
+   "lastTs": 1789833488013,
+   "cost": 13.433661
   },
   {
    "projectId": "03c22b21e26042ffd648ef8afd4d1ef3",
@@ -446,7 +492,8 @@
    "sessions": 2,
    "threads": 2,
    "firstTs": 1785787598365,
-   "lastTs": 1786573619087
+   "lastTs": 1786573619087,
+   "cost": 10.432086
   },
   {
    "projectId": "84e17d54ec9fd9a90c8b56dd03d04fe1",
@@ -460,7 +507,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1789121136591,
-   "lastTs": 1789548491181
+   "lastTs": 1789548491181,
+   "cost": 27.440653
   },
   {
    "projectId": "2e5ebde31e4e86293b2fb643b1bd356d",
@@ -474,7 +522,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1774433027314,
-   "lastTs": 1774433466844
+   "lastTs": 1774433466844,
+   "cost": 1.13929
   },
   {
    "projectId": "1db83d8a198b45c6071cb482a774b4d4",
@@ -488,7 +537,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1788357274325,
-   "lastTs": 1788358221163
+   "lastTs": 1788358221163,
+   "cost": 4.696813
   },
   {
    "projectId": "de9f4bd4f2958abaef035cd80cafa04e",
@@ -502,7 +552,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1775594735561,
-   "lastTs": 1775595519906
+   "lastTs": 1775595519906,
+   "cost": 0.788644
   },
   {
    "projectId": "b0ab46df627186f7af850cba599219b1",
@@ -516,7 +567,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1789755525728,
-   "lastTs": 1789759410915
+   "lastTs": 1789759410915,
+   "cost": 2.691984
   },
   {
    "projectId": "5976e720862dd44071720808e0aa3b7f",
@@ -530,7 +582,23 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1780307230133,
-   "lastTs": 1780307493227
+   "lastTs": 1780307493227,
+   "cost": 1.251178
+  },
+  {
+   "projectId": "bab4cedb49482369939804a139d44c80",
+   "name": "style-companion",
+   "rootPath": "/Users/dev/Coding/style-companion",
+   "groupId": "ffe74b72d353787e90f06ec6e6ce9142",
+   "groupName": "style-companion",
+   "groupPinned": false,
+   "pathExists": true,
+   "activeMs": 229225,
+   "sessions": 1,
+   "threads": 2,
+   "firstTs": 1787340612653,
+   "lastTs": 1787340740846,
+   "cost": 0.0
   },
   {
    "projectId": "43b62b1b30975164bcc6d0a1c28ff53e",
@@ -544,7 +612,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1780307557177,
-   "lastTs": 1780307752599
+   "lastTs": 1780307752599,
+   "cost": 0.863866
   },
   {
    "projectId": "a19049de02710bd5c5b8fbeda0c61ad9",
@@ -558,7 +627,23 @@
    "sessions": 2,
    "threads": 2,
    "firstTs": 1788273679022,
-   "lastTs": 1788273958118
+   "lastTs": 1788273958118,
+   "cost": 0.0
+  },
+  {
+   "projectId": "a1e8a9e0943d25b2af099e18437b816b",
+   "name": "census-pipeline",
+   "rootPath": "/Users/dev/Coding/census-pipeline",
+   "groupId": "f0289f228130d5ad771ba299970fe198",
+   "groupName": "census-pipeline",
+   "groupPinned": false,
+   "pathExists": true,
+   "activeMs": 85116,
+   "sessions": 1,
+   "threads": 1,
+   "firstTs": 1788514204018,
+   "lastTs": 1788514600920,
+   "cost": 0.0
   },
   {
    "projectId": "72584108e59cd885328aa22bbcde737a",
@@ -572,7 +657,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1786301247561,
-   "lastTs": 1786301329003
+   "lastTs": 1786301329003,
+   "cost": 0.276157
   },
   {
    "projectId": "c7cc684749955cc57c637f62bb07f398",
@@ -586,7 +672,8 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1777655461929,
-   "lastTs": 1777655823770
+   "lastTs": 1777655823770,
+   "cost": 0.348042
   },
   {
    "projectId": "a73a3f7d519eaa4daa766419cd7f4817",
@@ -600,7 +687,8 @@
    "sessions": 2,
    "threads": 2,
    "firstTs": 1789632570174,
-   "lastTs": 1789632962969
+   "lastTs": 1789632962969,
+   "cost": 0.281969
   },
   {
    "projectId": "e6f223fe95f12718f02bbe5b02febd8b",
@@ -614,7 +702,38 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1789673188825,
-   "lastTs": 1789673214178
+   "lastTs": 1789673214178,
+   "cost": 0.0
+  },
+  {
+   "projectId": "db3e06571db40a07b2757dd28b4fa5df",
+   "name": "scratchpad",
+   "rootPath": "/private/tmp/claude-501/-Users-dev/c6d43dab-644d-4c04-8ad1-63840f1d170d/scratchpad",
+   "groupId": "b3e92e605ec2ac430bb67326c3248e6a",
+   "groupName": "tmp",
+   "groupPinned": false,
+   "pathExists": true,
+   "activeMs": 16444,
+   "sessions": 1,
+   "threads": 1,
+   "firstTs": 1789841114393,
+   "lastTs": 1789841130837,
+   "cost": 0.0
+  },
+  {
+   "projectId": "087f3384f50deb1656468d1095bccc38",
+   "name": "tmp",
+   "rootPath": "/private/tmp",
+   "groupId": "b3e92e605ec2ac430bb67326c3248e6a",
+   "groupName": "tmp",
+   "groupPinned": false,
+   "pathExists": true,
+   "activeMs": 3449,
+   "sessions": 1,
+   "threads": 1,
+   "firstTs": 1789840979285,
+   "lastTs": 1789840982734,
+   "cost": 0.0
   },
   {
    "projectId": "09b06533673fa8e62fd41da603b13be5",
@@ -628,7 +747,9 @@
    "sessions": 1,
    "threads": 1,
    "firstTs": 1787133696371,
-   "lastTs": 1787133696372
+   "lastTs": 1787133696372,
+   "cost": 0.0
   }
- ]
+ ],
+ "currency": "USD"
 }

@@ -5,16 +5,33 @@ JSON API and the built frontend. Backend and frontend are built in parallel
 against this document; **it is frozen** — if it needs to change, say so rather
 than diverging.
 
-Extended once, **additively**, for project grouping (`docs/GROUPING.md`): the
-`group` filter, `GET /api/groups`, `groupId`/`groupName`/`groupPinned` on
-`/api/projects`, and `groups` on `/api/meta`. No field that existed before it
-changed name, type or meaning.
+Extended twice, both times **additively**, and no field that existed before
+either change has changed name, type or meaning:
+
+1. Project grouping (`docs/GROUPING.md`): the `group` filter, `GET
+   /api/groups`, `groupId`/`groupName`/`groupPinned` on `/api/projects`, and
+   `groups` on `/api/meta`.
+2. Cost: `GET /api/cost`, `cost` on `/api/summary`, `/api/daily` days and
+   `/api/projects` rows, `currency` beside those, and `pricing` on
+   `/api/meta`.
 
 - All times on the wire are **epoch milliseconds UTC**. The frontend converts to
   local for display; the backend never guesses a timezone.
 - All durations are **milliseconds**, named `*Ms`.
 - Every endpoint accepts the same `Filters` query string.
 - Read-only. No POST, no auth, localhost only.
+- Every `cost` is a **list-price equivalent** in `currency` units: what the
+  filtered traffic would have cost at published API rates. **It is not a
+  bill** — a subscription charges a flat fee however many tokens run through
+  it. A renderer must label it as such, and must show `unpricedTokens`
+  alongside it: tokens no rate covered are unknown, not free.
+- **Every per-event number here is measured inside the surviving spans**, and
+  a thread with a single event yields no span at all. So `summary.events`,
+  `summary.tokens` and every `cost` exclude such a thread — the same rule
+  that already governs `sessions`/`threads`/`spans`, applied consistently.
+  `cci cost` on the command line counts every event instead and can
+  therefore read very slightly higher. Zero such threads exist on the
+  author's corpus; the rule is stated so the first one is not a surprise.
 
 ## Filters (query string, all optional)
 
@@ -22,7 +39,7 @@ changed name, type or meaning.
 | --- | --- | --- |
 | `project` | repeated | `project_id`; repeat to include several. Omitted = all |
 | `group` | repeated | `group_id`; repeat to include several. Omitted = all |
-| `source` | repeated | `claude_code` \| `codex`. Omitted = all |
+| `source` | repeated | `claude_code` \| `codex` \| `opencode`. Omitted = all |
 | `from` | epoch ms | inclusive lower bound on span start |
 | `to` | epoch ms | exclusive upper bound on span start |
 | `role` | string | `all` (default) \| `root` \| `subagent` |
@@ -54,7 +71,7 @@ usual: `?group=G&project=P&source=codex` is "(G or P) and codex".
 ## Types
 
 ```ts
-type Source = "claude_code" | "codex";
+type Source = "claude_code" | "codex" | "opencode";
 type Role = "all" | "root" | "subagent";
 
 // GET /api/meta  — everything needed to populate the filter controls.
@@ -72,6 +89,16 @@ type Meta = {
   agents: { agentName: string; source: Source }[];
   models: string[];
   idleThresholdS: number;   // must be shown wherever a duration is exported
+  // Where the money came from, so a page can footnote its own totals without
+  // a second round trip. `approximations` are models the price catalog
+  // matched to a NEAR RELATIVE rather than to themselves -- defensible as a
+  // default, never acceptable to hide. `unpricedModels` have no rate at all.
+  pricing: {
+    catalog: { repo?: string; commit?: string; fetched_at?: string; license?: string };
+    currency: string;
+    approximations: { model: string; pricedAs: string }[];
+    unpricedModels: string[];
+  };
   generatedAt: number;
 };
 
@@ -89,6 +116,22 @@ type Summary = {
   autonomousMs: number;       // subagent thread: a model spawned it
   unattendedRootMs: number;   // root thread that resumed with no human turn
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  cost: CostTotals;
+};
+
+// Shared by /api/summary.cost and /api/cost. A LIST-PRICE EQUIVALENT, not a
+// bill -- see the note at the top.
+type CostTotals = {
+  total: number;                 // in `currency` units
+  currency: string;              // "USD", or "mixed" if rates disagree
+  byComponent: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  pricedEvents: number;
+  // Priced off a model carried forward from an earlier event in the same
+  // thread, because Codex records usage on events that name no model.
+  attributedEvents: number;
+  // Tokens inside the filtered spans that no rate covered. NOT zero-cost:
+  // unknown. Show this wherever `total` is shown.
+  unpricedTokens: number;
 };
 
 // GET /api/timeline — the swimlane. One row per span.
@@ -122,7 +165,9 @@ type Daily = {
   // agents ran in parallel that day. bySource OMITS a source with no activity,
   // so it is Partial, not a total Record.
   days: { date: string; activeMs: number; wallMs: number;
-          bySource: Partial<Record<Source, number>> }[];
+          bySource: Partial<Record<Source, number>>;
+          cost: number }[];
+  currency: string;
 };
 
 // GET /api/concurrency — sweep-line over the filtered spans.
@@ -151,7 +196,9 @@ type Projects = {
               // inferring it that way mislabels 5 live worktrees out of 15.
               pathExists: boolean | null;
               activeMs: number; sessions: number; threads: number;
-              firstTs: number; lastTs: number }[];
+              firstTs: number; lastTs: number;
+              cost: number }[];   // list-price equivalent, in `currency`
+  currency: string;
 };
 
 // GET /api/groups — one row per LOGICAL project (docs/GROUPING.md): the 5 rows
@@ -190,7 +237,66 @@ type Agents = {
 
 // GET /api/heatmap — local weekday x hour. weekday 0 = Monday.
 type Heatmap = { cells: { weekday: number; hour: number; activeMs: number }[] };
+
+// GET /api/cost — the list-price equivalent, broken down and qualified.
+//
+// NOT A BILL. A Claude Max or ChatGPT Plus subscription charges a flat monthly
+// fee no matter how many tokens run through it, and opencode reports 0 for
+// every call it makes. This number is for comparing projects, models and
+// months against each other; it is wrong in an invoice. Every caveat below is
+// machine-readable so a renderer can show them rather than paraphrase them.
+type Cost = CostTotals & {
+  byModel: { model: string; cost: number; events: number; attributed: number }[];
+  bySource: { source: Source; cost: number }[];
+  daily: { date: string; cost: number }[];      // local calendar days, no gap fill
+  // What could not be priced, and why:
+  //   no_rate      the model has no rate on file at that date
+  //   no_model     nothing in the thread said which model ran (model is null)
+  //   no_component the model is priced, but not for this token component
+  //                (OpenAI publishes no cache-write rate)
+  unpriced: { model: string | null;
+              reason: "no_rate" | "no_model" | "no_component";
+              tokens: number; events: number }[];
+  // Models the catalog priced as a near relative. On the author's corpus
+  // `claude-fable-5-1` is priced as `claude-fable-5`, whose cache reads cost
+  // four times as much -- thousands of dollars of difference on a corpus with
+  // billions of cache-read tokens. Show it next to the total.
+  approximations: { model: string; pricedAs: string }[];
+  catalog: { repo?: string; commit?: string; fetched_at?: string; license?: string };
+};
 ```
+
+## `GET /api/live` — the watch-mode stream
+
+Not one of the endpoints above, and deliberately outside the `Filters`
+contract: those are filtered, cacheable and capturable as a fixture, and a
+stream is none of the three.
+
+`cci watch --serve` runs the pipeline in the background and feeds this
+endpoint, so an open dashboard refreshes when a log file grows instead of
+polling. Content type `text/event-stream`.
+
+```
+event: hello
+data: {"generation": 12, "last": {...}, "heartbeatS": 20}
+
+: keep-alive                        <- a comment frame; fires no event
+
+event: change
+data: {"generation": 13, "at": 1789913704558, "changedFiles": 1,
+       "eventsInserted": 3, "sessions": 10, "spans": 1430,
+       "activeMs": 695256036, "cost": 13341.69, "currency": "USD",
+       "durationS": 0.155, "errors": []}
+```
+
+- `spans`, `activeMs` and `cost` are **corpus totals after the cycle**;
+  `eventsInserted` and `sessions` are that cycle's delta.
+- `generation` only advances on a cycle that changed something, so a client
+  may refetch on every `change` without looping.
+- **With no watcher running the path returns `404`.** That is what makes an
+  `EventSource` give up instead of reconnecting forever, and it is how a page
+  learns there is nothing live to listen to. Treat the 404 as "not watching",
+  not as an error worth showing.
 
 ## Errors
 
@@ -204,6 +310,8 @@ by `scripts/dump_fixtures.py` from a live database. The frontend must render
 correctly from these with no server running, so the UI can be built and reviewed
 independently of the backend.
 
-The committed capture predates grouping: it has no `groups.json` and no group
-fields, and is regenerated once the detector has run. `dump_fixtures.py`
-already emits both.
+One file per endpoint, both ways: a fixture with no endpoint behind it is dead
+weight the frontend may still be reading, and an endpoint with no fixture is
+one the frontend cannot be built against offline.
+`tests/test_metrics.py::test_every_contract_endpoint_is_implemented` enforces
+it. `/api/live` has no fixture because it is not an endpoint in this sense.

@@ -7,7 +7,7 @@
  *     timestamp in UTC**. Convert to local time only at the point of display.
  */
 
-export type Source = "claude_code" | "codex"
+export type Source = "claude_code" | "codex" | "opencode"
 export type Role = "all" | "root" | "subagent"
 
 /** GET /api/meta — populates the filter controls. Not affected by filters. */
@@ -32,7 +32,65 @@ export type Meta = {
   models: string[]
   /** Gap above which a span breaks. Every duration in this app depends on it. */
   idleThresholdS: number
+  /**
+   * Where the money came from, so any surface can footnote its own totals
+   * without a second round trip. `approximations` are models the price
+   * catalog matched to a NEAR RELATIVE rather than to themselves: defensible
+   * as a default, never acceptable to hide. `unpricedModels` have no rate at
+   * all — their tokens are unknown, not free.
+   */
+  pricing: {
+    catalog: PriceCatalog
+    currency: string
+    approximations: Approximation[]
+    unpricedModels: string[]
+  }
   generatedAt: number
+}
+
+/** Provenance of the rates. Every field optional: a hand-written catalog has none. */
+export type PriceCatalog = {
+  repo?: string
+  commit?: string
+  fetched_at?: string
+  license?: string
+}
+
+/** A model priced at a relative's rates because it has none of its own. */
+export type Approximation = { model: string; pricedAs: string }
+
+/**
+ * Shared by `/api/summary.cost` and `/api/cost`.
+ *
+ * A **list-price equivalent**, not a bill: what the filtered traffic would
+ * have cost at published API rates. A Claude Max or ChatGPT Plus subscription
+ * charges a flat fee however many tokens run through it, and opencode reports
+ * 0 for every call. Useful for comparing projects, models and months; wrong
+ * in an invoice. Every renderer labels it as such and shows `unpricedTokens`
+ * beside it.
+ */
+export type CostTotals = {
+  /** In `currency` units. */
+  total: number
+  /** "USD", or "mixed" if the rates that met disagree. Never a symbol. */
+  currency: string
+  byComponent: {
+    input: number
+    output: number
+    cacheRead: number
+    cacheWrite: number
+  }
+  pricedEvents: number
+  /**
+   * Priced off a model carried forward from an earlier event in the same
+   * thread, because Codex records usage on events that name no model.
+   */
+  attributedEvents: number
+  /**
+   * Tokens inside the filtered spans that no rate covered. NOT zero-cost:
+   * unknown. Shown wherever `total` is shown.
+   */
+  unpricedTokens: number
 }
 
 /** GET /api/summary */
@@ -55,6 +113,7 @@ export type Summary = {
     cacheRead: number
     cacheWrite: number
   }
+  cost: CostTotals
 }
 
 export type Span = {
@@ -104,7 +163,10 @@ export type Daily = {
     activeMs: number
     wallMs: number
     bySource: Partial<Record<Source, number>>
+    /** List-price equivalent for the day, in `currency`. */
+    cost: number
   }[]
+  currency: string
 }
 
 /** GET /api/concurrency — sweep-line over the filtered spans. */
@@ -156,7 +218,10 @@ export type Projects = {
     threads: number
     firstTs: number
     lastTs: number
+    /** List-price equivalent, in `currency`. Not a bill. */
+    cost: number
   }[]
+  currency: string
 }
 
 export type ProjectRow = Projects["projects"][number]
@@ -213,4 +278,41 @@ export type Agents = {
 /** GET /api/heatmap — local weekday x hour. weekday 0 = Monday. */
 export type Heatmap = {
   cells: { weekday: number; hour: number; activeMs: number }[]
+}
+
+/** Why tokens went unpriced. Stored by the backend, never inferred here. */
+export type UnpricedReason = "no_rate" | "no_model" | "no_component"
+
+/**
+ * GET /api/cost — the list-price equivalent, broken down and qualified.
+ *
+ * NOT A BILL (see `CostTotals`). Every caveat is machine-readable so the UI
+ * shows it rather than paraphrasing it.
+ */
+export type Cost = CostTotals & {
+  byModel: { model: string; cost: number; events: number; attributed: number }[]
+  bySource: { source: Source; cost: number }[]
+  /** Local calendar days, no gap fill. */
+  daily: { date: string; cost: number }[]
+  /**
+   * What could not be priced, and why:
+   *   no_rate       the model has no rate on file at that date
+   *   no_model      nothing in the thread said which model ran
+   *   no_component  the model is priced, but not for this token component
+   *                 (OpenAI publishes no cache-write rate)
+   */
+  unpriced: {
+    model: string | null
+    reason: UnpricedReason
+    tokens: number
+    events: number
+  }[]
+  /**
+   * Models the catalog priced as a near relative. On the author's corpus
+   * `claude-fable-5-1` is priced as `claude-fable-5`, whose cache reads cost
+   * four times as much — thousands of dollars of difference. Shown next to
+   * the total, never buried.
+   */
+  approximations: Approximation[]
+  catalog: PriceCatalog
 }

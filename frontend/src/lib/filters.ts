@@ -38,7 +38,7 @@ export const EMPTY_FILTERS: Filters = {
   role: "all",
 }
 
-export const ALL_SOURCES: Source[] = ["claude_code", "codex"]
+export const ALL_SOURCES: Source[] = ["claude_code", "codex", "opencode"]
 export const ALL_ROLES: Role[] = ["all", "root", "subagent"]
 
 /** True when nothing is narrowed — the unfiltered view. */
@@ -64,7 +64,7 @@ export function activeFilterCount(f: Filters): number {
 }
 
 function isSource(v: string): v is Source {
-  return v === "claude_code" || v === "codex"
+  return v === "claude_code" || v === "codex" || v === "opencode"
 }
 
 function isRole(v: string): v is Role {

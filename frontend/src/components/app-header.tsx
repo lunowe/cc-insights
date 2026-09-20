@@ -6,17 +6,21 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import type { LiveState } from "@/hooks/use-live"
 import type { DataMode } from "@/lib/api"
-import { formatDateTime, formatRange, formatSince } from "@/lib/format"
+import { formatCount, formatDateTime, formatRange, formatSince } from "@/lib/format"
 import type { Meta } from "@/lib/types"
 
 export function AppHeader({
   meta,
   mode,
+  live,
 }: {
   meta: Meta | null
   /** null until the backend probe resolves. */
   mode: DataMode | null
+  /** Watch mode, when a `cci watch --serve` is feeding this page. */
+  live?: LiveState
 }) {
   return (
     <header className="border-b border-rule">
@@ -43,6 +47,7 @@ export function AppHeader({
 
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {meta ? <IdleThresholdBadge seconds={meta.idleThresholdS} /> : null}
+          {live?.watching ? <WatchingBadge live={live} /> : null}
           {mode !== null ? <ModeBadge mode={mode} meta={meta} /> : null}
           <ThemeToggle />
         </div>
@@ -70,6 +75,50 @@ export function IdleThresholdBadge({ seconds }: { seconds: number }) {
       <TooltipContent className="max-w-64">
         Idle threshold: {seconds} s. A gap longer than this ends a span and
         contributes zero time — it is never capped and never counted.
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * Shown only while a watcher is actually feeding this page.
+ *
+ * It is a claim about the present tense, so it appears only once the stream
+ * has said hello and disappears the moment it drops: a badge that says "live"
+ * because it did at some point is the failure it exists to prevent. The dot
+ * pulses, because the one thing it is asserting is that this is moving.
+ */
+function WatchingBadge({ live }: { live: LiveState }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/8 px-2.5 py-1 text-[0.6875rem] text-primary"
+        >
+          <span className="relative grid size-3 place-items-center">
+            <span className="absolute size-2 animate-ping rounded-full bg-primary/60" />
+            <span className="size-1.5 rounded-full bg-primary" />
+          </span>
+          <span>watching</span>
+          {live.changes > 0 ? (
+            <>
+              <span aria-hidden className="text-primary/40">|</span>
+              <span className="num whitespace-nowrap">
+                {formatCount(live.changes)}
+              </span>
+            </>
+          ) : null}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-72">
+        <code>cci watch</code> is following the logs; this page refreshes as
+        they grow, at most once every few seconds.
+        {live.lastChangeAt !== null ? (
+          <> Last change: {formatDateTime(live.lastChangeAt)}.</>
+        ) : (
+          <> Nothing has changed since this page opened.</>
+        )}
       </TooltipContent>
     </Tooltip>
   )

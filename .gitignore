@@ -17,3 +17,6 @@ node_modules/
 # tooling
 .pytest_cache/
 .ruff_cache/
+
+# agent worktrees and scratch state
+.claude/

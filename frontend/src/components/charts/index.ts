@@ -1,5 +1,6 @@
 export { AgentsChart } from "./agents"
 export { ConcurrencyChart } from "./concurrency"
+export { CostChart } from "./cost"
 export { DailyActiveChart } from "./daily-active"
 export { WeekHeatmap } from "./heatmap"
 export { ProjectsChart } from "./projects"

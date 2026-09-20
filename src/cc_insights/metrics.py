@@ -55,7 +55,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal, Mapping, Sequence
 
-from cc_insights import db, derive
+from cc_insights import db, derive, pricing
+from cc_insights.cost import NANO
 from cc_insights.grouping import PATH_EXISTS_ANY
 from cc_insights.config import Config
 
@@ -73,6 +74,7 @@ __all__ = [
     "groups",
     "agents",
     "heatmap",
+    "cost",
     "ENDPOINTS",
 ]
 
@@ -168,6 +170,25 @@ _FROM = (
     " JOIN session s ON s.id = sp.session_id"
 )
 
+# Cost hangs off the same spans as everything else, so every filter means the
+# same thing for money as it does for time and there is no second filter path
+# to keep in sync. An event belongs to the span of its own thread whose closed
+# interval contains it, and derive separates consecutive spans of a thread by
+# more than the idle threshold, so it cannot match two.
+_JOIN_COST = (
+    " JOIN event_cost ec ON ec.thread_id = sp.thread_id"
+    " AND ec.ts >= sp.started_at AND ec.ts <= sp.ended_at"
+)
+
+#: The same join against what could NOT be priced.
+_JOIN_UNPRICED = (
+    " JOIN event_unpriced eu ON eu.thread_id = sp.thread_id"
+    " AND eu.ts >= sp.started_at AND eu.ts <= sp.ended_at"
+)
+
+#: One cost row summed to nano-units.
+_COST_NANO = "(ec.input_nano + ec.output_nano + ec.cache_read_nano + ec.cache_write_nano)"
+
 
 def _marks(n: int) -> str:
     return ",".join("?" * n)
@@ -232,6 +253,95 @@ def _scalar(conn: sqlite3.Connection, sql: str, params: Sequence[Any] = ()) -> i
     return (row[0] or 0) if row else 0
 
 
+# ----------------------------------------------------------------- money --
+#
+# Every number below is a LIST-PRICE EQUIVALENT: what this traffic would have
+# cost at published API rates. It is not a bill and must never be presented as
+# one -- a subscription charges a flat monthly fee however many tokens run
+# through it. `cost.py` explains the rest; this layer only aggregates.
+
+
+def _units(nano: int | None) -> float:
+    """Nano-units -> currency units.
+
+    Storage stays integer so SUM() is exact; the rounding happens once, here,
+    at the edge where a number becomes something a person reads.
+    """
+    return round((nano or 0) / NANO, 6)
+
+
+def _currency(conn: sqlite3.Connection) -> str:
+    """The single currency behind the priced rows, or "mixed".
+
+    Adding euros to dollars behind one symbol is a kind of wrong that never
+    looks wrong, so it gets named instead of hidden.
+    """
+    rows = [r[0] for r in conn.execute(
+        """SELECT DISTINCT p.currency FROM model_price p
+           WHERE EXISTS (SELECT 1 FROM event_cost c WHERE c.model = p.model)""")]
+    return rows[0] if len(rows) == 1 else ("mixed" if rows else "USD")
+
+
+def _cost_total(conn: sqlite3.Connection, f: "Filters") -> dict:
+    """Total and per-component cost over the surviving spans."""
+    where, params = _where(f)
+    row = _one(conn, f"""
+        SELECT coalesce(sum({_COST_NANO}), 0) AS total,
+               coalesce(sum(ec.input_nano), 0) AS input,
+               coalesce(sum(ec.output_nano), 0) AS output,
+               coalesce(sum(ec.cache_read_nano), 0) AS cacheRead,
+               coalesce(sum(ec.cache_write_nano), 0) AS cacheWrite,
+               coalesce(sum(ec.attributed), 0) AS attributed,
+               count(*) AS events
+        {_FROM}{_JOIN_COST}{where}""", params)
+    return {
+        "total": _units(row.get("total")),
+        "currency": _currency(conn),
+        "byComponent": {
+            "input": _units(row.get("input")),
+            "output": _units(row.get("output")),
+            "cacheRead": _units(row.get("cacheRead")),
+            "cacheWrite": _units(row.get("cacheWrite")),
+        },
+        "pricedEvents": row.get("events", 0),
+        # Codex records usage on events that name no model; those took theirs
+        # from an earlier event in the same thread. Saying how many keeps the
+        # inference visible instead of baked into the total.
+        "attributedEvents": row.get("attributed", 0),
+        "unpricedTokens": _unpriced_tokens(conn, f),
+    }
+
+
+def _unpriced_tokens(conn: sqlite3.Connection, f: "Filters") -> int:
+    """Tokens inside the surviving spans that no rate covered.
+
+    Carried next to every total on purpose: a cost is quotable only alongside
+    what it could not see.
+    """
+    where, params = _where(f)
+    return _scalar(
+        conn,
+        f"SELECT coalesce(sum(eu.tokens), 0){_FROM}{_JOIN_UNPRICED}{where}",
+        params,
+    )
+
+
+def _cost_by_local_day(conn: sqlite3.Connection, f: "Filters") -> dict[str, int]:
+    """Nano-cost per local calendar day, over the surviving spans.
+
+    Bucketed in Python because the portability contract bans `strftime`, and
+    because a calendar day is a local-time question -- the same reason
+    `_slice_by` walks boundaries rather than dividing by 86_400_000.
+    """
+    where, params = _where(f)
+    acc: collections.Counter = collections.Counter()
+    for ts, nano in conn.execute(
+        f"SELECT ec.ts, {_COST_NANO}{_FROM}{_JOIN_COST}{where}", tuple(params)
+    ):
+        acc[datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d")] += nano
+    return acc
+
+
 # --------------------------------------------------------------------------
 # endpoints
 # --------------------------------------------------------------------------
@@ -279,6 +389,24 @@ def meta(conn: sqlite3.Connection, cfg: Config) -> dict:
                 conn, "SELECT DISTINCT model FROM event WHERE model IS NOT NULL ORDER BY 1")
         ],
         "idleThresholdS": cfg.idle_threshold_s,
+        # Where the money came from, so a dashboard can footnote its own
+        # totals without a second round trip. `unpricedModels` is the roster
+        # counterpart of /api/cost's filtered `unpriced`.
+        "pricing": {
+            "catalog": pricing.catalog_source(),
+            "currency": _currency(conn),
+            "approximations": [
+                {"model": m, "pricedAs": matched}
+                for m, matched in pricing.approximations(conn)
+            ],
+            "unpricedModels": [
+                r["model"] for r in _rows(conn, """
+                    SELECT DISTINCT e.model AS model FROM event e
+                    WHERE e.model IS NOT NULL
+                      AND NOT EXISTS (SELECT 1 FROM model_price p WHERE p.model = e.model)
+                    ORDER BY 1""")
+            ],
+        },
         "generatedAt": db.now_ms(),
     }
 
@@ -340,6 +468,8 @@ def summary(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
         "unattendedRootMs": bucket(
             "t.is_subagent = 0 AND (sp.attended = 0 OR sp.attended IS NULL)"),
         "tokens": tokens,
+        # A list-price equivalent, never a bill. See the money section above.
+        "cost": _cost_total(conn, f),
     }
 
 
@@ -470,18 +600,26 @@ def daily(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
     """
     acc, per_src, pieces = _slice_by(conn, f, _Day)
     if not acc:
-        return {"days": []}
+        return {"days": [], "currency": _currency(conn)}
     wall = {k: _union_ms(v) for k, v in pieces.items()}
-    lo = datetime.strptime(min(acc), "%Y-%m-%d").date()
-    hi = datetime.strptime(max(acc), "%Y-%m-%d").date()
+    per_day_cost = _cost_by_local_day(conn, f)
+    # A span is split at midnight with `while cur < b`, so one ending exactly
+    # on a local midnight registers no piece in the following day -- while an
+    # event at that same instant is inside the span and buckets into it. The
+    # range therefore has to cover both, or `sum(daily[].cost)` quietly loses
+    # a day that `/api/cost` still reports.
+    keys = set(acc) | set(per_day_cost)
+    lo = datetime.strptime(min(keys), "%Y-%m-%d").date()
+    hi = datetime.strptime(max(keys), "%Y-%m-%d").date()
 
     days, d = [], lo
     while d <= hi:
         k = d.strftime("%Y-%m-%d")
         days.append({"date": k, "activeMs": acc.get(k, 0), "wallMs": wall.get(k, 0),
-                     "bySource": dict(per_src.get(k, {}))})
+                     "bySource": dict(per_src.get(k, {})),
+                     "cost": _units(per_day_cost.get(k, 0))})
         d += timedelta(days=1)
-    return {"days": days}
+    return {"days": days, "currency": _currency(conn)}
 
 
 def heatmap(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
@@ -549,7 +687,21 @@ def projects(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
         # Tri-state on purpose: None means detection has not probed this path
         # yet, which is not the same as "the directory is gone".
         r["pathExists"] = None if r["pathExists"] is None else bool(r["pathExists"])
-    return {"projects": rows}
+
+    # A second query rather than another join: joining event_cost into the
+    # same GROUP BY would multiply every row by its events and inflate
+    # `sessions`, `threads` and `activeMs`. This is the classic fan-out trap
+    # and the reason the two aggregates stay apart.
+    costs = {
+        r["projectId"]: r["nano"] for r in _rows(conn, f"""
+            SELECT p.project_id AS projectId, coalesce(sum({_COST_NANO}), 0) AS nano
+            {_FROM}{_JOIN_COST}
+            JOIN project p ON p.project_id = s.project_id
+            {where} GROUP BY 1""", params)
+    }
+    for r in rows:
+        r["cost"] = _units(costs.get(r["projectId"], 0))
+    return {"projects": rows, "currency": _currency(conn)}
 
 
 def groups(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
@@ -623,9 +775,69 @@ def agents(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
         {_FROM}{where} GROUP BY 1, 2 ORDER BY activeMs DESC""", params)}
 
 
-# The nine endpoint names of the contract, in the order docs/API.md lists
-# them. serve.py routes on this and the tests iterate it, so adding an endpoint
-# to the contract is one edit here plus its function.
+def cost(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
+    """GET /api/cost -- the list-price equivalent, broken down and qualified.
+
+    Everything here is what the filtered traffic *would have cost at published
+    API rates*. It is not a bill. A Claude Max or ChatGPT Plus subscription
+    charges a flat monthly fee no matter how many tokens run through it, and
+    opencode's own cost column reads 0 on every row for that reason. The
+    number is useful for comparing projects, models and months against each
+    other; it is wrong in an invoice, and the caveats travel with it so a
+    renderer cannot show the total without them.
+
+    Four caveats, all machine-readable:
+
+    * `unpriced` -- tokens no rate covered, by model. Not zero-cost: unknown.
+    * `attributedEvents` -- priced off a model carried forward from an earlier
+      event in the same thread, because Codex records usage without one.
+    * `approximations` -- models the catalog priced as a near relative. On
+      this corpus that is `claude-fable-5-1` priced as `claude-fable-5`, whose
+      cache reads cost four times as much.
+    * `catalog` -- which snapshot, from which commit, fetched when.
+    """
+    where, params = _where(f)
+    totals = _cost_total(conn, f)
+
+    by_model = _rows(conn, f"""
+        SELECT ec.model AS model, coalesce(sum({_COST_NANO}), 0) AS nano,
+               count(*) AS events, coalesce(sum(ec.attributed), 0) AS attributed
+        {_FROM}{_JOIN_COST}{where} GROUP BY 1 ORDER BY nano DESC""", params)
+    for r in by_model:
+        r["cost"] = _units(r.pop("nano"))
+
+    by_source = _rows(conn, f"""
+        SELECT s.source AS source, coalesce(sum({_COST_NANO}), 0) AS nano
+        {_FROM}{_JOIN_COST}{where} GROUP BY 1 ORDER BY nano DESC""", params)
+    for r in by_source:
+        r["cost"] = _units(r.pop("nano"))
+
+    # What could not be priced, by model and by reason. A Codex event that
+    # names no model still reports the model carried forward to it, so this
+    # says "gpt-6-astra has no rate" rather than the useless "unknown model".
+    unpriced = _rows(conn, f"""
+        SELECT eu.model AS model, eu.reason AS reason,
+               coalesce(sum(eu.tokens), 0) AS tokens, count(*) AS events
+        {_FROM}{_JOIN_UNPRICED}{where}
+        GROUP BY 1, 2 ORDER BY tokens DESC""", params)
+
+    return {
+        **totals,
+        "byModel": by_model,
+        "bySource": by_source,
+        "daily": [{"date": d, "cost": _units(n)}
+                  for d, n in sorted(_cost_by_local_day(conn, f).items())],
+        "unpriced": [r for r in unpriced if r["tokens"] > 0],
+        "approximations": [
+            {"model": m, "pricedAs": matched} for m, matched in pricing.approximations(conn)
+        ],
+        "catalog": pricing.catalog_source(),
+    }
+
+
+# The ten endpoint names of the contract, in the order docs/API.md lists them.
+# serve.py routes on this and the tests iterate it, so adding an endpoint to
+# the contract is one edit here plus its function.
 _FILTERED = {
     "summary": summary,
     "timeline": timeline,
@@ -635,6 +847,7 @@ _FILTERED = {
     "groups": groups,
     "agents": agents,
     "heatmap": heatmap,
+    "cost": cost,
 }
 ENDPOINTS: tuple[str, ...] = ("meta", *_FILTERED)
 

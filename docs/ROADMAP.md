@@ -7,15 +7,45 @@ derivation engine, static HTML dashboard, CSV export.
 
 ## v1 — Breadth
 
-- **More adapters.** Cursor, Gemini CLI, Aider, GitHub Copilot CLI, opencode.
-  The adapter protocol exists for this; each is one file.
-- **Real cost tracking.** Token counts are already ingested. Add a pricing table
-  keyed by model + date so historical rates stay correct as prices change.
-  Cache-read vs cache-write vs input must be priced separately (FINDINGS §5.5).
-- **Watch mode.** Replace the 15-minute launchd poll with FSEvents for a live
-  dashboard.
+- **More adapters.** ✅ **opencode** (`sources/opencode.py`) — and it cost the
+  adapter contract an assumption: its store is one SQLite database, not log
+  files, so there is no byte offset to resume from and `byte_end = 0` means
+  "re-read me every run". Still to come: Cursor, Gemini CLI, Aider, GitHub
+  Copilot CLI. Each is one file.
+- **Real cost tracking.** ✅ `pricing.py` + `cost.py` + migration 003. Rates are
+  keyed (model, effective_from) from a committed snapshot of
+  pydantic/genai-prices, so history does not move when a vendor reprices.
+  Input, output, cache read and cache write are priced separately, which
+  turned out to matter more than expected: cache reads are 58% of the total.
+  What is left, and it is not small:
+  - **Context-window tiers are flattened to the base rate.** Some models charge
+    more above a threshold; the logs record tokens per request, not context
+    length, so the tier cannot be chosen honestly. This under-states long-context
+    traffic on tiered models.
+  - **The catalog prices some models as a near relative** (`claude-fable-5-1`
+    as `claude-fable-5`, whose cache reads cost 4x). ✅ Resolved with a third
+    layer: `price_overrides.json`, checked against the vendor's own pricing
+    page and shipped with the code, beating the catalog and losing to
+    `cci price set`. It corrected two models and moved the corpus total by
+    $2,744. Anything still priced as a relative is reported, never hidden.
+  - **1-hour cache writes are priced as 5-minute ones.** 41% of cache-write
+    tokens on this corpus are 1-hour writes, charged at 2x base input rather
+    than 1.25x; the logs carry the split and the adapter does not read it.
+    Understates the total by ~$1,085. Needs a column on `event`, an adapter
+    change and a re-ingest — and a re-ingest cannot recover the split for
+    sessions whose logs have aged out. See FINDINGS §6b.
+- **Watch mode.** ✅ `watch.py` + `cci watch [--serve]` + `/api/live`.
+  **It polls rather than using FSEvents, deliberately** — 50 ms to stat the
+  whole corpus against a dependency or 150 lines of untestable `ctypes`, and
+  polling is the only option that already works on the Windows box v2 assumes.
+  `Watcher` is a protocol so FSEvents can still be dropped in. A cycle is
+  ~0.15 s because ingest resumes at each byte offset and derive and pricing are
+  scoped to the sessions that moved.
 - **Session annotation.** Let a session be tagged (client, ticket, billable)
-  after the fact — the missing piece for real invoicing.
+  after the fact — the missing piece for real invoicing. **Next up.** Note that
+  the price table now sets the pattern for "a mutable layer over immutable
+  history": `origin = 'manual'` is never overwritten by detection, the same
+  rule `project_group` follows.
 
 ## v2 — Multi-machine, then teams
 

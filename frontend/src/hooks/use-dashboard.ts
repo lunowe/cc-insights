@@ -10,7 +10,12 @@ export type DashboardState = {
   error: string | null
 }
 
-export function useDashboard(filters: Filters): DashboardState {
+/**
+ * `revision` is a refetch trigger with no meaning of its own: bump it and the
+ * same filters are fetched again. Watch mode drives it (`use-live.ts`), which
+ * is why the effect below keys on it as well as on the filter set.
+ */
+export function useDashboard(filters: Filters, revision = 0): DashboardState {
   const [state, setState] = useState<DashboardState>({
     data: null,
     loading: true,
@@ -45,7 +50,7 @@ export function useDashboard(filters: Filters): DashboardState {
     }
     // `key` is the serialised filter set; the object identity is irrelevant.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
+  }, [key, revision])
 
   return state
 }

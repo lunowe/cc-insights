@@ -92,3 +92,51 @@ def test_the_windows_task_never_asks_for_elevation():
     ps = INSTALL_TASK.read_text()
     assert "RunLevel Highest" not in ps
     assert "-LogonType Interactive" in ps
+# --------------------------------------------------------------------------
+# the watch job
+# --------------------------------------------------------------------------
+WATCH_PLIST = SCRIPTS / "com.cc-insights.watch.plist"
+
+
+def test_the_watch_template_carries_both_placeholders():
+    text = WATCH_PLIST.read_text()
+    assert "__CCI__" in text and "__LOGDIR__" in text
+
+
+def test_the_substituted_watch_plist_keeps_one_process_alive(tmp_path):
+    out = tmp_path / "watch.plist"
+    out.write_text(
+        WATCH_PLIST.read_text().replace("__CCI__", "/opt/cci").replace("__LOGDIR__", "/var/log/cci")
+    )
+    with out.open("rb") as fh:
+        d = plistlib.load(fh)
+
+    assert d["Label"] == "com.cc-insights.watch"
+    # A long-running job, not an interval one: KeepAlive instead of
+    # StartInterval, or launchd would start a second copy every 15 minutes.
+    assert d["KeepAlive"] is True
+    assert "StartInterval" not in d
+    assert d["ThrottleInterval"] == 30
+    assert d["ProgramArguments"] == ["/opt/cci", "watch", "--quiet"]
+    assert d["StandardOutPath"] == "/var/log/cci/watch.log"
+    assert "__CCI__" not in str(d) and "__LOGDIR__" not in str(d)
+
+
+def test_the_two_jobs_have_different_labels_and_logs():
+    """Installing one must be able to unload the other by label; sharing
+    either would make two writers on one database indistinguishable."""
+    interval = plistlib.loads(PLIST.read_text().replace("__CCI__", "x")
+                              .replace("__LOGDIR__", "/l").encode())
+    watch = plistlib.loads(WATCH_PLIST.read_text().replace("__CCI__", "x")
+                           .replace("__LOGDIR__", "/l").encode())
+    assert interval["Label"] != watch["Label"]
+    assert interval["StandardOutPath"] != watch["StandardOutPath"]
+
+
+def test_the_installer_knows_both_jobs_and_removes_both():
+    text = INSTALL.read_text()
+    assert "--watch" in text and "com.cc-insights.watch" in text
+    # --uninstall must take out whichever is loaded, not just the one it was
+    # asked about, or an upgrade leaves two writers behind.
+    branch = text.split('== "--uninstall" ]]', 1)[1].split("exit 0", 1)[0]
+    assert 'unload "$LABEL"' in branch and 'unload "$WATCH_LABEL"' in branch

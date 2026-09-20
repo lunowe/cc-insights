@@ -1,17 +1,18 @@
 {
  "hostname": "demo-laptop.local",
  "firstTs": 1770565158571,
- "lastTs": 1789909193810,
+ "lastTs": 1789914631012,
  "sources": [
   "claude_code",
-  "codex"
+  "codex",
+  "opencode"
  ],
  "projects": [
   {
    "projectId": "d2e5edff5d4079af02553daa5630d5f9",
    "name": "atlas-chat",
    "rootPath": "/Users/dev/Coding/atlas-chat",
-   "activeMs": 200521549
+   "activeMs": 208198876
   },
   {
    "projectId": "2cc665728dc737965416c0355e85453a",
@@ -23,7 +24,7 @@
    "projectId": "cd93b31db46aeeaec1173987b66bf117",
    "name": "skill-planner",
    "rootPath": "/Users/dev/Coding/skill-planner",
-   "activeMs": 63000393
+   "activeMs": 64137053
   },
   {
    "projectId": "148f6478127fd369399e329d4263efd0",
@@ -56,6 +57,12 @@
    "activeMs": 19246611
   },
   {
+   "projectId": "72d7ccef2e626422ec1bf7083ce5b5b5",
+   "name": "CC-Insights",
+   "rootPath": "/Users/dev/Coding/CC-Insights",
+   "activeMs": 18367052
+  },
+  {
    "projectId": "5ca2fdad5c27154f62653b067d8cb747",
    "name": "frontend_new",
    "rootPath": "/Users/dev/Coding/skill-planner/frontend_new",
@@ -84,12 +91,6 @@
    "name": "t3code-0c9cc823",
    "rootPath": "/Users/dev/.t3/worktrees/atlas-chat/t3code-0c9cc823",
    "activeMs": 11988633
-  },
-  {
-   "projectId": "72d7ccef2e626422ec1bf7083ce5b5b5",
-   "name": "CC-Insights",
-   "rootPath": "/Users/dev/Coding/CC-Insights",
-   "activeMs": 10443879
   },
   {
    "projectId": "35cb72a79700c3d2044ae6089f54d2db",
@@ -132,6 +133,12 @@
    "name": "t3code-815c4740",
    "rootPath": "/Users/dev/.t3/worktrees/skill-planner/t3code-815c4740",
    "activeMs": 3053680
+  },
+  {
+   "projectId": "11bfb04b60bea55b7329bf2b288e9fda",
+   "name": "v2-windows-paths",
+   "rootPath": "/Users/dev/Coding/CC-Insights/.claude/worktrees/v2-windows-paths",
+   "activeMs": 2344416
   },
   {
    "projectId": "885643d322f6939e542f7ec9811979a3",
@@ -236,6 +243,12 @@
    "activeMs": 263094
   },
   {
+   "projectId": "bab4cedb49482369939804a139d44c80",
+   "name": "style-companion",
+   "rootPath": "/Users/dev/Coding/style-companion",
+   "activeMs": 229225
+  },
+  {
    "projectId": "43b62b1b30975164bcc6d0a1c28ff53e",
    "name": "chengdu",
    "rootPath": "/Users/dev/conductor/workspaces/Quickstart/chengdu",
@@ -246,6 +259,12 @@
    "name": "lunowe",
    "rootPath": "/Users/dev",
    "activeMs": 136245
+  },
+  {
+   "projectId": "a1e8a9e0943d25b2af099e18437b816b",
+   "name": "census-pipeline",
+   "rootPath": "/Users/dev/Coding/census-pipeline",
+   "activeMs": 85116
   },
   {
    "projectId": "72584108e59cd885328aa22bbcde737a",
@@ -272,22 +291,40 @@
    "activeMs": 25353
   },
   {
+   "projectId": "db3e06571db40a07b2757dd28b4fa5df",
+   "name": "scratchpad",
+   "rootPath": "/private/tmp/claude-501/-Users-dev/c6d43dab-644d-4c04-8ad1-63840f1d170d/scratchpad",
+   "activeMs": 16444
+  },
+  {
+   "projectId": "087f3384f50deb1656468d1095bccc38",
+   "name": "tmp",
+   "rootPath": "/private/tmp",
+   "activeMs": 3449
+  },
+  {
    "projectId": "09b06533673fa8e62fd41da603b13be5",
    "name": ".claude",
    "rootPath": "/Users/dev/.claude",
    "activeMs": 1
+  },
+  {
+   "projectId": "abd384d29a514396a1a7e71dd651b31e",
+   "name": "frontend",
+   "rootPath": "/Users/dev/Coding/CC-Insights/frontend",
+   "activeMs": 0
   }
  ],
  "groups": [
   {
    "groupId": "537244a50f851cb18dec2c86c9caf96a",
    "name": "atlas-chat",
-   "activeMs": 401677227
+   "activeMs": 409354554
   },
   {
    "groupId": "a667e50d7f3eefedcc9eb0ab9b525f8d",
    "name": "skill-planner",
-   "activeMs": 101918416
+   "activeMs": 103055076
   },
   {
    "groupId": "3c7b55363c60b03e0e6fc27c08a3fd71",
@@ -305,6 +342,11 @@
    "activeMs": 30466974
   },
   {
+   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
+   "name": "CC-Insights",
+   "activeMs": 20711468
+  },
+  {
    "groupId": "cc284b3a28236726919da7227fd4e02e",
    "name": "millipede",
    "activeMs": 20346430
@@ -315,14 +357,14 @@
    "activeMs": 12934095
   },
   {
-   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
-   "name": "CC-Insights",
-   "activeMs": 10443879
-  },
-  {
    "groupId": "b6b6def741fcdcd6066d3305531bb058",
    "name": "platform-monorepo",
    "activeMs": 7513971
+  },
+  {
+   "groupId": "f0289f228130d5ad771ba299970fe198",
+   "name": "census-pipeline",
+   "activeMs": 6260867
   },
   {
    "groupId": "b6b834e245aad230d3ebd70223e47307",
@@ -348,6 +390,16 @@
    "groupId": "63ad37419eac3b04331174000890cfa1",
    "name": "ctx-lens",
    "activeMs": 390905
+  },
+  {
+   "groupId": "ffe74b72d353787e90f06ec6e6ce9142",
+   "name": "style-companion",
+   "activeMs": 229225
+  },
+  {
+   "groupId": "b3e92e605ec2ac430bb67326c3248e6a",
+   "name": "tmp",
+   "activeMs": 19893
   }
  ],
  "agents": [
@@ -464,6 +516,14 @@
    "source": "claude_code"
   },
   {
+   "agentName": "explore",
+   "source": "opencode"
+  },
+  {
+   "agentName": "general",
+   "source": "opencode"
+  },
+  {
    "agentName": "general-purpose",
    "source": "claude_code"
   },
@@ -485,8 +545,33 @@
   "gpt-5.6-luna",
   "gpt-5.6-sol",
   "gpt-6-astra",
-  "pytest"
+  "muse-spark-1.3-contributor-free",
+  "pytest",
+  "x-preview-f-free"
  ],
  "idleThresholdS": 300,
- "generatedAt": 1789911458506
+ "pricing": {
+  "catalog": {
+   "repo": "pydantic/genai-prices",
+   "url": "https://raw.githubusercontent.com/pydantic/genai-prices/main/prices/data.json",
+   "commit": "5e24d157561198f6fff38a31a9761e70a384e811",
+   "license": "MIT",
+   "fetched_at": "2026-09-20T14:04:15Z",
+   "overrides": 4
+  },
+  "currency": "USD",
+  "approximations": [
+   {
+    "model": "gpt-5.6",
+    "pricedAs": "openai/gpt-5.6-sol"
+   }
+  ],
+  "unpricedModels": [
+   "gpt-6-astra",
+   "muse-spark-1.3-contributor-free",
+   "pytest",
+   "x-preview-f-free"
+  ]
+ },
+ "generatedAt": 1789914740643
 }

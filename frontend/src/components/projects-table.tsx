@@ -27,6 +27,7 @@ import {
 import {
   GROUP_ORIGIN_LABEL,
   daysStale,
+  formatCost,
   formatCount,
   formatDate,
   formatHours,
@@ -34,7 +35,14 @@ import {
 } from "@/lib/format"
 import type { GroupRow, Groups, ProjectRow } from "@/lib/types"
 
-type SortKey = "name" | "activeMs" | "paths" | "sessions" | "threads" | "lastTs"
+type SortKey =
+  | "name"
+  | "activeMs"
+  | "cost"
+  | "paths"
+  | "sessions"
+  | "threads"
+  | "lastTs"
 type Dir = "asc" | "desc"
 
 const COLUMNS: {
@@ -47,6 +55,13 @@ const COLUMNS: {
 }[] = [
   { key: "name", label: "Project / path", align: "left", defaultDir: "asc" },
   { key: "activeMs", label: "Active", align: "right", defaultDir: "desc" },
+  {
+    key: "cost",
+    label: "List price",
+    align: "right",
+    hide: "hidden sm:table-cell",
+    defaultDir: "desc",
+  },
   {
     key: "paths",
     label: "Paths",
@@ -87,6 +102,8 @@ type Bucket = {
   group: GroupRow | null
   members: ProjectRow[]
   activeMs: number
+  /** Sum of the members' list-price equivalents. `/api/groups` carries none. */
+  cost: number
   paths: number
   sessions: number
   threads: number
@@ -132,6 +149,7 @@ function buildBuckets(groups: Groups, projects: ProjectRow[]): Bucket[] {
       group: g,
       members: rows,
       activeMs: g.activeMs,
+      cost: sum(rows, (r) => r.cost),
       paths: g.projects,
       sessions: g.sessions,
       threads: g.threads,
@@ -151,6 +169,7 @@ function buildBuckets(groups: Groups, projects: ProjectRow[]): Bucket[] {
       group: null,
       members: rows,
       activeMs: sum(rows, (r) => r.activeMs),
+      cost: sum(rows, (r) => r.cost),
       paths: rows.length,
       sessions: sum(rows, (r) => r.sessions),
       threads: sum(rows, (r) => r.threads),
@@ -171,6 +190,8 @@ function buildBuckets(groups: Groups, projects: ProjectRow[]): Bucket[] {
       // rare span whose session has no project at all, and that difference is
       // exactly what keeps the invariant below exact.
       activeMs: groups.ungrouped.activeMs,
+      // Members only: a span with no project at all has no row to carry cost.
+      cost: sum(loose, (r) => r.cost),
       paths: groups.ungrouped.projects,
       sessions: sum(loose, (r) => r.sessions),
       threads: sum(loose, (r) => r.threads),
@@ -195,6 +216,8 @@ export function ProjectsTable({
   projects,
   totalActiveMs,
   newestTs,
+  currency,
+  costUnavailable,
 }: {
   groups: Groups
   projects: ProjectRow[]
@@ -202,6 +225,13 @@ export function ProjectsTable({
   totalActiveMs: number
   /** `meta.lastTs`: the newest activity anywhere, for judging staleness. */
   newestTs: number | null
+  /** `projects.currency` — "USD", or "mixed". */
+  currency: string
+  /**
+   * `DashboardData.eventFactsUnfiltered`: the rows' `cost` ignores the
+   * filter, so the column shows a dash rather than a number that lies.
+   */
+  costUnavailable: boolean
 }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: Dir }>({
     key: "activeMs",
@@ -263,6 +293,9 @@ export function ProjectsTable({
     )
   }
 
+  // One formatter for every cell, so a filtered sample view dashes them all.
+  const money = (n: number) => (costUnavailable ? "—" : formatCost(n, currency))
+
   const groupCount = sorted.filter((b) => b.kind === "group").length
   const groupMs = sorted
     .filter((b) => b.kind === "group")
@@ -288,6 +321,11 @@ export function ProjectsTable({
             {formatCount(projects.length)}{" "}
             {projects.length === 1 ? "path" : "paths"}
           </p>
+          {costUnavailable ? (
+            <p className="text-[0.75rem] text-muted-foreground">
+              List price needs unfiltered sample data
+            </p>
+          ) : null}
           <button
             type="button"
             onClick={() =>
@@ -371,6 +409,7 @@ export function ProjectsTable({
                   open={open.has(b.key)}
                   onToggle={() => toggle(b.key)}
                   newestTs={newestTs}
+                  money={money}
                 />
               ))
             )}
@@ -395,7 +434,12 @@ export function ProjectsTable({
               active
             </span>
             {balances ? (
-              <span> — the whole of the view above, nothing hidden.</span>
+              <span>
+                {" "}
+                — the whole of the view above, nothing hidden. List price is
+                what each path&rsquo;s traffic would cost at published API
+                rates, not a bill.
+              </span>
             ) : (
               <span className="text-destructive">
                 {" "}
@@ -420,11 +464,13 @@ function BucketRows({
   open,
   onToggle,
   newestTs,
+  money,
 }: {
   bucket: Bucket
   open: boolean
   onToggle: () => void
   newestTs: number | null
+  money: (n: number) => string
 }) {
   const ungrouped = b.kind === "ungrouped"
   const pinned = b.group?.pinnedProjects ?? 0
@@ -523,6 +569,9 @@ function BucketRows({
           {formatHours(b.activeMs)}
           <span className="font-normal text-muted-foreground"> h</span>
         </TableCell>
+        <TableCell className="num hidden py-2.5 text-right whitespace-nowrap text-muted-foreground sm:table-cell">
+          {money(b.cost)}
+        </TableCell>
         <TableCell className="num hidden py-2.5 text-right text-muted-foreground sm:table-cell">
           {formatCount(b.paths)}
         </TableCell>
@@ -539,7 +588,12 @@ function BucketRows({
 
       {open
         ? b.members.map((p) => (
-            <MemberRow key={p.projectId} project={p} newestTs={newestTs} />
+            <MemberRow
+              key={p.projectId}
+              project={p}
+              newestTs={newestTs}
+              money={money}
+            />
           ))
         : null}
     </>
@@ -549,9 +603,11 @@ function BucketRows({
 function MemberRow({
   project: p,
   newestTs,
+  money,
 }: {
   project: ProjectRow
   newestTs: number | null
+  money: (n: number) => string
 }) {
   const worktree = isWorktreePath(p.rootPath)
   const stale = daysStale(p.lastTs, newestTs)
@@ -580,6 +636,9 @@ function MemberRow({
       <TableCell className="num py-1.5 text-right whitespace-nowrap">
         {formatHours(p.activeMs)}
         <span className="text-muted-foreground/70"> h</span>
+      </TableCell>
+      <TableCell className="num hidden py-1.5 text-right whitespace-nowrap sm:table-cell">
+        {money(p.cost)}
       </TableCell>
       <TableCell className="hidden py-1.5 sm:table-cell" />
       <TableCell className="num hidden py-1.5 text-right md:table-cell">

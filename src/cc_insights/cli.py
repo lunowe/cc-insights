@@ -9,21 +9,25 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 from cc_insights import (
     __version__,
     config as config_mod,
+    cost as cost_mod,
     db,
     derive,
     grouping,
     ingest,
     paths,
+    pricing,
     redact,
     serve,
     stats,
     sync,
+    watch as watch_mod,
 )
 
 
@@ -154,16 +158,200 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def cmd_derive(args: argparse.Namespace) -> int:
+    """Spans, then costs.
+
+    `derive.py` owns spans and `cost.py` owns costs; they stay separate
+    modules because they change for different reasons. They run together here
+    because a dashboard that has just re-derived its hours and still shows
+    yesterday's money is not a subtlety anyone will forgive.
+    """
     cfg, conn = _open_db(args)
     threshold = args.threshold or cfg.idle_threshold_s
     try:
         d = derive.derive(conn, idle_threshold_s=threshold)
+        c = None if args.no_cost else cost_mod.derive_costs(conn)
     finally:
         conn.close()
     print(
         f"derived {d.spans:,} spans over {d.threads:,} threads "
         f"({d.active_ms / 3_600_000:,.1f} h active, idle threshold {threshold}s)"
     )
+    if c is not None:
+        print(f"  priced {c.events:,} events at {_money(c.total, c.currency)} list-price equivalent")
+    return 0
+
+
+# -------------------------------------------------------------------- cost --
+
+
+def _money(amount: float, currency: str = "USD") -> str:
+    symbol = {"USD": "$", "EUR": "\u20ac", "GBP": "\u00a3"}.get(currency, "")
+    return f"{symbol}{amount:,.2f}" if symbol else f"{amount:,.2f} {currency}"
+
+
+def _mtok(rate: float | None) -> str:
+    return "—" if rate is None else f"{rate:g}"
+
+
+def _print_price_caveats(conn) -> None:
+    """Everything that makes a printed total less than the whole truth.
+
+    This is not decoration. A list-price total is the number most likely to be
+    quoted at work, and it is quotable only with its qualifications attached.
+    """
+    approx = pricing.approximations(conn)
+    if approx:
+        print("\n  priced as a near relative, which the catalog has not split yet:")
+        for model, matched in approx:
+            print(f"    {model:<28} priced as {matched}")
+        print("    correct one with: cci price set <model> --input ... --output ...")
+
+
+def cmd_cost(args: argparse.Namespace) -> int:
+    cfg, conn = _open_db(args)
+    try:
+        if args.sync:
+            pricing.sync(conn)
+        c = cost_mod.derive_costs(conn)
+        print(f"\nLIST-PRICE EQUIVALENT \u00b7 {_money(c.total, c.currency)}")
+        print("  what this traffic would have cost at published API rates. Not a bill:")
+        print("  a subscription charges a flat fee no matter how many tokens run through it.")
+
+        if c.by_component:
+            print("\nBY COMPONENT")
+            top = max(c.by_component.values()) or 1
+            for component in pricing.COMPONENTS:
+                nano = c.by_component.get(component, 0)
+                if not nano:
+                    continue
+                share = nano / (c.total_nano or 1)
+                print(f"  {component.replace('_', ' '):<14} "
+                      f"{_money(nano / cost_mod.NANO, c.currency):>12} {share:>5.0%}  "
+                      f"{_bar(nano / top, 18)}")
+
+        if c.by_model:
+            print("\nBY MODEL")
+            top = max(c.by_model.values()) or 1
+            ranked = sorted(c.by_model.items(), key=lambda kv: -kv[1])
+            for model, nano in ranked[:10]:
+                print(f"  {model[:26]:<26} {_money(nano / cost_mod.NANO, c.currency):>12}  "
+                      f"{_bar(nano / top, 18)}")
+
+        u = c.unpriced
+        if u.tokens:
+            print("\nNOT PRICED")
+            for model, tokens in sorted(u.by_model.items(), key=lambda kv: -kv[1]):
+                print(f"  {model[:26]:<26} {tokens / 1e6:>10,.1f}M tokens  no rate on file")
+            if u.unknown_model_tokens:
+                print(f"  {'(no model recorded)':<26} {u.unknown_model_tokens / 1e6:>10,.1f}M "
+                      f"tokens  {u.unknown_model_events} events")
+            for component, tokens in sorted(u.by_component.items(), key=lambda kv: -kv[1]):
+                print(f"  {component + ' tokens':<26} {tokens / 1e6:>10,.1f}M tokens  "
+                      f"model priced, this component is not")
+            print("  add a rate with: cci price set <model> --input ... --output ...")
+
+        if c.attributed:
+            print(f"\n  {c.attributed:,} of {c.events:,} priced events took their model from "
+                  "an earlier\n  event in the same thread (Codex records usage without one).")
+        _print_price_caveats(conn)
+        print()
+    finally:
+        conn.close()
+    return 0
+
+
+def cmd_price_list(args: argparse.Namespace) -> int:
+    cfg, conn = _open_db(args)
+    try:
+        rows = list(conn.execute(
+            """SELECT model, effective_from, input_mtok, output_mtok, cache_read_mtok,
+                      cache_write_mtok, currency, origin, matched_id
+               FROM model_price ORDER BY model, effective_from"""
+        ))
+        in_use = set(pricing.models_in_use(conn))
+        if not rows:
+            print("no prices yet — run `cci price sync`")
+            return 0
+        print(f"\n{'MODEL':<28} {'FROM':<11} {'INPUT':>8} {'OUTPUT':>8} "
+              f"{'CACHE R':>8} {'CACHE W':>8}  ORIGIN")
+        print(f"{'':<28} {'':<11} {'per million tokens':>34}")
+        for r in rows:
+            when = "—" if not r["effective_from"] else datetime.fromtimestamp(
+                r["effective_from"] / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+            print(f"{r['model'][:28]:<28} {when:<11} {_mtok(r['input_mtok']):>8} "
+                  f"{_mtok(r['output_mtok']):>8} {_mtok(r['cache_read_mtok']):>8} "
+                  f"{_mtok(r['cache_write_mtok']):>8}  {r['origin']}")
+        missing = sorted(in_use - {r["model"] for r in rows})
+        if missing:
+            print(f"\n  no rate on file: {', '.join(missing)}")
+        _print_price_caveats(conn)
+        overridden = [r for r in rows if r["origin"] == pricing.OVERRIDE]
+        if overridden:
+            print("\n  corrected against the vendor's own pricing page "
+                  "(src/cc_insights/price_overrides.json):")
+            for r in overridden:
+                print(f"    {r['model']}")
+        src = pricing.catalog_source()
+        if src:
+            print(f"\n  catalog {src.get('repo')}@{(src.get('commit') or '?')[:7]} "
+                  f"fetched {src.get('fetched_at')}, plus {src.get('overrides', 0)} "
+                  "shipped correction(s)")
+            print("  refresh it with: python3 scripts/sync_prices.py")
+        print()
+    finally:
+        conn.close()
+    return 0
+
+
+def cmd_price_sync(args: argparse.Namespace) -> int:
+    cfg, conn = _open_db(args)
+    try:
+        r = pricing.sync(conn)
+    finally:
+        conn.close()
+    print(f"priced {len(r.priced)} model(s) from the catalog, {r.rows_written} rate row(s)")
+    if r.overridden:
+        print(f"  {len(r.overridden)} priced from the shipped corrections instead: "
+              f"{', '.join(sorted(r.overridden))}")
+    if r.redundant:
+        print(f"  the catalog now has entries of its own for {', '.join(sorted(r.redundant))}"
+              " \u2014 those overrides can be deleted from price_overrides.json")
+    if r.rows_kept_manual:
+        print(f"  kept {r.rows_kept_manual} manual rate(s) untouched")
+    if r.unpriced:
+        print(f"  no rate available for: {', '.join(sorted(r.unpriced))}")
+        print("  set one with: cci price set <model> --input ... --output ...")
+    print("  run `cci cost` to apply them")
+    return 0
+
+
+def cmd_price_set(args: argparse.Namespace) -> int:
+    cfg, conn = _open_db(args)
+    try:
+        pricing.set_price(
+            conn, args.model,
+            effective_from=pricing.day_to_ms(args.since),
+            input_mtok=args.input, output_mtok=args.output,
+            cache_read_mtok=args.cache_read, cache_write_mtok=args.cache_write,
+            currency=args.currency, note=args.note,
+        )
+    finally:
+        conn.close()
+    since = f" from {args.since}" if args.since else ""
+    print(f"set a manual rate for {args.model}{since}; `cci price sync` will not overwrite it")
+    print("  run `cci cost` to apply it")
+    return 0
+
+
+def cmd_price_clear(args: argparse.Namespace) -> int:
+    cfg, conn = _open_db(args)
+    try:
+        gone = pricing.clear_price(conn, args.model, pricing.day_to_ms(args.since) if args.since else None)
+    finally:
+        conn.close()
+    print(f"removed {gone} manual rate(s) for {args.model}")
+    if gone:
+        print("  run `cci price sync` to fall back to the catalog, then `cci cost`")
     return 0
 
 
@@ -233,7 +421,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
             print(f"  {name[:28]:<28} {_hours(h):>9}  {_bar(h / top, 18)}")
 
     if s.agents:
-        print("\nSUBAGENT TYPES \u00b7 claude_code")
+        print("\nSUBAGENT TYPES \u00b7 claude_code, opencode")
         top = s.agents[0][2] or 1
         for name, n, h in s.agents:
             print(f"  {name[:22]:<22} {_hours(h):>9}  {n:>4} threads  {_bar(h / top, 14)}")
@@ -247,6 +435,15 @@ def cmd_stats(args: argparse.Namespace) -> int:
         print("\nTOKENS")
         print(f"  input {inp / 1e6:,.1f}M  \u00b7  output {out / 1e6:,.1f}M  "
               f"\u00b7  cache read {cache / 1e6:,.1f}M")
+
+    if s.cost_nano:
+        print("\nLIST-PRICE EQUIVALENT")
+        print(f"  {_money(s.cost_nano / 1e9, s.cost_currency)} at published API rates \u2014 "
+              "not a bill; a subscription")
+        print("  charges a flat fee no matter how many tokens run through it.")
+        if s.unpriced_tokens:
+            print(f"  excludes {s.unpriced_tokens / 1e6:,.1f}M tokens with no rate on file.")
+        print("  full breakdown: cci cost")
     print()
     return 0
 
@@ -635,6 +832,83 @@ def cmd_sync_status(args: argparse.Namespace) -> int:
         )
     print()
     return 0
+# ------------------------------------------------------------------- watch --
+
+
+def _cycle_line(cycle: watch_mod.Cycle) -> str:
+    when = datetime.fromtimestamp(cycle.at / 1000).strftime("%H:%M:%S")
+    if cycle.errors:
+        return f"{when}  {len(cycle.errors)} error(s): {cycle.errors[0]}"
+    # The delta, then where it left the corpus -- in that order, because the
+    # second is the number someone glancing at a terminal is looking for.
+    return (
+        f"{when}  +{cycle.events_inserted:,} events \u00b7 {cycle.sessions} session(s)"
+        f"  \u2192  {cycle.active_ms / 3_600_000:,.1f} h total"
+        f", {_money(cycle.cost_total, cycle.currency)}"
+        f"  ({cycle.duration_s:.2f}s)"
+    )
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    """Follow the logs and keep the database current until Ctrl-C.
+
+    With `--serve` the dashboard runs alongside in this process and refreshes
+    itself as the logs grow; the loop feeds it through `/api/live`. The server
+    owns the main thread there because it is the thing that must answer
+    promptly, and the loop is the background work.
+    """
+    cfg, conn = _open_db(args)
+    interval = args.interval
+    stop = threading.Event()
+    quiet = args.quiet
+
+    def report(cycle: watch_mod.Cycle) -> None:
+        # A cycle that changed nothing prints nothing: a watcher that scrolls
+        # while you are not working is a watcher you stop reading.
+        if not quiet and (cycle.did_work or cycle.errors):
+            print(_cycle_line(cycle), flush=True)
+
+    if not args.serve:
+        print(f"watching {cfg.db_path} every {interval:g}s — Ctrl-C to stop", flush=True)
+        try:
+            watch_mod.watch(conn, cfg, interval_s=interval, sources=args.source,
+                            on_cycle=report, stop=stop)
+        except KeyboardInterrupt:
+            print()
+        finally:
+            conn.close()
+        return 0
+
+    # The handle `_open_db` returned belongs to this thread and sqlite3
+    # refuses to let another one use it. It has already done its job -- it is
+    # how we know the database exists and is migrated -- so it is closed here
+    # and the loop opens its own inside the worker. The server, meanwhile,
+    # opens a read-only handle per request thread. WAL is what lets one writer
+    # and several readers overlap without blocking.
+    conn.close()
+    live = watch_mod.LiveState()
+    worker: threading.Thread | None = None
+
+    def loop() -> None:
+        writer = db.connect(cfg.db_path)
+        try:
+            watch_mod.watch(writer, cfg, interval_s=interval, sources=args.source,
+                            live=live, on_cycle=report, stop=stop)
+        finally:
+            writer.close()
+
+    def start_loop(_server) -> None:
+        nonlocal worker
+        worker = threading.Thread(target=loop, name="cci-watch", daemon=True)
+        worker.start()
+
+    try:
+        return serve.run(cfg, port=args.port, open_browser=not args.no_open,
+                         live=live, on_ready=start_loop)
+    finally:
+        stop.set()
+        if worker is not None:
+            worker.join(timeout=5)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -653,15 +927,45 @@ def build_parser() -> argparse.ArgumentParser:
 
     ing = sub.add_parser("ingest", help="read agent logs into the database")
     ing.add_argument("--source", action="append",
-                     help="limit to a source (repeatable): claude_code, codex")
+                     help="limit to a source (repeatable): claude_code, codex, opencode")
     ing.set_defaults(fn=cmd_ingest)
 
     der = sub.add_parser("derive", help="recompute active spans from ingested events")
     der.add_argument("--threshold", type=int, default=None,
                      help="idle threshold in seconds (default: from config)")
+    der.add_argument("--no-cost", action="store_true",
+                     help="skip the cost pass (spans only)")
     der.set_defaults(fn=cmd_derive)
 
     sub.add_parser("stats", help="summarize agent usage").set_defaults(fn=cmd_stats)
+
+    cst = sub.add_parser("cost", help="what this traffic would cost at published API rates")
+    cst.add_argument("--sync", action="store_true",
+                     help="refresh rates from the bundled catalog first")
+    cst.set_defaults(fn=cmd_cost)
+
+    prc = sub.add_parser("price", help="inspect and override the model price table")
+    psub = prc.add_subparsers(dest="price_command", required=True)
+    psub.add_parser("list", help="show every rate on file").set_defaults(fn=cmd_price_list)
+    psub.add_parser("sync", help="load rates for models in use from the bundled catalog"
+                    ).set_defaults(fn=cmd_price_sync)
+
+    pset = psub.add_parser("set", help="write a manual rate; sync never overwrites one")
+    pset.add_argument("model")
+    pset.add_argument("--input", type=float, metavar="PER_MTOK")
+    pset.add_argument("--output", type=float, metavar="PER_MTOK")
+    pset.add_argument("--cache-read", type=float, metavar="PER_MTOK")
+    pset.add_argument("--cache-write", type=float, metavar="PER_MTOK")
+    pset.add_argument("--since", metavar="YYYY-MM-DD",
+                      help="the day this rate took effect (default: always)")
+    pset.add_argument("--currency", default="USD")
+    pset.add_argument("--note")
+    pset.set_defaults(fn=cmd_price_set)
+
+    pclr = psub.add_parser("clear", help="drop manual rates and fall back to the catalog")
+    pclr.add_argument("model")
+    pclr.add_argument("--since", metavar="YYYY-MM-DD")
+    pclr.set_defaults(fn=cmd_price_clear)
 
     grp = sub.add_parser("group", help="collapse a project's many paths into one group")
     gsub = grp.add_subparsers(dest="group_command", required=True)
@@ -696,6 +1000,20 @@ def build_parser() -> argparse.ArgumentParser:
     gren.add_argument("group")
     gren.add_argument("new_name", metavar="new-name")
     gren.set_defaults(fn=cmd_group_rename)
+
+    wat = sub.add_parser("watch", help="follow the logs and keep the database current")
+    wat.add_argument("--interval", type=float, default=watch_mod.DEFAULT_INTERVAL_S,
+                     help=f"seconds between scans (default: {watch_mod.DEFAULT_INTERVAL_S:g})")
+    wat.add_argument("--source", action="append",
+                     help="limit to a source (repeatable): claude_code, codex, opencode")
+    wat.add_argument("--serve", action="store_true",
+                     help="also serve the dashboard, refreshing it as the logs grow")
+    wat.add_argument("--port", type=int, default=serve.DEFAULT_PORT,
+                     help=f"port for --serve (default: {serve.DEFAULT_PORT})")
+    wat.add_argument("--no-open", action="store_true",
+                     help="with --serve, do not open a browser window")
+    wat.add_argument("--quiet", action="store_true", help="print nothing per cycle")
+    wat.set_defaults(fn=cmd_watch)
 
     srv = sub.add_parser("serve", help="serve the dashboard and JSON API on localhost")
     srv.add_argument("--port", type=int, default=serve.DEFAULT_PORT,

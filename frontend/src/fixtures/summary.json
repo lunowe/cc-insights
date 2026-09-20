@@ -1,26 +1,43 @@
 {
- "sessions": 307,
- "threads": 723,
- "events": 183724,
- "spans": 1392,
- "activeMs": 678473046,
+ "sessions": 319,
+ "threads": 749,
+ "events": 189885,
+ "spans": 1432,
+ "activeMs": 697888856,
  "bySource": [
   {
    "source": "claude_code",
-   "activeMs": 528163472
+   "activeMs": 538287666
   },
   {
    "source": "codex",
-   "activeMs": 150309574
+   "activeMs": 150393576
+  },
+  {
+   "source": "opencode",
+   "activeMs": 9207614
   }
  ],
- "humanInitiatedMs": 359201967,
- "autonomousMs": 298698349,
- "unattendedRootMs": 20572730,
+ "humanInitiatedMs": 368156482,
+ "autonomousMs": 307914890,
+ "unattendedRootMs": 21817484,
  "tokens": {
-  "input": 57281479,
-  "output": 49779442,
-  "cacheRead": 10966851390,
-  "cacheWrite": 345563072
+  "input": 59184994,
+  "output": 51269853,
+  "cacheRead": 11362946454,
+  "cacheWrite": 350120658
+ },
+ "cost": {
+  "total": 10704.939548,
+  "currency": "USD",
+  "byComponent": {
+   "input": 216.094743,
+   "output": 1883.211031,
+   "cacheRead": 5143.22496,
+   "cacheWrite": 3462.408814
+  },
+  "pricedEvents": 66719,
+  "attributedEvents": 11097,
+  "unpricedTokens": 138684694
  }
 }

@@ -20,6 +20,13 @@ parsed, 404 for a path that does not exist, 405 for a write verb, 500 for a
 query that blew up. Never a 200 carrying an error: a dashboard that renders
 `{"error": ...}` as an empty chart is worse than one that shows a failure.
 
+**One endpoint is not JSON.** `/api/live` is a Server-Sent Events stream that
+`cci watch --serve` feeds, so an open dashboard refreshes when a log file
+grows instead of polling. It is outside `metrics.ENDPOINTS` on purpose: those
+are the filtered, cacheable, fixture-capturable contract, and a stream is
+none of those. Without a watcher behind it the path 404s, which is exactly
+what makes an `EventSource` give up rather than reconnect forever.
+
 **CORS is exactly the Vite dev server.** `http://localhost:5173` (and its
 127.0.0.1 spelling) so the frontend can be developed against a live backend.
 No wildcard: a page on any other origin has no business reading this.
@@ -37,13 +44,14 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlparse
 
 from cc_insights import metrics
 from cc_insights.config import Config
+from cc_insights.live import HEARTBEAT_S, LiveState
 
-__all__ = ["DEFAULT_PORT", "HOST", "InsightsServer", "make_server", "run"]
+__all__ = ["DEFAULT_PORT", "HOST", "LIVE_PATH", "InsightsServer", "make_server", "run"]
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
@@ -52,6 +60,10 @@ DEFAULT_PORT = 8787
 # from anywhere else get the first entry back, which their browser will refuse
 # -- the honest outcome for an origin this server does not serve.
 ALLOWED_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+
+#: The Server-Sent Events stream. Not in `metrics.ENDPOINTS`; see the module
+#: docstring.
+LIVE_PATH = "/api/live"
 
 # Where `npm run build` puts the dashboard in a source checkout. Absent in an
 # installed wheel, and absent before the frontend is built; both are fine.
@@ -84,6 +96,13 @@ class InsightsServer(ThreadingHTTPServer):
     connection behind a lock would serialize the dashboard's nine parallel
     fetches into a queue. One connection per worker thread costs a few file
     handles and keeps the page loading in one round of requests.
+
+    `ThreadingHTTPServer` runs one thread per TCP *connection*, so each
+    thread's handle is closed when that thread finishes rather than held
+    until shutdown. That distinction did not matter while `cci serve` was
+    something you ran for a few minutes; `cci watch --serve` stays up for
+    days, and a browser that reconnects its event stream would otherwise
+    leave a dead sqlite handle behind on every reconnect.
     """
 
     daemon_threads = True          # a hung request must never block shutdown
@@ -100,10 +119,14 @@ class InsightsServer(ThreadingHTTPServer):
         port: int = DEFAULT_PORT,
         dist_dir: Path | None = DIST_DIR,
         quiet: bool = False,
+        live: LiveState | None = None,
     ) -> None:
         self.cfg = cfg
         self.dist_dir = Path(dist_dir) if dist_dir is not None else None
         self.quiet = quiet
+        #: Set when a watch loop is feeding this server. None means `/api/live`
+        #: 404s, which is how a page learns there is nothing to listen to.
+        self.live = live
         self._local = threading.local()
         self._conns: list[sqlite3.Connection] = []
         self._lock = threading.Lock()
@@ -129,6 +152,28 @@ class InsightsServer(ThreadingHTTPServer):
         with self._lock:
             self._conns.append(conn)
         return conn
+
+    def close_thread_conn(self) -> None:
+        """Close and forget this thread's handle. Called as its thread ends."""
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            return
+        self._local.conn = None
+        with self._lock:
+            try:
+                self._conns.remove(conn)
+            except ValueError:
+                pass
+        try:
+            conn.close()
+        except Exception:           # a connection whose query was interrupted
+            pass
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.close_thread_conn()
 
     def server_close(self) -> None:
         super().server_close()
@@ -207,6 +252,9 @@ class _Handler(BaseHTTPRequestHandler):
                             {"error": f"{exc.__class__.__name__}: {exc}"}, body=body)
 
     def _api(self, path: str, query: str, *, body: bool) -> None:
+        if path == LIVE_PATH:
+            self._live(query, body=body)
+            return
         name = path[len("/api/"):] if path.startswith("/api/") else ""
         if name not in metrics.ENDPOINTS:
             known = ", ".join(f"/api/{n}" for n in metrics.ENDPOINTS)
@@ -222,6 +270,70 @@ class _Handler(BaseHTTPRequestHandler):
 
         data = metrics.endpoint(name, self.server.conn(), filters, self.server.cfg)
         self._send_json(HTTPStatus.OK, data, body=body)
+
+    def _live(self, query: str, *, body: bool) -> None:
+        """Hold the connection open and write one line per pipeline cycle.
+
+        The response carries no `Content-Length`, because the length is not
+        known until the watcher stops; it is delimited by closing the
+        connection, which is why `Connection: close` is sent and
+        `close_connection` is set. A `HEAD` gets the headers and nothing
+        else -- streaming a body to a request that asked for none would
+        desynchronise the connection.
+
+        The loop exits when the client goes away (the write raises), when the
+        server is shutting down, or when `?once=1` asks for a single frame,
+        which is what the tests use instead of a clock.
+        """
+        live = self.server.live
+        if live is None:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": "no watcher is running; start one with `cci watch --serve`"},
+                body=body,
+            )
+            return
+
+        self._responded = True
+        self.close_connection = True   # a stream is the end of this connection
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.send_header("X-Accel-Buffering", "no")   # in case a proxy appears
+        self._cors_headers()
+        self.end_headers()
+        if not body:
+            return
+
+        once = "once=1" in query
+        generation, payload = live.snapshot()
+        self._event("hello", {"generation": generation, "last": payload,
+                              "heartbeatS": HEARTBEAT_S})
+        while not once:
+            tick = live.wait_after(generation, HEARTBEAT_S)
+            if tick is None:
+                # A comment line is a valid SSE frame that fires no event: it
+                # keeps the socket warm without making the page refetch.
+                if not self._write_raw(b": keep-alive\n\n"):
+                    return
+                continue
+            generation, payload = tick
+            if not self._event("change", {"generation": generation, **payload}):
+                return
+
+    def _event(self, name: str, data: Any) -> bool:
+        frame = f"event: {name}\ndata: {json.dumps(data)}\n\n".encode("utf-8")
+        return self._write_raw(frame)
+
+    def _write_raw(self, frame: bytes) -> bool:
+        """True if it went out. A closed browser tab is not an error."""
+        try:
+            self.wfile.write(frame)
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionError, ValueError, OSError):
+            return False
+        return True
 
     def _static(self, path: str, *, body: bool) -> None:
         dist = self.server.dist_dir
@@ -334,9 +446,11 @@ def make_server(
     port: int = DEFAULT_PORT,
     dist_dir: Path | None = DIST_DIR,
     quiet: bool = False,
+    live: LiveState | None = None,
 ) -> InsightsServer:
     """Bind the server without serving. `port=0` picks a free port."""
-    return InsightsServer(cfg, host=host, port=port, dist_dir=dist_dir, quiet=quiet)
+    return InsightsServer(cfg, host=host, port=port, dist_dir=dist_dir, quiet=quiet,
+                          live=live)
 
 
 def run(
@@ -347,10 +461,18 @@ def run(
     open_browser: bool = True,
     dist_dir: Path | None = DIST_DIR,
     quiet: bool = False,
+    live: LiveState | None = None,
+    on_ready: Callable[[InsightsServer], None] | None = None,
 ) -> int:
-    """Serve until interrupted. Returns a process exit code."""
+    """Serve until interrupted. Returns a process exit code.
+
+    `live` turns on `/api/live`; `on_ready` fires once the socket is bound and
+    the banner is printed, which is how `cci watch --serve` starts its loop
+    only after there is something for it to feed.
+    """
     try:
-        server = make_server(cfg, host=host, port=port, dist_dir=dist_dir, quiet=quiet)
+        server = make_server(cfg, host=host, port=port, dist_dir=dist_dir, quiet=quiet,
+                             live=live)
     except OSError as exc:
         if exc.errno in (errno.EADDRINUSE, errno.EACCES):
             print(f"port {port} is already in use — try `cci serve --port {port + 1}`",
@@ -375,12 +497,16 @@ def run(
         say("             build it with:  cd frontend && pnpm install && pnpm build")
     base = server.url.rstrip("/")
     say(f"  endpoints  {base}/api/summary  (see docs/API.md for all {len(metrics.ENDPOINTS)})")
+    if live is not None:
+        say(f"  live       {base}{LIVE_PATH}  (the page refreshes as the logs grow)")
     say()
     say("  Ctrl-C to stop")
     say()
     if open_browser:
         # After the loop is accepting, so the first request is not refused.
         threading.Timer(0.3, webbrowser.open, args=(server.url,)).start()
+    if on_ready is not None:
+        on_ready(server)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

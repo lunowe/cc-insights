@@ -38,7 +38,7 @@ class RawEvent:
     and thread fields ingest needs to upsert their parent rows."""
 
     # --- session identity -------------------------------------------------
-    source: str                       # 'claude_code' | 'codex'
+    source: str                       # 'claude_code' | 'codex' | 'opencode'
     native_session_id: str            # root conversation id
 
     # --- thread identity --------------------------------------------------
@@ -78,12 +78,17 @@ class RawEvent:
     # --- ingest bookkeeping ----------------------------------------------
     # Byte offset of the END of the line this event came from, so incremental
     # ingest can resume mid-file. Adapters must set this.
+    #
+    # A source that is not a text file has no honest offset to report and must
+    # say so with 0 rather than guess: ingest then never believes it has
+    # consumed the file and re-reads it in full every run, which dedup on
+    # `native_event_id` makes free. See sources/opencode.py, a SQLite store.
     byte_end: int = 0
 
 
 @runtime_checkable
 class SourceAdapter(Protocol):
-    """Implemented once per tool. See sources/claude_code.py, sources/codex.py."""
+    """Implemented once per tool. See sources/claude_code.py, codex.py, opencode.py."""
 
     name: str
 
