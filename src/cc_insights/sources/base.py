@@ -67,7 +67,12 @@ class RawEvent:
     input_tokens: int | None = None
     output_tokens: int | None = None
     cache_read_tokens: int | None = None
+    #: ALL cache writes, whatever their lifetime.
     cache_write_tokens: int | None = None
+    #: The part of `cache_write_tokens` written with a one-hour TTL, which
+    #: costs 2x base input against 1.25x for five minutes. None means the
+    #: source does not report the split -- not that there were none.
+    cache_write_1h_tokens: int | None = None
 
     # --- session metadata (may repeat on every event; ingest takes the
     #     value from the latest event, so worktree switches land correctly) --

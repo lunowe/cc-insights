@@ -269,16 +269,37 @@ Three further facts a total has to disclose, all of them measured here:
    indefensible secret, which is why `pricing.approximations()` exists and
    every surface prints it.
 
-4. **41% of cache-write tokens are 1-hour writes, and we price them as
-   5-minute ones.** 144.7M of 351.2M. Anthropic charges 2x base input for a
-   1-hour write against 1.25x for a 5-minute one, so on Fable-tier models
-   that is $20/MTok against $12.50. The logs *do* carry the split
-   (`usage.cache_creation.ephemeral_1h_input_tokens`), but the adapter reads
-   only the combined `cache_creation_input_tokens`, so the database cannot
-   tell them apart and the total is understated by roughly **$1,085**.
-   Fixing it needs a column on `event`, an adapter change, and a re-ingest —
-   and a re-ingest cannot recover the split for sessions whose logs have
-   already aged out. Recorded here rather than quietly rounded away.
+4. **41% of cache-write tokens are 1-hour writes, which cost 60% more.**
+   144.7M of 351.2M. Anthropic publishes the rule rather than only the
+   numbers: a 5-minute cache write costs 1.25x base input and a 1-hour write
+   2x, so on Fable-tier models that is $12.50 against $20 per MTok.
+   ✅ Fixed in migration 005: `event.cache_write_1h_tokens` records the part
+   of a write that bought an hour, and the two are priced separately. The
+   corpus total went from $10,674 to **$11,630** — the missing $956.
+
+   **The split is not random, and it is not something you configure by
+   accident.** Claude Code puts every request in one of two buckets and
+   picks a TTL per bucket:
+
+   | bucket | 5m tokens | 1h tokens | 1h share |
+   | --- | --- | --- | --- |
+   | main conversation | 1.7M | 144.9M | **99%** |
+   | subagents, workflows, compaction | 204.8M | 0 | **0%** |
+
+   On a subscription within plan usage the main conversation gets the hour;
+   once it draws on usage credits it drops to five minutes, because that is
+   the cheaper write and the user is now paying. `promptCacheTtl` and
+   `subagentPromptCacheTtl` override both. So a corpus's 5m/1h mix encodes
+   *when its owner was over their plan limit* — which is a privacy-relevant
+   inference, and a reason `cache_write_1h_tokens` is PRIVATE in
+   `redact.py` like every other event column.
+
+   A row whose source never reported the split keeps NULL, which means
+   *unknown*, not zero. Those tokens are priced at the 5-minute rate and
+   counted in `assumed5mTokens`, so a total says how much of itself rests on
+   the assumption. `cci backfill` re-reads the logs still on disk and fills
+   what it can: on this machine that was 100% of 350.1M tokens, because none
+   of the cache-writing sessions had aged out yet.
 
 ## 7. Scale
 

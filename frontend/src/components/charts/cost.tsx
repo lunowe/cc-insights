@@ -35,7 +35,11 @@ type ComponentKey = keyof Cost["byComponent"]
  */
 const COMPONENTS: { key: ComponentKey; label: string; color: string }[] = [
   { key: "cacheRead", label: "Cache reads", color: "var(--chart-1)" },
-  { key: "cacheWrite", label: "Cache writes", color: "var(--chart-2)" },
+  // Two prices for the same tokens: a write that lives an hour costs 2x base
+  // input, one that lives five minutes 1.25x. Adjacent and in that order so
+  // the pair reads as one thing split, which is what it is.
+  { key: "cacheWrite1h", label: "Cache writes · 1h", color: "var(--chart-2)" },
+  { key: "cacheWrite", label: "Cache writes · 5m", color: "var(--chart-5)" },
   { key: "output", label: "Output", color: "var(--chart-3)" },
   { key: "input", label: "Fresh input", color: "var(--chart-4)" },
 ]
@@ -56,6 +60,7 @@ type ShareRow = {
   whole: number
   cacheRead: number
   cacheWrite: number
+  cacheWrite1h: number
   output: number
   input: number
 }
@@ -139,6 +144,19 @@ export function CostChart({
 
   const tokenTotal =
     tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite
+  // `tokens.cacheWrite` is every cache write; the five-minute count is what
+  // is left once the one-hour ones are taken out. Computed once here so the
+  // bar, the tooltip and the table cannot disagree.
+  const tokensBy = useMemo<Record<ComponentKey, number>>(
+    () => ({
+      input: tokens.input,
+      output: tokens.output,
+      cacheRead: tokens.cacheRead,
+      cacheWrite: Math.max(0, tokens.cacheWrite - tokens.cacheWrite1h),
+      cacheWrite1h: tokens.cacheWrite1h,
+    }),
+    [tokens],
+  )
   const shares = useMemo<ShareRow[]>(() => {
     const row = (
       key: ShareRow["key"],
@@ -151,14 +169,15 @@ export function CostChart({
       whole,
       cacheRead: whole > 0 ? by.cacheRead / whole : 0,
       cacheWrite: whole > 0 ? by.cacheWrite / whole : 0,
+      cacheWrite1h: whole > 0 ? by.cacheWrite1h / whole : 0,
       output: whole > 0 ? by.output / whole : 0,
       input: whole > 0 ? by.input / whole : 0,
     })
     return [
-      row("tokens", "Tokens", tokens, tokenTotal),
+      row("tokens", "Tokens", tokensBy, tokenTotal),
       row("cost", "List price", cost.byComponent, cost.total),
     ]
-  }, [tokens, tokenTotal, cost.byComponent, cost.total])
+  }, [tokensBy, tokenTotal, cost.byComponent, cost.total])
 
   const pricedAs = useMemo(
     () => new Map(cost.approximations.map((a) => [a.model, a.pricedAs])),
@@ -228,9 +247,9 @@ export function CostChart({
           name: c.label,
           cost: money(cost.byComponent[c.key]),
           share: formatPercent(cost.byComponent[c.key], cost.total),
-          tokens: formatCompact(tokens[c.key]),
+          tokens: formatCompact(tokensBy[c.key]),
           events: "—",
-          note: `${formatPercent(tokens[c.key], tokenTotal)} of tokens`,
+          note: `${formatPercent(tokensBy[c.key], tokenTotal)} of tokens`,
         })),
         ...[...cost.byModel]
           .sort((a, b) => b.cost - a.cost)
@@ -434,7 +453,7 @@ export function CostChart({
                             value={
                               isCost
                                 ? `${money(cost.byComponent[c.key])} · ${formatPercent(cost.byComponent[c.key], cost.total)}`
-                                : `${formatCompact(tokens[c.key])} · ${formatPercent(tokens[c.key], tokenTotal)}`
+                                : `${formatCompact(tokensBy[c.key])} · ${formatPercent(tokensBy[c.key], tokenTotal)}`
                             }
                           />
                         ))}

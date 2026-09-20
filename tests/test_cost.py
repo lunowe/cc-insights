@@ -41,11 +41,13 @@ def event(conn, eid, thread, ts, *, model=None, i=0, o=0, cr=0, cw=0, ordinal=0)
          i or None, o or None, cr or None, cw or None))
 
 
-def price(conn, model, *, i=None, o=None, cr=None, cw=None, since=0, origin="genai-prices"):
+def price(conn, model, *, i=None, o=None, cr=None, cw=None, cw1h=None, since=0,
+          origin="genai-prices"):
     conn.execute(
         "INSERT INTO model_price (model, effective_from, input_mtok, output_mtok,"
-        " cache_read_mtok, cache_write_mtok, currency, origin, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, 'USD', ?, 0)", (model, since, i, o, cr, cw, origin))
+        " cache_read_mtok, cache_write_mtok, cache_write_1h_mtok, currency, origin,"
+        " updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'USD', ?, 0)",
+        (model, since, i, o, cr, cw, cw1h, origin))
 
 
 @pytest.fixture
@@ -253,3 +255,73 @@ def test_the_result_reports_what_it_could_not_see(seeded):
     assert d["unpriced"]["byModel"] == {"ghost": 9_000}
     assert d["unpriced"]["byComponent"] == {"output": 50}
     assert d["unpriced"]["tokens"] == 9_050
+
+
+# --- cache-write TTL ----------------------------------------------------
+#
+# The same tokens have two prices: 1.25x base input for a write that lives
+# five minutes, 2x for one that lives an hour. 41% of the measured corpus
+# takes the expensive one, so treating them alike understates the total by
+# about a thousand dollars. `cache_write_tokens` is the total and
+# `cache_write_1h_tokens` the part of it that bought an hour -- NULL there
+# means the source never said, which is not the same as zero.
+
+
+def event_ttl(conn, eid, thread, ts, *, model, cw, cw1h, ordinal=0):
+    event(conn, eid, thread, ts, model=model, cw=cw, ordinal=ordinal)
+    conn.execute("UPDATE event SET cache_write_1h_tokens = ? WHERE id = ?", (cw1h, eid))
+
+
+def test_the_two_ttls_are_priced_at_their_own_rates(seeded):
+    price(seeded, "m", i=10.0, cw=12.5, cw1h=20.0)
+    event_ttl(seeded, "e1", "t1", T0, model="m", cw=1_000_000, cw1h=400_000)
+    r = cost.derive_costs(seeded)
+    assert r.by_component["cache_write"] == cost.nano_for(600_000, 12.5)
+    assert r.by_component["cache_write_1h"] == cost.nano_for(400_000, 20.0)
+    assert r.total == round(0.6 * 12.5 + 0.4 * 20.0, 6)
+
+
+def test_an_all_five_minute_write_is_not_an_assumption(seeded):
+    """0 means the source said "none of it"; that is knowledge, not silence."""
+    price(seeded, "m", i=10.0, cw=12.5, cw1h=20.0)
+    event_ttl(seeded, "e1", "t1", T0, model="m", cw=1_000_000, cw1h=0)
+    r = cost.derive_costs(seeded)
+    assert r.by_component["cache_write"] == cost.nano_for(1_000_000, 12.5)
+    assert "cache_write_1h" not in r.by_component
+    assert r.assumed_5m_tokens == 0
+
+
+def test_an_unrecorded_ttl_is_priced_short_and_counted(seeded):
+    """Every row written before migration 005, and every Codex event."""
+    price(seeded, "m", i=10.0, cw=12.5, cw1h=20.0)
+    event(seeded, "e1", "t1", T0, model="m", cw=1_000_000)   # leaves NULL
+    r = cost.derive_costs(seeded)
+    assert r.by_component["cache_write"] == cost.nano_for(1_000_000, 12.5)
+    assert r.assumed_5m_tokens == 1_000_000, "the assumption must be reported"
+
+
+def test_a_missing_one_hour_rate_leaves_those_tokens_unpriced(seeded):
+    """Not silently charged at the five-minute rate: that is the error this
+    whole column exists to stop."""
+    price(seeded, "m", i=10.0, cw=12.5, cw1h=None)
+    event_ttl(seeded, "e1", "t1", T0, model="m", cw=1_000_000, cw1h=400_000)
+    r = cost.derive_costs(seeded)
+    assert r.by_component["cache_write"] == cost.nano_for(600_000, 12.5)
+    assert r.unpriced.by_component == {"cache_write_1h": 400_000}
+
+
+def test_a_one_hour_count_above_the_total_is_clamped(seeded):
+    """A source cannot have written more with a long TTL than it wrote."""
+    price(seeded, "m", i=10.0, cw=12.5, cw1h=20.0)
+    event_ttl(seeded, "e1", "t1", T0, model="m", cw=1_000, cw1h=9_999)
+    r = cost.derive_costs(seeded)
+    assert r.by_component == {"cache_write_1h": cost.nano_for(1_000, 20.0)}
+
+
+def test_the_split_lands_in_its_own_ledger_column(seeded):
+    price(seeded, "m", i=10.0, cw=12.5, cw1h=20.0)
+    event_ttl(seeded, "e1", "t1", T0, model="m", cw=1_000_000, cw1h=250_000)
+    cost.derive_costs(seeded)
+    row = rows(seeded, "event_cost")[0]
+    assert row["cache_write_nano"] == cost.nano_for(750_000, 12.5)
+    assert row["cache_write_1h_nano"] == cost.nano_for(250_000, 20.0)

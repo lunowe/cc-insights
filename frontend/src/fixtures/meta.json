@@ -1,7 +1,7 @@
 {
  "hostname": "demo-laptop.local",
  "firstTs": 1770565158571,
- "lastTs": 1789914631012,
+ "lastTs": 1789915552340,
  "sources": [
   "claude_code",
   "codex",
@@ -51,16 +51,16 @@
    "activeMs": 23949245
   },
   {
+   "projectId": "72d7ccef2e626422ec1bf7083ce5b5b5",
+   "name": "CC-Insights",
+   "rootPath": "/Users/dev/Coding/CC-Insights",
+   "activeMs": 22293870
+  },
+  {
    "projectId": "fdddb9845a6dd3bb1562d4babcac5ae1",
    "name": "millipede",
    "rootPath": "/Users/dev/Coding/millipede",
    "activeMs": 19246611
-  },
-  {
-   "projectId": "72d7ccef2e626422ec1bf7083ce5b5b5",
-   "name": "CC-Insights",
-   "rootPath": "/Users/dev/Coding/CC-Insights",
-   "activeMs": 18367052
   },
   {
    "projectId": "5ca2fdad5c27154f62653b067d8cb747",
@@ -133,12 +133,6 @@
    "name": "t3code-815c4740",
    "rootPath": "/Users/dev/.t3/worktrees/skill-planner/t3code-815c4740",
    "activeMs": 3053680
-  },
-  {
-   "projectId": "11bfb04b60bea55b7329bf2b288e9fda",
-   "name": "v2-windows-paths",
-   "rootPath": "/Users/dev/Coding/CC-Insights/.claude/worktrees/v2-windows-paths",
-   "activeMs": 2344416
   },
   {
    "projectId": "885643d322f6939e542f7ec9811979a3",
@@ -267,6 +261,12 @@
    "activeMs": 85116
   },
   {
+   "projectId": "11bfb04b60bea55b7329bf2b288e9fda",
+   "name": "v2-windows-paths",
+   "rootPath": "/Users/dev/Coding/CC-Insights/.claude/worktrees/v2-windows-paths",
+   "activeMs": 84002
+  },
+  {
    "projectId": "72584108e59cd885328aa22bbcde737a",
    "name": "i-have-a-windows-pc-connected",
    "rootPath": "/Users/dev/Documents/Codex/2026-08-09/i-have-a-windows-pc-connected",
@@ -344,7 +344,7 @@
   {
    "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
    "name": "CC-Insights",
-   "activeMs": 20711468
+   "activeMs": 22377872
   },
   {
    "groupId": "cc284b3a28236726919da7227fd4e02e",
@@ -556,7 +556,7 @@
    "url": "https://raw.githubusercontent.com/pydantic/genai-prices/main/prices/data.json",
    "commit": "5e24d157561198f6fff38a31a9761e70a384e811",
    "license": "MIT",
-   "fetched_at": "2026-09-20T14:04:15Z",
+   "fetched_at": "2026-09-20T14:43:30Z",
    "overrides": 4
   },
   "currency": "USD",
@@ -573,5 +573,5 @@
    "x-preview-f-free"
   ]
  },
- "generatedAt": 1789914740643
+ "generatedAt": 1789915611230
 }

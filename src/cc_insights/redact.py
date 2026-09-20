@@ -146,6 +146,7 @@ FIELDS: tuple[Field, ...] = tuple(
         "output_tokens": (PRIVATE, "events are not published"),
         "cache_read_tokens": (PRIVATE, "events are not published"),
         "cache_write_tokens": (PRIVATE, "events are not published"),
+        "cache_write_1h_tokens": (PRIVATE, "events are not published"),
     })
     + _f("span", {
         "id": (PUBLIC, "derived from a thread id and a timestamp, not a path"),
@@ -184,6 +185,7 @@ FIELDS: tuple[Field, ...] = tuple(
         "input_mtok": (PUBLIC, "public price list"),
         "output_mtok": (PUBLIC, "public price list"),
         "cache_read_mtok": (PUBLIC, "public price list"),
+        "cache_write_1h_mtok": (PUBLIC, "public price list"),
         "cache_write_mtok": (PUBLIC, "public price list"),
         "currency": (PUBLIC, "public price list"),
         "effective_from": (PUBLIC, "public price list"),
@@ -203,6 +205,7 @@ FIELDS: tuple[Field, ...] = tuple(
         "output_nano": (PRIVATE, "publish cost per repo, not per event"),
         "cache_read_nano": (PRIVATE, "publish cost per repo, not per event"),
         "cache_write_nano": (PRIVATE, "publish cost per repo, not per event"),
+        "cache_write_1h_nano": (PRIVATE, "publish cost per repo, not per event"),
         "price_from": (PRIVATE, "per-event rows are not published"),
         "attributed": (PRIVATE, "per-event rows are not published"),
     })

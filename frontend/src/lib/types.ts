@@ -74,11 +74,17 @@ export type CostTotals = {
   total: number
   /** "USD", or "mixed" if the rates that met disagree. Never a symbol. */
   currency: string
+  /**
+   * `cacheWrite` is the FIVE-MINUTE rate and `cacheWrite1h` the one-hour
+   * one: the same tokens cost 1.25x and 2x base input, and which applies is
+   * recorded per request rather than assumed.
+   */
   byComponent: {
     input: number
     output: number
     cacheRead: number
     cacheWrite: number
+    cacheWrite1h: number
   }
   pricedEvents: number
   /**
@@ -91,6 +97,12 @@ export type CostTotals = {
    * unknown. Shown wherever `total` is shown.
    */
   unpricedTokens: number
+  /**
+   * Cache-write tokens whose source never recorded a TTL, priced at the
+   * cheaper five-minute rate. Makes `total` a FLOOR for those tokens rather
+   * than a midpoint. 0 once `cci backfill` has filled what the logs hold.
+   */
+  assumed5mTokens: number
 }
 
 /** GET /api/summary */
@@ -107,11 +119,17 @@ export type Summary = {
    *  whether a human was watching. */
   autonomousMs: number
   unattendedRootMs: number
+  /**
+   * `cacheWrite` is ALL cache writes; `cacheWrite1h` is the part that bought
+   * a one-hour TTL, at 2x base input instead of 1.25x. The five-minute part
+   * is the difference.
+   */
   tokens: {
     input: number
     output: number
     cacheRead: number
     cacheWrite: number
+    cacheWrite1h: number
   }
   cost: CostTotals
 }

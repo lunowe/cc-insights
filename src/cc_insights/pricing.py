@@ -74,8 +74,11 @@ GENAI = "genai-prices"
 OVERRIDE = "override"
 MANUAL = "manual"
 
-#: Rate columns, in the order every report prints them.
-COMPONENTS = ("input", "output", "cache_read", "cache_write")
+#: Rate columns, in the order every report prints them. `cache_write` is the
+#: five-minute rate and `cache_write_1h` the one-hour one -- two prices for
+#: the same tokens, 1.25x and 2x base input, and on this corpus 41% of cache
+#: writes take the expensive one. See migration 005.
+COMPONENTS = ("input", "output", "cache_read", "cache_write", "cache_write_1h")
 
 _TIERED_NOTE = (
     "context-window tiers flattened to the base rate: the logs record tokens "
@@ -95,7 +98,10 @@ class Rates:
     input_mtok: float | None = None
     output_mtok: float | None = None
     cache_read_mtok: float | None = None
+    #: Five-minute cache writes.
     cache_write_mtok: float | None = None
+    #: One-hour cache writes. NULL is "not known", never "same as 5m".
+    cache_write_1h_mtok: float | None = None
     currency: str = "USD"
     origin: str = GENAI
     matched_id: str | None = None
@@ -217,6 +223,7 @@ def _clauses_to_rates(entry: dict[str, Any], origin: str) -> list[Rates]:
             output_mtok=clause.get("output_mtok"),
             cache_read_mtok=clause.get("cache_read_mtok"),
             cache_write_mtok=clause.get("cache_write_mtok"),
+            cache_write_1h_mtok=clause.get("cache_write_1h_mtok"),
             origin=origin,
             matched_id=matched,
             note=_TIERED_NOTE if clause.get("tiered") else note,
@@ -330,10 +337,12 @@ def sync(conn: sqlite3.Connection, models: Sequence[str] | None = None) -> SyncR
             conn.execute(
                 """INSERT INTO model_price
                      (model, effective_from, input_mtok, output_mtok, cache_read_mtok,
-                      cache_write_mtok, currency, origin, matched_id, note, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                      cache_write_mtok, cache_write_1h_mtok, currency, origin,
+                      matched_id, note, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (model, r.effective_from, r.input_mtok, r.output_mtok, r.cache_read_mtok,
-                 r.cache_write_mtok, r.currency, r.origin, r.matched_id, r.note, now),
+                 r.cache_write_mtok, r.cache_write_1h_mtok, r.currency, r.origin,
+                 r.matched_id, r.note, now),
             )
             wrote += 1
         result.rows_written += wrote
@@ -351,6 +360,7 @@ def set_price(
     output_mtok: float | None = None,
     cache_read_mtok: float | None = None,
     cache_write_mtok: float | None = None,
+    cache_write_1h_mtok: float | None = None,
     currency: str = "USD",
     note: str | None = None,
 ) -> None:
@@ -358,20 +368,22 @@ def set_price(
     conn.execute(
         """INSERT INTO model_price
              (model, effective_from, input_mtok, output_mtok, cache_read_mtok,
-              cache_write_mtok, currency, origin, matched_id, note, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+              cache_write_mtok, cache_write_1h_mtok, currency, origin, matched_id,
+              note, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
            ON CONFLICT (model, effective_from) DO UPDATE SET
              input_mtok = excluded.input_mtok,
              output_mtok = excluded.output_mtok,
              cache_read_mtok = excluded.cache_read_mtok,
              cache_write_mtok = excluded.cache_write_mtok,
+             cache_write_1h_mtok = excluded.cache_write_1h_mtok,
              currency = excluded.currency,
              origin = excluded.origin,
              matched_id = NULL,
              note = excluded.note,
              updated_at = excluded.updated_at""",
         (model, effective_from, input_mtok, output_mtok, cache_read_mtok,
-         cache_write_mtok, currency, MANUAL, note, db.now_ms()),
+         cache_write_mtok, cache_write_1h_mtok, currency, MANUAL, note, db.now_ms()),
     )
 
 
@@ -398,7 +410,8 @@ def load_rates(conn: sqlite3.Connection) -> dict[str, list[Rates]]:
     out: dict[str, list[Rates]] = {}
     for row in conn.execute(
         """SELECT model, effective_from, input_mtok, output_mtok, cache_read_mtok,
-                  cache_write_mtok, currency, origin, matched_id, note
+                  cache_write_mtok, cache_write_1h_mtok, currency, origin,
+                  matched_id, note
            FROM model_price ORDER BY model, effective_from"""
     ):
         out.setdefault(row["model"], []).append(Rates(
@@ -407,6 +420,7 @@ def load_rates(conn: sqlite3.Connection) -> dict[str, list[Rates]]:
             output_mtok=row["output_mtok"],
             cache_read_mtok=row["cache_read_mtok"],
             cache_write_mtok=row["cache_write_mtok"],
+            cache_write_1h_mtok=row["cache_write_1h_mtok"],
             currency=row["currency"],
             origin=row["origin"],
             matched_id=row["matched_id"],

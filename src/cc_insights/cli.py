@@ -15,6 +15,7 @@ from pathlib import Path
 
 from cc_insights import (
     __version__,
+    backfill as backfill_mod,
     config as config_mod,
     cost as cost_mod,
     db,
@@ -199,6 +200,16 @@ def _money(amount: float, currency: str = "USD") -> str:
     return f"{symbol}{amount:,.2f}" if symbol else f"{amount:,.2f} {currency}"
 
 
+#: How each rate component reads in a report.
+_COMPONENT_LABEL = {
+    "input": "input",
+    "output": "output",
+    "cache_read": "cache read",
+    "cache_write": "cache write 5m",
+    "cache_write_1h": "cache write 1h",
+}
+
+
 def _mtok(rate: float | None) -> str:
     return "—" if rate is None else f"{rate:g}"
 
@@ -235,7 +246,7 @@ def cmd_cost(args: argparse.Namespace) -> int:
                 if not nano:
                     continue
                 share = nano / (c.total_nano or 1)
-                print(f"  {component.replace('_', ' '):<14} "
+                print(f"  {_COMPONENT_LABEL.get(component, component):<16} "
                       f"{_money(nano / cost_mod.NANO, c.currency):>12} {share:>5.0%}  "
                       f"{_bar(nano / top, 18)}")
 
@@ -263,11 +274,53 @@ def cmd_cost(args: argparse.Namespace) -> int:
         if c.attributed:
             print(f"\n  {c.attributed:,} of {c.events:,} priced events took their model from "
                   "an earlier\n  event in the same thread (Codex records usage without one).")
+        if c.assumed_5m_tokens:
+            print(f"\n  {c.assumed_5m_tokens / 1e6:,.1f}M cache-write tokens have no recorded "
+                  "TTL and are priced at\n  the five-minute rate. A one-hour write costs 2x "
+                  "base input against 1.25x,\n  so this is a floor, not a guess at the middle. "
+                  "`cci backfill` fills what\n  the logs still hold.")
         _print_price_caveats(conn)
         print()
     finally:
         conn.close()
     return 0
+
+
+def cmd_backfill(args: argparse.Namespace) -> int:
+    """Fill columns a later migration added, from the logs that still exist.
+
+    Not part of `cci ingest`: ingest never rewrites an event row, and that
+    rule is what makes a re-run provably a no-op. This is the deliberate
+    exception, run by hand, touching only the named columns.
+    """
+    cfg, conn = _open_db(args)
+    try:
+        before = {j.column: backfill_mod.coverage(conn, j.column) for j in backfill_mod.JOBS}
+        seen: list[Path] = []
+        r = backfill_mod.backfill(conn, cfg, sources=args.source, on_file=seen.append)
+        print(f"read {r.files_read:,}/{len(seen):,} log file(s), {r.events_seen:,} events")
+        print(f"  filled {r.filled:,} row(s); {r.already_set:,} already knew; "
+              f"{r.not_in_database:,} not ingested yet")
+        for job in backfill_mod.JOBS:
+            known, total = backfill_mod.coverage(conn, job.column)
+            was = before[job.column][0]
+            share = known / total if total else 1.0
+            print(f"\n  {job.column}")
+            print(f"    {job.why}")
+            print(f"    {known / 1e6:,.1f}M of {total / 1e6:,.1f}M cache-write tokens "
+                  f"now have a known TTL ({share:.0%}), up from {was / 1e6:,.1f}M")
+            if share < 1:
+                print("    the rest is in logs that have aged out; those stay unknown "
+                      "and are\n    priced at the five-minute rate, which `cci cost` "
+                      "says out loud")
+        if r.errors:
+            print(f"\n  {len(r.errors)} file(s) failed:", file=sys.stderr)
+            for e in r.errors[:5]:
+                print(f"    {e}", file=sys.stderr)
+        print("\n  run `cci cost` to re-price with them")
+    finally:
+        conn.close()
+    return 1 if r.errors else 0
 
 
 def cmd_price_list(args: argparse.Namespace) -> int:
@@ -953,6 +1006,13 @@ def build_parser() -> argparse.ArgumentParser:
     cst.add_argument("--sync", action="store_true",
                      help="refresh rates from the bundled catalog first")
     cst.set_defaults(fn=cmd_cost)
+
+    bkf = sub.add_parser(
+        "backfill",
+        help="fill columns a later migration added, from logs still on disk")
+    bkf.add_argument("--source", action="append",
+                     help="limit to a source (repeatable): claude_code, codex, opencode")
+    bkf.set_defaults(fn=cmd_backfill)
 
     prc = sub.add_parser("price", help="inspect and override the model price table")
     psub = prc.add_subparsers(dest="price_command", required=True)

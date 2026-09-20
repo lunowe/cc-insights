@@ -22814,14 +22814,14 @@
    "parentThreadId": null,
    "attended": 1,
    "start": 1789912291474,
-   "end": 1789914631012
+   "end": 1789915552340
   },
   {
    "spanId": "350e31fc2314adc3277f69123a69e9ee",
    "threadId": "b037aab8dc38aa2d3358fa062aca748d",
    "sessionId": "36b01e338b5d69ae8cea82bb247c7162",
-   "projectId": "11bfb04b60bea55b7329bf2b288e9fda",
-   "projectName": "v2-windows-paths",
+   "projectId": "72d7ccef2e626422ec1bf7083ce5b5b5",
+   "projectName": "CC-Insights",
    "source": "claude_code",
    "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
    "groupName": "CC-Insights",
@@ -22836,8 +22836,8 @@
    "spanId": "5b40546e4b6532152088b477aa651f2a",
    "threadId": "bb864931ec7c3406c9280b6047960285",
    "sessionId": "36b01e338b5d69ae8cea82bb247c7162",
-   "projectId": "11bfb04b60bea55b7329bf2b288e9fda",
-   "projectName": "v2-windows-paths",
+   "projectId": "72d7ccef2e626422ec1bf7083ce5b5b5",
+   "projectName": "CC-Insights",
    "source": "claude_code",
    "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
    "groupName": "CC-Insights",
@@ -22911,6 +22911,22 @@
    "attended": 0,
    "start": 1789914111718,
    "end": 1789914592917
+  },
+  {
+   "spanId": "26b7753d6c5141c8b638f58f5a8149c1",
+   "threadId": "b037aab8dc38aa2d3358fa062aca748d",
+   "sessionId": "36b01e338b5d69ae8cea82bb247c7162",
+   "projectId": "72d7ccef2e626422ec1bf7083ce5b5b5",
+   "projectName": "CC-Insights",
+   "source": "claude_code",
+   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
+   "groupName": "CC-Insights",
+   "agentName": null,
+   "isSubagent": false,
+   "parentThreadId": null,
+   "attended": 1,
+   "start": 1789914800555,
+   "end": 1789915545631
   }
  ],
  "truncated": false,

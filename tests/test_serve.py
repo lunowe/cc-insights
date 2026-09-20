@@ -107,8 +107,8 @@ def test_top_level_keys_match_the_contract(server):
         ("agents", {"agents"}),
         ("heatmap", {"cells"}),
         ("cost", {"total", "currency", "byComponent", "pricedEvents", "attributedEvents",
-                  "unpricedTokens", "byModel", "bySource", "daily", "unpriced",
-                  "approximations", "catalog"}),
+                  "unpricedTokens", "assumed5mTokens", "byModel", "bySource", "daily",
+                  "unpriced", "approximations", "catalog"}),
     ):
         status, payload = get_json(server, f"/api/{name}")
         assert status == 200 and set(payload) == keys, name

@@ -115,7 +115,15 @@ type Summary = {
   humanInitiatedMs: number;   // root thread, a person typed the opening turn
   autonomousMs: number;       // subagent thread: a model spawned it
   unattendedRootMs: number;   // root thread that resumed with no human turn
-  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  // `cacheWrite` is ALL cache writes; `cacheWrite1h` is the part of it that
+  // bought a one-hour TTL and therefore cost 2x base input instead of 1.25x.
+  // The five-minute part is the difference. Kept this way so `cacheWrite`
+  // never changes meaning, and so 0 ("none were long") stays distinct from
+  // a source that does not report the split.
+  tokens: {
+    input: number; output: number; cacheRead: number;
+    cacheWrite: number; cacheWrite1h: number;
+  };
   cost: CostTotals;
 };
 
@@ -124,7 +132,13 @@ type Summary = {
 type CostTotals = {
   total: number;                 // in `currency` units
   currency: string;              // "USD", or "mixed" if rates disagree
-  byComponent: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  // `cacheWrite` is the FIVE-MINUTE rate and `cacheWrite1h` the one-hour
+  // one: the same tokens cost 1.25x and 2x base input respectively, and
+  // which applies is recorded per request, not assumed.
+  byComponent: {
+    input: number; output: number; cacheRead: number;
+    cacheWrite: number; cacheWrite1h: number;
+  };
   pricedEvents: number;
   // Priced off a model carried forward from an earlier event in the same
   // thread, because Codex records usage on events that name no model.
@@ -132,6 +146,10 @@ type CostTotals = {
   // Tokens inside the filtered spans that no rate covered. NOT zero-cost:
   // unknown. Show this wherever `total` is shown.
   unpricedTokens: number;
+  // Cache-write tokens whose source never recorded a TTL, priced at the
+  // cheaper five-minute rate. Makes `total` a FLOOR for those tokens, not a
+  // midpoint. 0 once `cci backfill` has filled what the logs still hold.
+  assumed5mTokens: number;
 };
 
 // GET /api/timeline — the swimlane. One row per span.

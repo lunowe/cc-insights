@@ -14,6 +14,17 @@ computes is *what the same traffic would have cost at published API rates* --
 a useful number for comparing projects, models and months, and a wrong number
 to put in an invoice. Every surface that prints it has to say so.
 
+**Cache writes have two prices, and which one applies is in the log.**
+Anthropic charges 1.25x base input for a five-minute cache write and 2x for a
+one-hour one. Claude Code picks the TTL per request -- the main conversation
+gets the hour on a subscription within plan usage, subagents and compaction
+get five minutes -- and reports which it used. 41% of cache-write tokens on
+this corpus took the expensive one. An event whose source does not report the
+split (`cache_write_1h_tokens IS NULL`: every row written before migration
+005, and every Codex and opencode event) is priced at the five-minute rate
+and counted in `CostResult.assumed_5m_tokens`, so a total can say how much of
+itself rests on that assumption instead of absorbing it silently.
+
 **Cache reads are priced separately, and they dominate.** On the measured
 corpus, cache reads are 9.85 billion tokens against 3.3 million fresh input
 tokens -- three thousand to one. Folding them into `input` at the input rate
@@ -68,12 +79,14 @@ NO_MODEL = "no_model"
 NO_RATE = "no_rate"
 NO_COMPONENT = "no_component"
 
-#: event columns -> rate component.
+#: Rate component -> the event column holding its tokens. `cache_write` is
+#: resolved in `_split_cache_write` rather than read straight off a column:
+#: the stored column is the TOTAL, and the five-minute part is whatever is
+#: left after the one-hour part.
 _TOKEN_COLUMNS = {
     "input": "input_tokens",
     "output": "output_tokens",
     "cache_read": "cache_read_tokens",
-    "cache_write": "cache_write_tokens",
 }
 
 
@@ -112,6 +125,9 @@ class CostResult:
     by_component: dict[str, int] = field(default_factory=dict)
     by_model: dict[str, int] = field(default_factory=dict)
     unpriced: Unpriced = field(default_factory=Unpriced)
+    #: Cache-write tokens priced at the five-minute rate because their source
+    #: never reported a TTL. Not an error -- an assumption, stated.
+    assumed_5m_tokens: int = 0
     currency: str = "USD"
     duration_s: float = 0.0
 
@@ -132,6 +148,7 @@ class CostResult:
                 for k, v in sorted(self.by_model.items(), key=lambda kv: -kv[1])
             },
             "unpriced": self.unpriced.as_dict(),
+            "assumed5mTokens": self.assumed_5m_tokens,
             "durationS": round(self.duration_s, 3),
         }
 
@@ -153,7 +170,8 @@ def _chunks(values: Sequence[str]) -> Iterable[Sequence[str]]:
 
 _TOKEN_EVENT_SQL = """
     SELECT e.id, e.session_id, e.thread_id, e.ts, e.model,
-           e.input_tokens, e.output_tokens, e.cache_read_tokens, e.cache_write_tokens
+           e.input_tokens, e.output_tokens, e.cache_read_tokens, e.cache_write_tokens,
+           e.cache_write_1h_tokens
     FROM e_scope e
     WHERE e.model IS NOT NULL
        OR e.input_tokens IS NOT NULL OR e.output_tokens IS NOT NULL
@@ -188,14 +206,48 @@ def _token_events(
         yield from conn.execute(sql, tuple(chunk))
 
 
+def _row_tokens(row: sqlite3.Row) -> int:
+    """Every token on an event, cache writes included.
+
+    Not `sum(_TOKEN_COLUMNS)`: that map deliberately omits cache writes,
+    which are resolved into two components rather than read off one column.
+    Leaving them out here made an event whose ONLY tokens were cache writes
+    look like an event with no tokens, and skipped it entirely.
+    """
+    return (sum(row[c] or 0 for c in _TOKEN_COLUMNS.values())
+            + (row["cache_write_tokens"] or 0))
+
+
+def _split_cache_write(row: sqlite3.Row) -> tuple[int, int, bool]:
+    """(five-minute tokens, one-hour tokens, the split was assumed).
+
+    The stored column is every cache write; `cache_write_1h_tokens` is the
+    part of it that bought an hour. NULL there means the source never said,
+    which is not the same as zero -- so the whole amount is priced short, at
+    the five-minute rate, and the caller is told it was an assumption.
+    """
+    total = row["cache_write_tokens"] or 0
+    if total <= 0:
+        return 0, 0, False
+    long = row["cache_write_1h_tokens"]
+    if long is None:
+        return total, 0, True
+    long = max(0, min(int(long), total))   # a source cannot write more than all
+    return total - long, long, False
+
+
 def _price_event(
     row: sqlite3.Row, rates: Rates
-) -> tuple[dict[str, int], dict[str, int]]:
-    """(nano cost per component, unpriced tokens per component)."""
+) -> tuple[dict[str, int], dict[str, int], int]:
+    """(nano cost per component, unpriced tokens per component, assumed 5m)."""
     costs: dict[str, int] = {}
     missing: dict[str, int] = {}
-    for component, column in _TOKEN_COLUMNS.items():
-        tokens = row[column] or 0
+    amounts = {c: (row[col] or 0) for c, col in _TOKEN_COLUMNS.items()}
+    short, long, assumed = _split_cache_write(row)
+    amounts["cache_write"] = short
+    amounts["cache_write_1h"] = long
+
+    for component, tokens in amounts.items():
         if tokens <= 0:
             continue
         rate = rates.rate(component)
@@ -203,7 +255,7 @@ def _price_event(
             missing[component] = tokens
         else:
             costs[component] = nano_for(tokens, rate)
-    return costs, missing
+    return costs, missing, (short if assumed else 0)
 
 
 def derive_costs(
@@ -252,7 +304,7 @@ def derive_costs(
             if row["model"]:
                 carried = row["model"]
 
-            tokens = sum(row[c] or 0 for c in _TOKEN_COLUMNS.values())
+            tokens = _row_tokens(row)
             if tokens <= 0:
                 continue
 
@@ -272,7 +324,8 @@ def derive_costs(
                 note_unpriced(row, model, attributed, tokens, NO_RATE)
                 continue
 
-            costs, missing = _price_event(row, rates)
+            costs, missing, assumed_5m = _price_event(row, rates)
+            result.assumed_5m_tokens += assumed_5m
             if missing:
                 for component, n in missing.items():
                     result.unpriced.by_component[component] = (
@@ -296,6 +349,7 @@ def derive_costs(
                 attributed, rates.effective_from,
                 costs.get("input", 0), costs.get("output", 0),
                 costs.get("cache_read", 0), costs.get("cache_write", 0),
+                costs.get("cache_write_1h", 0),
             ))
             if len(priced_batch) >= _CHUNK:
                 _write_priced(conn, priced_batch)
@@ -331,8 +385,9 @@ def _write_priced(conn: sqlite3.Connection, batch: Sequence[tuple]) -> None:
         conn.executemany(
             """INSERT INTO event_cost
                  (event_id, session_id, thread_id, ts, model, attributed, price_from,
-                  input_nano, output_nano, cache_read_nano, cache_write_nano)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                  input_nano, output_nano, cache_read_nano, cache_write_nano,
+                  cache_write_1h_nano)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             batch,
         )
 

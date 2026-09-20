@@ -186,8 +186,10 @@ _JOIN_UNPRICED = (
     " AND eu.ts >= sp.started_at AND eu.ts <= sp.ended_at"
 )
 
-#: One cost row summed to nano-units.
-_COST_NANO = "(ec.input_nano + ec.output_nano + ec.cache_read_nano + ec.cache_write_nano)"
+#: One cost row summed to nano-units. Cache writes are two components, not
+#: one: a one-hour write costs 2x base input against 1.25x for five minutes.
+_COST_NANO = ("(ec.input_nano + ec.output_nano + ec.cache_read_nano"
+              " + ec.cache_write_nano + ec.cache_write_1h_nano)")
 
 
 def _marks(n: int) -> str:
@@ -291,6 +293,7 @@ def _cost_total(conn: sqlite3.Connection, f: "Filters") -> dict:
                coalesce(sum(ec.output_nano), 0) AS output,
                coalesce(sum(ec.cache_read_nano), 0) AS cacheRead,
                coalesce(sum(ec.cache_write_nano), 0) AS cacheWrite,
+               coalesce(sum(ec.cache_write_1h_nano), 0) AS cacheWrite1h,
                coalesce(sum(ec.attributed), 0) AS attributed,
                count(*) AS events
         {_FROM}{_JOIN_COST}{where}""", params)
@@ -302,6 +305,7 @@ def _cost_total(conn: sqlite3.Connection, f: "Filters") -> dict:
             "output": _units(row.get("output")),
             "cacheRead": _units(row.get("cacheRead")),
             "cacheWrite": _units(row.get("cacheWrite")),
+            "cacheWrite1h": _units(row.get("cacheWrite1h")),
         },
         "pricedEvents": row.get("events", 0),
         # Codex records usage on events that name no model; those took theirs
@@ -309,7 +313,24 @@ def _cost_total(conn: sqlite3.Connection, f: "Filters") -> dict:
         # inference visible instead of baked into the total.
         "attributedEvents": row.get("attributed", 0),
         "unpricedTokens": _unpriced_tokens(conn, f),
+        # Cache-write tokens priced at the five-minute rate because their
+        # source never recorded a TTL. A floor, not a midpoint: the long
+        # write is the expensive one.
+        "assumed5mTokens": _assumed_5m_tokens(conn, f),
     }
+
+
+def _assumed_5m_tokens(conn: sqlite3.Connection, f: "Filters") -> int:
+    """Cache-write tokens inside the surviving spans with no recorded TTL."""
+    where, params = _where(f)
+    joiner = " AND" if where else " WHERE"
+    return _scalar(conn, f"""
+        SELECT coalesce(sum(e.cache_write_tokens), 0)
+        {_FROM}
+        JOIN event e ON e.thread_id = sp.thread_id
+                    AND e.ts >= sp.started_at AND e.ts <= sp.ended_at
+        {where}{joiner} e.cache_write_tokens > 0 AND e.cache_write_1h_tokens IS NULL""",
+        params)
 
 
 def _unpriced_tokens(conn: sqlite3.Connection, f: "Filters") -> int:
@@ -447,7 +468,8 @@ def summary(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
         SELECT coalesce(sum(e.input_tokens), 0) AS input,
                coalesce(sum(e.output_tokens), 0) AS output,
                coalesce(sum(e.cache_read_tokens), 0) AS cacheRead,
-               coalesce(sum(e.cache_write_tokens), 0) AS cacheWrite
+               coalesce(sum(e.cache_write_tokens), 0) AS cacheWrite,
+               coalesce(sum(e.cache_write_1h_tokens), 0) AS cacheWrite1h
         {_FROM}
         JOIN event e ON e.thread_id = sp.thread_id
                     AND e.ts >= sp.started_at AND e.ts <= sp.ended_at

@@ -104,9 +104,10 @@ Teams and auth follow. The privacy plumbing is in place for them.
 .venv/bin/cci cost         # the breakdown
 ```
 
-**$10,674 at published API rates** on this corpus, and the shape of it is the
-finding: **cache reads are 48%** of the total, cache writes 32%, output 18%,
-fresh input 2%. The cheapest component per token is most of the bill.
+**$11,630 at published API rates** on this corpus, and the shape of it is the
+finding: **cache reads are 44%** of the total, cache writes 38% (21% of it at
+the one-hour rate), output 16%, fresh input 2%. The cheapest component per
+token is most of the bill.
 
 That figure is a *list-price equivalent*, not a bill — a subscription charges a
 flat monthly fee no matter how many tokens run through it. Rates come from a
@@ -114,6 +115,14 @@ committed snapshot of [pydantic/genai-prices](https://github.com/pydantic/genai-
 keyed by model **and date**, so a vendor's next price change does not rewrite
 last month. Anything it cannot price is reported rather than counted as zero
 (138 M tokens here).
+
+Cache writes are priced at two rates, because they have two lifetimes: 1.25x
+base input for a five-minute write and 2x for a one-hour one. 41% of this
+corpus takes the expensive one — Claude Code gives the main conversation an
+hour on a subscription within plan usage, and five minutes to subagents — and
+the logs record which, so `cci cost` does not have to guess. A database built
+before that column existed fills it with `cci backfill`, from the logs that
+are still on disk.
 
 Three layers, most specific first: the catalog, then
 `src/cc_insights/price_overrides.json` — corrections checked against the

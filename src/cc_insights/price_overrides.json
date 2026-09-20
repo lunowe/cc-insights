@@ -1,5 +1,5 @@
 {
- "why": "Corrections to the genai-prices catalog, checked against the vendor's own pricing page. An override beats the catalog and loses to a human's `cci price set`. Each entry says what the catalog gets wrong, where the right number came from, and when someone last looked; delete an entry once upstream agrees. Same matcher language as model_prices.json, first match wins, and a matcher must not be broader than the model it corrects -- `claude-fable-5-1` and `claude-fable-5` differ only in cache reads, and a rule that caught both would reintroduce the error it exists to fix.",
+ "why": "Corrections to the genai-prices catalog, checked against the vendor's own pricing page. An override beats the catalog and loses to a human's `cci price set`. Each entry says what the catalog gets wrong, where the right number came from, and when someone last looked; delete an entry once upstream agrees. Rates are the vendor's five columns collapsed to ours: base input, 5m cache write, 1h cache write, cache hit, output. Same matcher language as model_prices.json, first match wins, and a matcher must not be broader than the model it corrects -- `claude-fable-5-1` and `claude-fable-5` differ only in cache reads, and a rule that caught both would reintroduce the error it exists to fix.",
  "models": [
   {
    "provider": "anthropic",
@@ -9,9 +9,15 @@
    "checked": "2026-09-20",
    "match": {
     "or": [
-     {"starts_with": "claude-fable-5-1"},
-     {"starts_with": "claude-fable-5.1"},
-     {"starts_with": "claude-5-1-fable"}
+     {
+      "starts_with": "claude-fable-5-1"
+     },
+     {
+      "starts_with": "claude-fable-5.1"
+     },
+     {
+      "starts_with": "claude-5-1-fable"
+     }
     ]
    },
    "clauses": [
@@ -20,7 +26,8 @@
      "input_mtok": 10,
      "output_mtok": 50,
      "cache_read_mtok": 0.25,
-     "cache_write_mtok": 12.5
+     "cache_write_mtok": 12.5,
+     "cache_write_1h_mtok": 20
     }
    ]
   },
@@ -32,8 +39,12 @@
    "checked": "2026-09-20",
    "match": {
     "or": [
-     {"starts_with": "claude-mythos-5-1"},
-     {"starts_with": "claude-mythos-5.1"}
+     {
+      "starts_with": "claude-mythos-5-1"
+     },
+     {
+      "starts_with": "claude-mythos-5.1"
+     }
     ]
    },
    "clauses": [
@@ -42,7 +53,8 @@
      "input_mtok": 10,
      "output_mtok": 50,
      "cache_read_mtok": 0.25,
-     "cache_write_mtok": 12.5
+     "cache_write_mtok": 12.5,
+     "cache_write_1h_mtok": 20
     }
    ]
   },
@@ -52,14 +64,17 @@
    "why": "As above, at Claude Fable 5's rates -- standard 0.1x cache hits, not Fable 5.1's 0.025x.",
    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
    "checked": "2026-09-20",
-   "match": {"starts_with": "claude-mythos-5"},
+   "match": {
+    "starts_with": "claude-mythos-5"
+   },
    "clauses": [
     {
      "start_date": null,
      "input_mtok": 10,
      "output_mtok": 50,
      "cache_read_mtok": 1,
-     "cache_write_mtok": 12.5
+     "cache_write_mtok": 12.5,
+     "cache_write_1h_mtok": 20
     }
    ]
   },
@@ -71,8 +86,12 @@
    "checked": "2026-09-20",
    "match": {
     "or": [
-     {"starts_with": "claude-sonnet-5"},
-     {"starts_with": "claude-5-sonnet"}
+     {
+      "starts_with": "claude-sonnet-5"
+     },
+     {
+      "starts_with": "claude-5-sonnet"
+     }
     ]
    },
    "clauses": [
@@ -81,7 +100,8 @@
      "input_mtok": 2,
      "output_mtok": 10,
      "cache_read_mtok": 0.2,
-     "cache_write_mtok": 2.5
+     "cache_write_mtok": 2.5,
+     "cache_write_1h_mtok": 4
     }
    ]
   }

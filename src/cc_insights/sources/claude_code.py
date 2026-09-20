@@ -118,6 +118,26 @@ def _to_ms(raw: Any) -> int | None:
     return round(dt.timestamp() * 1000)
 
 
+def _cache_write_1h(usage: dict[str, Any]) -> int | None:
+    """Tokens written with the one-hour TTL, from `usage.cache_creation`.
+
+    Claude Code picks a TTL per request and reports which it used:
+    `ephemeral_1h_input_tokens` and `ephemeral_5m_input_tokens` inside
+    `cache_creation`, alongside the flat `cache_creation_input_tokens` total.
+    Measured over the corpus the two always sum to the total, and no single
+    request ever writes both -- but only the total was read until now, so a
+    one-hour write was priced at the five-minute rate.
+
+    Returns None when the source says nothing, which is "TTL unknown" and
+    must not collapse to 0: 0 means the request wrote five-minute entries
+    only, and that is a different claim.
+    """
+    block = usage.get("cache_creation")
+    if not isinstance(block, dict):
+        return None
+    return _int_or_none(block.get("ephemeral_1h_input_tokens"))
+
+
 def _int_or_none(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
@@ -317,6 +337,7 @@ class ClaudeCodeAdapter:
             output_tokens=_int_or_none(usage.get("output_tokens")),
             cache_read_tokens=_int_or_none(usage.get("cache_read_input_tokens")),
             cache_write_tokens=_int_or_none(usage.get("cache_creation_input_tokens")),
+            cache_write_1h_tokens=_cache_write_1h(usage),
             **common,
         )
 

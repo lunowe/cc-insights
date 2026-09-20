@@ -289,8 +289,9 @@ _INSERT_EVENT = """
 INSERT INTO event (
     id, session_id, thread_id, native_event_id, ts, ordinal, kind,
     model, tool_name, tool_use_id,
-    input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+    cache_write_1h_tokens
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING
 """
 
@@ -532,6 +533,7 @@ class _Run:
                     ev.output_tokens,
                     ev.cache_read_tokens,
                     ev.cache_write_tokens,
+                    ev.cache_write_1h_tokens,
                 )
             )
 

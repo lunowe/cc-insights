@@ -19,6 +19,17 @@ What is thrown away, and why it is safe:
 * **Everything but the four token rates.** Web-search counts, audio and image
   rates, per-request fees: none of them can be derived from what the logs
   record, so a column for them would always be NULL.
+* **Nothing, for one-hour cache writes** -- the compiled `data.json` drops
+  the `cache_write_1h_mtok` its own YAML sources carry, so that rate is
+  derived instead. Anthropic publishes the rule rather than only the
+  numbers: a five-minute cache write costs 1.25x base input and a one-hour
+  write 2x. Applying `2 x input_mtok` reproduces every row of the vendor's
+  price table exactly (Opus 5 $5 -> $10, Fable $10 -> $20, Sonnet 5 $2 ->
+  $4, Haiku $1 -> $2), so the snapshot carries a real number a reviewer can
+  check rather than a NULL that would silently drop 41% of this corpus's
+  cache writes out of every total. Anthropic only: no other provider in the
+  catalog publishes a second cache duration, and guessing one for them would
+  be exactly the invention this file exists to avoid.
 * **Context-window tiers.** Some models (Gemini, Claude Opus 4.6 before
   2026-03-13) charge more above a context threshold. The logs record tokens
   per request, not the context length at the time, so the tier cannot be
@@ -77,11 +88,16 @@ PROVIDERS = [
     "openrouter",
 ]
 
+#: Catalog key -> our column. `cache_write_1h_mtok` is a separate rate, not a
+#: variant of the five-minute one: a one-hour cache write costs 2x base input
+#: against 1.25x, and 41% of the measured corpus takes it. Dropping it (as
+#: this script did at first) prices every long write short.
 RATE_KEYS = {
     "input_mtok": "input_mtok",
     "output_mtok": "output_mtok",
     "cache_read_mtok": "cache_read_mtok",
     "cache_write_mtok": "cache_write_mtok",
+    "cache_write_1h_mtok": "cache_write_1h_mtok",
 }
 
 
@@ -116,7 +132,29 @@ def rate(value: Any) -> tuple[float | None, bool]:
     return None, False
 
 
-def clauses_for(model: dict[str, Any]) -> list[dict[str, Any]]:
+#: Vendor-published multiplier, base input -> one-hour cache write.
+#: https://platform.claude.com/docs/en/about-claude/pricing
+CACHE_WRITE_1H_MULTIPLIER = 2.0
+
+
+def derive_cache_write_1h(clause: dict[str, Any], provider: str) -> float | None:
+    """The one-hour cache-write rate, when it can be had honestly.
+
+    Prefer whatever the catalog said. Otherwise, for Anthropic only, apply
+    the multiplier the vendor publishes alongside its price table. Any other
+    provider gets None, which prices its one-hour writes as unpriced rather
+    than as a guess.
+    """
+    given = clause.get("cache_write_1h_mtok")
+    if given is not None:
+        return given
+    base = clause.get("input_mtok")
+    if provider != "anthropic" or base is None:
+        return None
+    return round(base * CACHE_WRITE_1H_MULTIPLIER, 6)
+
+
+def clauses_for(model: dict[str, Any], provider: str = "") -> list[dict[str, Any]]:
     """Flatten a model's prices into date-ordered clauses.
 
     genai-prices writes either one `prices` mapping or a list of
@@ -149,6 +187,7 @@ def clauses_for(model: dict[str, Any]) -> list[dict[str, Any]]:
             value, was_tiered = rate(group["prices"].get(src))
             clause[dest] = value
             tiered = tiered or was_tiered
+        clause["cache_write_1h_mtok"] = derive_cache_write_1h(clause, provider)
         if all(clause[k] is None for k in RATE_KEYS.values()):
             continue
         if tiered:
@@ -174,7 +213,7 @@ def build() -> dict[str, Any]:
     models: list[dict[str, Any]] = []
     for provider in PROVIDERS:
         for model in by_id.get(provider, {}).get("models", []):
-            clauses = clauses_for(model)
+            clauses = clauses_for(model, provider)
             if not clauses or not model.get("match"):
                 continue
             models.append({
