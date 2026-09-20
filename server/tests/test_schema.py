@@ -338,15 +338,15 @@ def test_repo_id_matches_the_client(client_source):
     from cc_insights import grouping, redact
 
     for remote in (
-        "git@github.com:lunowe/harbor-cli.git",
-        "https://github.com/lunowe/harbor-cli",
-        "ssh://git@github.com/lunowe/harbor-cli.git",
+        "git@github.com:demo/harbor-cli.git",
+        "https://github.com/demo/harbor-cli",
+        "ssh://git@github.com/demo/harbor-cli.git",
     ):
         normalized = grouping.normalize_remote(remote)
         assert repo_id(normalized) == redact.repo_id(normalized)
 
-    assert github_remote("github.com", "lunowe/harbor-cli") == grouping.normalize_remote(
-        "git@github.com:lunowe/harbor-cli.git"
+    assert github_remote("github.com", "demo/harbor-cli") == grouping.normalize_remote(
+        "git@github.com:demo/harbor-cli.git"
     )
 
 

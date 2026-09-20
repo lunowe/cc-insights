@@ -619,7 +619,7 @@ def test_a_word_collision_is_a_warning_not_a_blocker(corpus):
     """Ordinary directory names are ordinary words, and they collide.
 
     On the author's corpus `~/Coding/CC-Insights/frontend` is withheld and the
-    published branch `t3code/frontend-chat-performance` contains `frontend`.
+    published branch `t3code/frontend-streaming-perf` contains `frontend`.
     Nothing leaked. Blocking on that would train people to skip the check.
     """
     pub = redact.publication(corpus, "alice")

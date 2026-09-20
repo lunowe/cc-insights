@@ -640,7 +640,7 @@ def anchorable(root_path: str) -> bool:
     A home directory is not a project -- it is the absence of one. `~` is a
     project row on this corpus only because someone once ran an agent there
     for 0.0 h, and letting that accident anchor rule 4 files three unrelated
-    repositories (`slm-finetune`, `atlas-chat-loam`, `classification`)
+    repositories (`slm-finetune`, `atlas-chat-sdk`, `classifier`)
     under one meaningless group that a human then has to unpick by hand. An
     honest group of one costs a row; a false grouping costs trust in every
     number on the page.

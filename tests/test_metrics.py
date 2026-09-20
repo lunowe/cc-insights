@@ -420,7 +420,7 @@ def test_timeline_rows_carry_the_contract_fields(small):
     assert row == {"spanId": row["spanId"], "threadId": "t2", "sessionId": "s1",
                    "projectId": "p-alpha", "projectName": "alpha",
                    # The logical project. A lane is labelled by this, not by
-                   # projectName -- the path `tenant-restricted` belongs to the
+                   # projectName -- the path `retry-budget-spike` belongs to the
                    # project atlas-chat, and labelling by path splits one
                    # project across several lanes.
                    "groupId": "g-omega", "groupName": "omega",

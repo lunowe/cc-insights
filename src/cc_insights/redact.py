@@ -636,7 +636,7 @@ class Secrets:
     `https://github.com/northwind-labs/atlas-chat` leaks the
     local directory `ich`. Matching whole segments instead still reported that
     `source = 'codex'` leaks `~/.codex`, and that a branch called
-    `t3code/frontend-chat-performance` leaks a directory called `frontend`.
+    `t3code/frontend-streaming-perf` leaks a directory called `frontend`.
     160 findings, every one of them wrong.
 
     The lesson is the one docs/REDACTION.md §4 already makes about denylists,
@@ -726,7 +726,7 @@ class Audit:
     is worth noticing in published text -- that is where a client name lives --
     but directory names are ordinary words and ordinary words collide. On the
     author's corpus, `~/Coding/CC-Insights/frontend` is withheld (the tool is
-    not pushed yet) and the published branch `t3code/frontend-chat-performance`
+    not pushed yet) and the published branch `t3code/frontend-streaming-perf`
     contains `frontend`. Nothing leaked; two unrelated things are both called
     frontend.
 
@@ -814,7 +814,7 @@ def local_secrets(conn: sqlite3.Connection) -> Secrets:
     # `Documents`) are generic words that collide with real content and prove
     # nothing. And a leaf inside a *publishable* repo is not secret either: it
     # is a directory in a repo the viewer can already check out, so flagging
-    # `frontend` in the branch `t3code/frontend-chat-performance` says only
+    # `frontend` in the branch `t3code/frontend-streaming-perf` says only
     # that the repo has a frontend/ directory, which the viewer knew.
     publishable = set(_publishable_repos(conn))
     for root_path, group_id in conn.execute("SELECT root_path, group_id FROM project"):

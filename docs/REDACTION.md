@@ -2,6 +2,14 @@
 
 > Measured on the author's corpus, 2026-09-20, by `docs/probes/leakage.py`.
 > Run that script against your own database before trusting a number here.
+>
+> **The numbers are real; the names are not.** Every path, repository,
+> organisation and branch used as an example below has been replaced with an
+> invented one before publication — the same substitution this document
+> argues for. The counts, ratios and attack results are the measured ones and
+> have not been adjusted, so an example reading
+> `/Users/demo/Coding/atlas-chat` stands for a real path of the same shape
+> that really was recovered.
 
 `cci sync` already moves everything between one person's machines, paths
 included, and that is correct — it is all the same person's disk. This
@@ -28,7 +36,7 @@ paths guessed          555
 ids confirmed by guess  10   →  20% of the corpus recovered from the id alone
 ```
 
-Recovered outright: `/Users/dev`, `/Users/dev/Coding/atlas-chat`,
+Recovered outright: `/Users/demo`, `/Users/demo/Coding/atlas-chat`,
 `…/pinecrest`, `…/glyphwright`, `…/harbor-cli`, and five more. A longer word list recovers
 more; nothing about 555 guesses is a limit.
 
@@ -150,7 +158,7 @@ finds four:
 
 ```
 feat/restricted-org-dbs
-tenant-restricted
+retry-budget-spike
 scratchpad
 tmp
 ```
@@ -175,12 +183,12 @@ in it. Writing it against the real corpus was instructive, because the first
 two versions were useless in the same way:
 
 1. **Substring match on every path segment — 24 findings, all wrong.** The
-   username `lunowe` is a path segment in `/Users/dev/Coding/…` *and* the
-   GitHub owner in `https://github.com/lunowe/harbor-cli`. The second is public by
+   username `demo` is a path segment in `/Users/demo/Coding/…` *and* the
+   GitHub owner in `https://github.com/demo/harbor-cli`. The second is public by
    the rule in §1.
 2. **Whole-token match on every path segment — 160 findings, all wrong.**
    `source = 'codex'` was flagged against `~/.codex`. A branch called
-   `t3code/frontend-chat-performance` was flagged against a directory called
+   `t3code/frontend-streaming-perf` was flagged against a directory called
    `frontend`.
 
 The lesson is §4 arriving from the other direction. The tool cannot tell which
@@ -198,7 +206,7 @@ So it asserts only what it can prove, and splits the rest out:
   that is where a client name would live; not worth a veto, because on this
   corpus it fires on `frontend` — `~/Coding/CC-Insights/frontend` is withheld
   (this tool is not pushed yet) and the published branch
-  `t3code/frontend-chat-performance` contains the word. Nothing leaked. Two
+  `t3code/frontend-streaming-perf` contains the word. Nothing leaked. Two
   unrelated things are both called frontend.
 
 Two exemptions fell out of the same exercise, and both are the rule in §1

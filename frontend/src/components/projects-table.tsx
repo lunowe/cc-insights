@@ -207,7 +207,7 @@ function buildBuckets(groups: Groups, projects: ProjectRow[]): Bucket[] {
  * Projects, each opening onto the paths it was checked out at.
  *
  * Flat, this list read `atlas-chat` at 54.5 h and its own worktree
- * `tenant-restricted` at 39.8 h as unrelated work. Rolled up it reads 111.6 h
+ * `retry-budget-spike` at 39.8 h as unrelated work. Rolled up it reads 111.6 h
  * across 13 paths, which is the true number. The `group*` names below are the
  * schema's word for a project; no string the user sees uses it.
  */

@@ -159,7 +159,7 @@ Unauthenticated. The poll.
   "accessToken": "ccis_…",
   "tokenType": "bearer",
   "accountId": "acc_…",
-  "actor": "lunowe",
+  "actor": "demo",
   "expiresAt": null
 }
 ```
@@ -211,10 +211,10 @@ in every `authorization_pending` response too, so a client that only reads
 ```json
 {
   "accountId": "acc_…",
-  "actor": "lunowe",
+  "actor": "demo",
   "createdAt": 1789900000000,
   "identities": [
-    { "provider": "github", "subject": "1234567", "label": "lunowe",
+    { "provider": "github", "subject": "1234567", "label": "demo",
       "createdAt": 1789900000000 }
   ],
   "teams": [ { "teamId": "tm_…", "name": "Platform", "role": "admin" } ],
@@ -451,7 +451,7 @@ Accepts one part of a `redact.Publication` per request, mirroring the personal
 push so a client has one batching loop rather than two.
 
 ```json
-{ "kind": "sessions", "actor": "lunowe", "rows": [ … ] }
+{ "kind": "sessions", "actor": "demo", "rows": [ … ] }
 ```
 
 `kind` is `repos` | `sessions` | `spans` | `withheld`. Row shapes:
@@ -507,9 +507,9 @@ Every repo in the caller's scope, with why it is there.
 ```json
 {
   "repos": [
-    { "repoId": "repo_…", "remoteUrl": "https://github.com/lunowe/harbor-cli",
-      "forge": "github", "owner": "lunowe", "repo": "harbor-cli",
-      "webUrl": "https://github.com/lunowe/harbor-cli", "name": "harbor-cli",
+    { "repoId": "repo_…", "remoteUrl": "https://github.com/demo/harbor-cli",
+      "forge": "github", "owner": "demo", "repo": "harbor-cli",
+      "webUrl": "https://github.com/demo/harbor-cli", "name": "harbor-cli",
       "via": ["team:tm_…", "published", "github"],
       "branchNamesPublished": true }
   ]
@@ -581,7 +581,7 @@ So every aggregate carries a `withheld` block:
 
 ```json
 "withheld": {
-  "byActor": [ { "actor": "lunowe", "withheldMs": 52920000,
+  "byActor": [ { "actor": "demo", "withheldMs": 52920000,
                  "withheldProjects": 21, "asOf": 1789913704558 } ],
   "totalMs": 52920000,
   "scope": "corpus",
@@ -748,7 +748,7 @@ Paginated session rows inside the caller's scope. Same filters as
 ```json
 {
   "sessions": [
-    { "sessionId": "se_…", "repoId": "repo_…", "actor": "lunowe",
+    { "sessionId": "se_…", "repoId": "repo_…", "actor": "demo",
       "source": "codex", "gitBranch": "main",
       "startedAt": …, "endedAt": …, "activeMs": …, "eventCount": … }
   ],
@@ -769,7 +769,7 @@ business holding. `redact.FIELDS` classifies every one of those columns
 
 ```json
 // GET /v1/team/actors — one row per person with visible time
-{ "actors": [ { "actor": "lunowe", "accountId": "acc_…",
+{ "actors": [ { "actor": "demo", "accountId": "acc_…",
                 "activeMs": …, "sessions": …, "repos": … } ],
   "withheld": { … §4.4 … } }
 

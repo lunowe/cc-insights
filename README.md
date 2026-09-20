@@ -229,7 +229,8 @@ never happened.
 ## What it found on this machine
 
 185 hours of active agent time across 223 days, from 306 sessions and 714
-threads:
+threads. The measurements are real; the project names throughout this repo's
+docs are invented, and the dashboard's sample data is synthetic:
 
 Projects are the logical unit: a repo's worktrees and subdirectories fold into
 one. `atlas-chat` reads **111.6 h across 13 paths**, seven of which no longer

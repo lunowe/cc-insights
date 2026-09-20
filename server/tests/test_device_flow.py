@@ -12,7 +12,7 @@ from cci_server.github import ForgeIdentity, TokenResult
 
 
 def _grant(provider: github.FakeProvider, device_code: str, token: str = "gho_real",
-           login: str = "lunowe", subject: str = "1234567") -> None:
+           login: str = "demo", subject: str = "1234567") -> None:
     provider.script[device_code] = [TokenResult(access_token=token)]
     provider.identities[token] = ForgeIdentity(subject=subject, login=login)
 
@@ -162,7 +162,7 @@ def test_a_successful_grant_mints_our_token_and_never_hands_over_githubs(
     out = r.json()
     assert out["accessToken"].startswith("ccis_")
     assert "gho_SECRET_GITHUB" not in r.text
-    assert out["actor"] == "lunowe"
+    assert out["actor"] == "demo"
     assert out["expiresAt"] is None
 
     # Nor is GitHub's token anywhere in the database.
@@ -216,23 +216,23 @@ def test_signing_in_twice_reuses_the_account_keyed_on_the_numeric_subject(
     account.
     """
     first = client.post("/v1/auth/device/start", json={}).json()
-    _grant(provider, "gh-device-1", token="t1", login="lunowe", subject="42")
+    _grant(provider, "gh-device-1", token="t1", login="demo", subject="42")
     a = client.post("/v1/auth/device/token", json={"deviceCode": first["deviceCode"]}).json()
 
     second = client.post("/v1/auth/device/start", json={}).json()
-    _grant(provider, "gh-device-2", token="t2", login="lunowe-renamed", subject="42")
+    _grant(provider, "gh-device-2", token="t2", login="demo-renamed", subject="42")
     b = client.post("/v1/auth/device/token", json={"deviceCode": second["deviceCode"]}).json()
 
     assert a["accountId"] == b["accountId"]
     # `actor` is stamped once and does not follow a rename: published rows
     # already carry it, and rewriting it would make old and new rows disagree
     # about who did the work.
-    assert b["actor"] == "lunowe"
+    assert b["actor"] == "demo"
     with migrated_db.connection() as conn:
         assert conn.execute("SELECT count(*) AS n FROM account").fetchone()["n"] == 1
         assert conn.execute(
             "SELECT label FROM identity"
-        ).fetchone()["label"] == "lunowe-renamed"
+        ).fetchone()["label"] == "demo-renamed"
 
 
 def test_verified_repo_access_is_recorded_and_the_token_is_dropped(

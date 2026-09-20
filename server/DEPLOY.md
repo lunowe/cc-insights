@@ -1,10 +1,10 @@
 # Deploying the account server
 
 > **Deployed 2026-09-20.** Railway project `cc-insights` in workspace
-> "Personal Projects": service `server` (Dockerfile, rootDirectory `server`)
+> "Demo Workspace": service `server` (Dockerfile, rootDirectory `server`)
 > and service `Postgres` (managed, 5 GB volume).
 >
-> **https://YOUR-SERVER.up.railway.app**
+> **https://<your-service>.up.railway.app**
 >
 > Migrations 1-4 applied at first boot. `GET /v1/personal/tables` returns
 > `401 unauthenticated`, which is the server working. **Sign-in does not work

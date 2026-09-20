@@ -32,8 +32,8 @@ POSIX_CORPUS = [
     "/Users/me/Coding/CC-Insights/",
     "/Users/me/Coding/./CC-Insights",
     "/Users/me/Coding/x/../CC-Insights",
-    "/Users/me/Coding/atlas-chat/.claude/worktrees/tenant-2g",
-    "/Users/me/.t3/worktrees/atlas-chat/t3code-0c9cc823",
+    "/Users/me/Coding/atlas-chat/.claude/worktrees/retry-budget",
+    "/Users/me/.t3/worktrees/atlas-chat/t3code-9d02f5a1",
     "/home/ci/work",
     "/srv/git/repo.git",
     "relative/path",
@@ -43,7 +43,7 @@ POSIX_CORPUS = [
 WINDOWS_CORPUS = [
     r"C:\Users\you\Coding\CC-Insights",
     r"C:/Users/you/Coding/CC-Insights",
-    r"C:\Users\you\Coding\atlas-chat\.claude\worktrees\tenant-2g",
+    r"C:\Users\you\Coding\atlas-chat\.claude\worktrees\retry-budget",
     r"D:\work\repo",
     r"\\build01\share\repo",
 ]
@@ -206,7 +206,7 @@ def test_normalize_uses_the_right_module_per_flavor():
 
 
 def test_worktree_shape_reads_a_windows_layout():
-    shape = grouping.worktree_shape(r"C:\Users\you\Coding\atlas-chat\.claude\worktrees\tenant-2g")
+    shape = grouping.worktree_shape(r"C:\Users\you\Coding\atlas-chat\.claude\worktrees\retry-budget")
     assert shape is not None
     assert shape.repo == "atlas-chat"
     assert shape.ancestor == r"C:\Users\you\Coding\atlas-chat"
@@ -225,7 +225,7 @@ def test_worktree_shape_is_case_sensitive_on_posix():
 
 
 def test_worktree_shape_reads_the_t3_windows_layout():
-    shape = grouping.worktree_shape(r"C:\Users\you\.t3\worktrees\atlas-chat\t3code-0c9c")
+    shape = grouping.worktree_shape(r"C:\Users\you\.t3\worktrees\atlas-chat\t3code-9d02")
     assert shape is not None
     assert shape.repo == "atlas-chat"
     assert shape.ancestor is None
@@ -291,7 +291,7 @@ def _groups(conn):
 def test_a_windows_worktree_adopts_its_parent_checkout(conn):
     _add(conn, r"C:\Users\you\Coding\atlas-chat",
          remote="https://github.com/vfl/atlas-chat.git", exists=1)
-    _add(conn, r"C:\Users\you\Coding\atlas-chat\.claude\worktrees\driftwood", exists=0)
+    _add(conn, r"C:\Users\you\Coding\atlas-chat\.claude\worktrees\perf-index", exists=0)
 
     grouping.detect(conn, probe_fs=False)
 
@@ -308,7 +308,7 @@ def test_a_windows_t3_worktree_finds_the_checkout_it_belongs_to(conn):
     """
     _add(conn, r"C:\Users\you\Coding\atlas-chat",
          remote="https://github.com/vfl/atlas-chat.git", exists=1)
-    _add(conn, r"C:\Users\you\.t3\worktrees\atlas-chat\t3code-0c9c", exists=0)
+    _add(conn, r"C:\Users\you\.t3\worktrees\atlas-chat\t3code-9d02", exists=0)
 
     grouping.detect(conn, probe_fs=False)
 
@@ -343,9 +343,9 @@ def test_two_machines_two_separators_one_repo(conn):
     already normalized. It is asserted because it is the whole reason the
     schema carries host_id on every row.
     """
-    _add(conn, "/Users/me/Coding/CC-Insights", remote="git@github.com:lunowe/cc-insights.git")
+    _add(conn, "/Users/me/Coding/CC-Insights", remote="git@github.com:demo/cc-insights.git")
     _add(conn, r"C:\Users\you\Coding\CC-Insights",
-         remote="https://github.com/lunowe/cc-insights.git")
+         remote="https://github.com/demo/cc-insights.git")
 
     grouping.detect(conn, probe_fs=False)
 
@@ -357,7 +357,7 @@ def test_a_windows_home_directory_does_not_swallow_the_repos_under_it(conn):
     """`anchorable`'s rule, for a home directory this machine cannot look up."""
     _add(conn, r"C:\Users\you")
     _add(conn, r"C:\Users\you\slm-finetune")
-    _add(conn, r"C:\Users\you\classification")
+    _add(conn, r"C:\Users\you\classifier")
 
     grouping.detect(conn, probe_fs=False)
 

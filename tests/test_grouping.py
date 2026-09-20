@@ -184,9 +184,9 @@ def test_normalize_remote_never_keeps_userinfo():
 
 
 def test_two_spellings_of_one_remote_normalize_equal():
-    ssh = grouping.normalize_remote("git@github.com:lunowe/pinecrest.git")
-    https = grouping.normalize_remote("https://github.com/lunowe/pinecrest")
-    assert ssh == https == "https://github.com/lunowe/pinecrest"
+    ssh = grouping.normalize_remote("git@github.com:demo/pinecrest.git")
+    https = grouping.normalize_remote("https://github.com/demo/pinecrest")
+    assert ssh == https == "https://github.com/demo/pinecrest"
 
 
 # ------------------------------------------------------------------- forge --
@@ -220,12 +220,12 @@ def test_parse_forge_empty():
     "path,repo,ancestor",
     [
         (
-            "/Users/gone/Coding/atlas-chat/.claude/worktrees/tenant-restricted",
+            "/Users/gone/Coding/atlas-chat/.claude/worktrees/retry-budget-spike",
             "atlas-chat",
             "/Users/gone/Coding/atlas-chat",
         ),
-        ("/Users/gone/.t3/worktrees/atlas-chat/t3code-7f2738ac", "atlas-chat", None),
-        ("/Users/gone/conductor/workspaces/Quickstart/chengdu", "Quickstart", None),
+        ("/Users/gone/.t3/worktrees/atlas-chat/t3code-4b91c2e0", "atlas-chat", None),
+        ("/Users/gone/conductor/workspaces/atlas-chat/bergen", "atlas-chat", None),
     ],
 )
 def test_worktree_shape_on_missing_paths(path, repo, ancestor):
@@ -318,7 +318,7 @@ def test_rule3_dead_t3_worktrees_adopt_the_parent_rule1_group(conn):
     """The 9-vs-13-rows case: worktrees whose paths are gone still find home."""
     add_project(conn, "/Users/x/Coding/atlas-chat",
                 remote="https://github.com/vfl/atlas-chat.git", exists=1)
-    for suffix in ("t3code-7f2738ac", "t3code-0c9cc823", "t3code-d677fddd"):
+    for suffix in ("t3code-4b91c2e0", "t3code-9d02f5a1", "t3code-1e57b3c4"):
         add_project(conn, f"/Users/x/.t3/worktrees/atlas-chat/{suffix}", exists=0)
 
     grouping.detect(conn, probe_fs=False)
@@ -331,7 +331,7 @@ def test_rule3_dead_t3_worktrees_adopt_the_parent_rule1_group(conn):
 def test_rule3_claude_worktree_adopts_its_ancestor_group(conn):
     add_project(conn, "/Users/x/Coding/atlas-chat",
                 remote="https://github.com/vfl/atlas-chat.git", exists=1)
-    add_project(conn, "/Users/x/Coding/atlas-chat/.claude/worktrees/driftwood", exists=0)
+    add_project(conn, "/Users/x/Coding/atlas-chat/.claude/worktrees/perf-index", exists=0)
 
     grouping.detect(conn, probe_fs=False)
 
@@ -340,29 +340,29 @@ def test_rule3_claude_worktree_adopts_its_ancestor_group(conn):
 
 
 def test_rule3_conductor_worktrees_group_together_without_a_parent_row(conn):
-    add_project(conn, "/Users/x/conductor/workspaces/Quickstart/chengdu", exists=0)
-    add_project(conn, "/Users/x/conductor/workspaces/Quickstart/krakow", exists=0)
+    add_project(conn, "/Users/x/conductor/workspaces/atlas-chat/bergen", exists=0)
+    add_project(conn, "/Users/x/conductor/workspaces/atlas-chat/almeria", exists=0)
 
     grouping.detect(conn, probe_fs=False)
 
     g = conn.execute("SELECT * FROM project_group").fetchone()
-    assert (g["origin"], g["name"]) == ("path_worktree", "Quickstart")
+    assert (g["origin"], g["name"]) == ("path_worktree", "atlas-chat")
     assert len(group_names(conn)) == 2
 
 
 def test_rule3_does_not_confuse_a_similarly_named_project(conn):
-    """`atlas-chat-loam` must not be swallowed by `atlas-chat`."""
+    """`atlas-chat-sdk` must not be swallowed by `atlas-chat`."""
     add_project(conn, "/Users/x/Coding/atlas-chat",
                 remote="https://github.com/vfl/atlas-chat.git")
-    add_project(conn, "/Users/x/Coding/atlas-chat-loam",
-                remote="https://github.com/vfl/atlas-chat-loam.git")
+    add_project(conn, "/Users/x/Coding/atlas-chat-sdk",
+                remote="https://github.com/vfl/atlas-chat-sdk.git")
     add_project(conn, "/Users/x/.t3/worktrees/atlas-chat/t3code-1", exists=0)
 
     grouping.detect(conn, probe_fs=False)
 
     names = group_names(conn)
     assert names["/Users/x/.t3/worktrees/atlas-chat/t3code-1"] == "atlas-chat"
-    assert names["/Users/x/Coding/atlas-chat-loam"] == "atlas-chat-loam"
+    assert names["/Users/x/Coding/atlas-chat-sdk"] == "atlas-chat-sdk"
 
 
 # ----------------------------------------------------------------- rule 4 --
@@ -424,7 +424,7 @@ def test_a_home_directory_row_never_becomes_an_anchor(conn, fake_home):
     add_project(conn, fake_home, name="someone")
     add_project(conn, f"{fake_home}/Downloads")
     add_project(conn, f"{fake_home}/Coding/slm-finetune")
-    add_project(conn, f"{fake_home}/Coding/atlas-chat-loam")
+    add_project(conn, f"{fake_home}/Coding/atlas-chat-sdk")
 
     r = grouping.detect(conn, probe_fs=False)
 
@@ -685,7 +685,7 @@ def test_find_projects_matches_name_or_path_case_insensitively(conn):
     add_project(conn, "/w/atlas-chat")
     add_project(conn, "/w/other/frontend")
 
-    assert [r["root_path"] for r in grouping.find_projects(conn, "chatforen")] == [
+    assert [r["root_path"] for r in grouping.find_projects(conn, "ATLAS-CHAT")] == [
         "/w/atlas-chat"
     ]
     assert [r["root_path"] for r in grouping.find_projects(conn, "OTHER/")] == [
@@ -695,7 +695,7 @@ def test_find_projects_matches_name_or_path_case_insensitively(conn):
 
 def test_an_exact_name_beats_the_substring_haze(conn):
     add_project(conn, "/w/atlas-chat")
-    add_project(conn, "/w/atlas-chat-loam")
+    add_project(conn, "/w/atlas-chat-sdk")
     add_project(conn, "/w/atlas-chat/backend")
 
     picked = grouping.resolve_project(conn, "atlas-chat")

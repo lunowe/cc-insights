@@ -771,7 +771,7 @@ function SessionRows({
   onEnter: (e: ReactPointerEvent<SVGElement>, s: Span) => void
   onLeave: () => void
 }) {
-  // The project, never the path: a lane headed `tenant-restricted` is the bug
+  // The project, never the path: a lane headed `retry-budget-spike` is the bug
   // this fixes — that worktree is atlas-chat, and so are twelve others.
   const name = group.groupName ?? group.projectName ?? "No project"
   const n = group.lanes.length

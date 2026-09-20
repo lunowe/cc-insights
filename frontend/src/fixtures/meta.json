@@ -1,430 +1,232 @@
 {
- "hostname": "demo-laptop.local",
- "firstTs": 1770565158571,
- "lastTs": 1789915552340,
+ "hostname": "demo-mbp.local",
+ "firstTs": 1772448622000,
+ "lastTs": 1789742291000,
  "sources": [
   "claude_code",
-  "codex",
-  "opencode"
+  "codex"
  ],
  "projects": [
   {
-   "projectId": "d2e5edff5d4079af02553daa5630d5f9",
+   "projectId": "a793902bcc03429750bb865e6d0a4499",
    "name": "atlas-chat",
-   "rootPath": "/Users/dev/Coding/atlas-chat",
-   "activeMs": 208198876
+   "rootPath": "/Users/demo/Coding/atlas-chat",
+   "activeMs": 92517000
   },
   {
-   "projectId": "2cc665728dc737965416c0355e85453a",
-   "name": "tenant-restricted",
-   "rootPath": "/Users/dev/Coding/atlas-chat/.claude/worktrees/tenant-restricted",
-   "activeMs": 143455539
+   "projectId": "6b97fd430c3eb3977cf6967ba5587c12",
+   "name": "cc-insights",
+   "rootPath": "/Users/demo/Coding/cc-insights",
+   "activeMs": 66312000
   },
   {
-   "projectId": "cd93b31db46aeeaec1173987b66bf117",
+   "projectId": "ce86efe26fa662bbb0e838f145414363",
    "name": "skill-planner",
-   "rootPath": "/Users/dev/Coding/skill-planner",
-   "activeMs": 64137053
+   "rootPath": "/Users/demo/Coding/skill-planner",
+   "activeMs": 45036000
   },
   {
-   "projectId": "148f6478127fd369399e329d4263efd0",
-   "name": "pinecrest",
-   "rootPath": "/Users/dev/Coding/pinecrest",
-   "activeMs": 35906543
+   "projectId": "a5ddbaa902bc91de50fbf8cdac762432",
+   "name": "streaming",
+   "rootPath": "/Users/demo/Coding/atlas-chat/.claude/worktrees/streaming",
+   "activeMs": 34893000
   },
   {
-   "projectId": "03c14aa31eaabeec88ba83b08922d11f",
-   "name": "harbor-cli",
-   "rootPath": "/Users/dev/Coding/harbor-cli",
-   "activeMs": 30918100
+   "projectId": "2cdd41098e9eaa54f555af9810778736",
+   "name": "atlas-chat-sdk",
+   "rootPath": "/Users/demo/Coding/atlas-chat-sdk",
+   "activeMs": 33082000
   },
   {
-   "projectId": "ee432c67eef10ccd5a942cef55838898",
-   "name": "maze-game",
-   "rootPath": "/Users/dev/Coding/maze-game",
-   "activeMs": 30466974
+   "projectId": "746009b50d8400193ff79e38c182b443",
+   "name": "t3code-4b91c2e0",
+   "rootPath": "/Users/demo/.t3/worktrees/atlas-chat/t3code-4b91c2e0",
+   "activeMs": 31665000
   },
   {
-   "projectId": "0e7fd09c47687478002b4a540953dbb6",
-   "name": "backend",
-   "rootPath": "/Users/dev/Coding/atlas-chat/backend",
-   "activeMs": 23949245
-  },
-  {
-   "projectId": "72d7ccef2e626422ec1bf7083ce5b5b5",
-   "name": "CC-Insights",
-   "rootPath": "/Users/dev/Coding/CC-Insights",
-   "activeMs": 22293870
-  },
-  {
-   "projectId": "fdddb9845a6dd3bb1562d4babcac5ae1",
-   "name": "millipede",
-   "rootPath": "/Users/dev/Coding/millipede",
-   "activeMs": 19246611
-  },
-  {
-   "projectId": "5ca2fdad5c27154f62653b067d8cb747",
-   "name": "frontend_new",
-   "rootPath": "/Users/dev/Coding/skill-planner/frontend_new",
-   "activeMs": 13677913
-  },
-  {
-   "projectId": "d4611906d9b616828da419e65122ced6",
-   "name": "t3code-7f2738ac",
-   "rootPath": "/Users/dev/.t3/worktrees/atlas-chat/t3code-7f2738ac",
-   "activeMs": 13550796
-  },
-  {
-   "projectId": "4b0269c48a882a65ce3b4e605acd6ebd",
-   "name": "backend",
-   "rootPath": "/Users/dev/Coding/skill-planner/backend",
-   "activeMs": 13546264
-  },
-  {
-   "projectId": "ff041bda397db10a6eed9062ac4a9386",
-   "name": "slm-finetune",
-   "rootPath": "/Users/dev/Coding/slm-finetune",
-   "activeMs": 12335925
-  },
-  {
-   "projectId": "dd30cd7a5feecbaf313b0abcf0ac9371",
-   "name": "t3code-0c9cc823",
-   "rootPath": "/Users/dev/.t3/worktrees/atlas-chat/t3code-0c9cc823",
-   "activeMs": 11988633
-  },
-  {
-   "projectId": "35cb72a79700c3d2044ae6089f54d2db",
-   "name": "app",
-   "rootPath": "/Users/dev/Coding/skill-planner/frontend_new/app",
-   "activeMs": 8640166
-  },
-  {
-   "projectId": "fc8cdd3f6a94dbe9be23a60b44312a08",
-   "name": "platform-monorepo",
-   "rootPath": "/Users/dev/Coding/platform/platform-monorepo",
-   "activeMs": 7513971
-  },
-  {
-   "projectId": "49034d51d6da20f6d44b2f126e3c6971",
-   "name": "atlas-chat-loam",
-   "rootPath": "/Users/dev/Coding/atlas-chat-loam",
-   "activeMs": 6300979
-  },
-  {
-   "projectId": "f4cb984af32a4030fef0492b6c700f2f",
-   "name": "classification",
-   "rootPath": "/Users/dev/Coding/census-pipeline/classification",
-   "activeMs": 6175751
-  },
-  {
-   "projectId": "9fac61faec1c810193163cc6a061d1ee",
-   "name": "glyphwright",
-   "rootPath": "/Users/dev/Coding/glyphwright",
-   "activeMs": 3947044
-  },
-  {
-   "projectId": "de5817485e3cdf9e9b04f2af29ebca7c",
-   "name": "t3code-d677fddd",
-   "rootPath": "/Users/dev/.t3/worktrees/atlas-chat/t3code-d677fddd",
-   "activeMs": 3338510
-  },
-  {
-   "projectId": "293356e36a51e46517f9179d07fb0249",
-   "name": "t3code-815c4740",
-   "rootPath": "/Users/dev/.t3/worktrees/skill-planner/t3code-815c4740",
-   "activeMs": 3053680
-  },
-  {
-   "projectId": "885643d322f6939e542f7ec9811979a3",
-   "name": "chec",
-   "rootPath": "/Users/dev/Documents/Codex/2026-08-09/chec",
-   "activeMs": 1985904
-  },
-  {
-   "projectId": "f3ac45d78301151c9b709f8ba493c4ca",
-   "name": "g-p-6a7602f2dbf48191a51ea4d5f596b3c1",
-   "rootPath": "/Users/dev/.codex/.chatgpt-projects/g-p-6a7602f2dbf48191a51ea4d5f596b3c1",
-   "activeMs": 1984477
-  },
-  {
-   "projectId": "a36cc49d5648366c2d47e3648ae60bc2",
-   "name": "chatforen",
-   "rootPath": "/Users/dev/Coding/atlas-chat/frontend_new/chatforen",
-   "activeMs": 1602199
-  },
-  {
-   "projectId": "8a005df7741cc85140327c47f6f32a96",
-   "name": "ich",
-   "rootPath": "/Users/dev/Documents/Codex/2026-09-06/ich",
-   "activeMs": 1364004
-  },
-  {
-   "projectId": "b836d59044e4790df0856f80f782f8fb",
-   "name": "eye-breaks",
-   "rootPath": "/Users/dev/Documents/eye-breaks",
-   "activeMs": 1324307
-  },
-  {
-   "projectId": "bc7ac6a0ff4065376913a474bb92fe2b",
-   "name": "t3code-fc5d4c15",
-   "rootPath": "/Users/dev/.t3/worktrees/atlas-chat/t3code-fc5d4c15",
-   "activeMs": 1145764
-  },
-  {
-   "projectId": "d4328ed648737fbb6f44b8a7851b4a0e",
-   "name": "wf_665a2963-01a-2",
-   "rootPath": "/Users/dev/Coding/millipede/.claude/worktrees/wf_665a2963-01a-2",
-   "activeMs": 1099819
-  },
-  {
-   "projectId": "98b7e848d2b9842187b178018923f128",
-   "name": "tabula-rasa",
-   "rootPath": "/Users/dev/Coding/tabula-rasa",
-   "activeMs": 916871
-  },
-  {
-   "projectId": "279e18189a90d7775539220ebe47d19e",
-   "name": "resume-site",
-   "rootPath": "/Users/dev/Coding/resume-site",
-   "activeMs": 899443
-  },
-  {
-   "projectId": "aefb682b53028a41188bd76d413fcc9c",
-   "name": "t3code-42282307",
-   "rootPath": "/Users/dev/.t3/worktrees/atlas-chat/t3code-42282307",
-   "activeMs": 671693
-  },
-  {
-   "projectId": "03c22b21e26042ffd648ef8afd4d1ef3",
-   "name": "latex",
-   "rootPath": "/Users/dev/Coding/slm-finetune/latex",
-   "activeMs": 598170
-  },
-  {
-   "projectId": "84e17d54ec9fd9a90c8b56dd03d04fe1",
-   "name": "t3code-cf618c76",
-   "rootPath": "/Users/dev/.t3/worktrees/atlas-chat/t3code-cf618c76",
-   "activeMs": 566663
-  },
-  {
-   "projectId": "2e5ebde31e4e86293b2fb643b1bd356d",
-   "name": "t3code-354c3100",
-   "rootPath": "/Users/dev/.t3/worktrees/atlas-chat/t3code-354c3100",
-   "activeMs": 439530
-  },
-  {
-   "projectId": "1db83d8a198b45c6071cb482a774b4d4",
-   "name": "t3code-9e02648c",
-   "rootPath": "/Users/dev/.t3/worktrees/atlas-chat/t3code-9e02648c",
-   "activeMs": 421753
-  },
-  {
-   "projectId": "de9f4bd4f2958abaef035cd80cafa04e",
-   "name": "ctx-lens",
-   "rootPath": "/Users/dev/Coding/ctx-lens",
-   "activeMs": 390905
-  },
-  {
-   "projectId": "b0ab46df627186f7af850cba599219b1",
-   "name": "Downloads",
-   "rootPath": "/Users/dev/Downloads",
-   "activeMs": 283130
-  },
-  {
-   "projectId": "5976e720862dd44071720808e0aa3b7f",
-   "name": "krakow",
-   "rootPath": "/Users/dev/conductor/workspaces/Quickstart/krakow",
-   "activeMs": 263094
-  },
-  {
-   "projectId": "bab4cedb49482369939804a139d44c80",
-   "name": "style-companion",
-   "rootPath": "/Users/dev/Coding/style-companion",
-   "activeMs": 229225
-  },
-  {
-   "projectId": "43b62b1b30975164bcc6d0a1c28ff53e",
-   "name": "chengdu",
-   "rootPath": "/Users/dev/conductor/workspaces/Quickstart/chengdu",
-   "activeMs": 195422
-  },
-  {
-   "projectId": "a19049de02710bd5c5b8fbeda0c61ad9",
-   "name": "lunowe",
-   "rootPath": "/Users/dev",
-   "activeMs": 136245
-  },
-  {
-   "projectId": "a1e8a9e0943d25b2af099e18437b816b",
+   "projectId": "8a1e9511b49c004d532ba54874e56891",
    "name": "census-pipeline",
-   "rootPath": "/Users/dev/Coding/census-pipeline",
-   "activeMs": 85116
+   "rootPath": "/Users/demo/Coding/census-pipeline",
+   "activeMs": 26030000
   },
   {
-   "projectId": "11bfb04b60bea55b7329bf2b288e9fda",
-   "name": "v2-windows-paths",
-   "rootPath": "/Users/dev/Coding/CC-Insights/.claude/worktrees/v2-windows-paths",
-   "activeMs": 84002
+   "projectId": "a83ea3b4f05dfe212a1e1273e2d2bcaa",
+   "name": "retry-budget-spike",
+   "rootPath": "/Users/demo/Coding/atlas-chat/.claude/worktrees/retry-budget-spike",
+   "activeMs": 25333000
   },
   {
-   "projectId": "72584108e59cd885328aa22bbcde737a",
-   "name": "i-have-a-windows-pc-connected",
-   "rootPath": "/Users/dev/Documents/Codex/2026-08-09/i-have-a-windows-pc-connected",
-   "activeMs": 81442
+   "projectId": "0d7b4ea17d2a8732e7ce8b79ea612da4",
+   "name": "slm-finetune",
+   "rootPath": "/Users/demo/Coding/slm-finetune",
+   "activeMs": 24148000
   },
   {
-   "projectId": "c7cc684749955cc57c637f62bb07f398",
-   "name": "kraken-search",
-   "rootPath": "/Users/dev/Coding/kraken-search",
-   "activeMs": 50924
+   "projectId": "212169781709d69295a11a0567de7595",
+   "name": "glyphwright",
+   "rootPath": "/Users/demo/Coding/glyphwright",
+   "activeMs": 22442000
   },
   {
-   "projectId": "a73a3f7d519eaa4daa766419cd7f4817",
-   "name": "typed-judgments",
-   "rootPath": "/Users/dev/Coding/typed-judgments",
-   "activeMs": 47468
+   "projectId": "76d12f62678b31dec766bc663cdca124",
+   "name": "pinecrest",
+   "rootPath": "/Users/demo/Coding/pinecrest",
+   "activeMs": 22102000
   },
   {
-   "projectId": "e6f223fe95f12718f02bbe5b02febd8b",
-   "name": "driftwood-sonnet5",
-   "rootPath": "/Users/dev/Coding/atlas-chat/.claude/worktrees/driftwood-sonnet5",
-   "activeMs": 25353
+   "projectId": "ffb586da695765c24d462bdf85620a5e",
+   "name": "tabula-rasa",
+   "rootPath": "/Users/demo/Coding/tabula-rasa",
+   "activeMs": 21743000
   },
   {
-   "projectId": "db3e06571db40a07b2757dd28b4fa5df",
-   "name": "scratchpad",
-   "rootPath": "/private/tmp/claude-501/-Users-dev/c6d43dab-644d-4c04-8ad1-63840f1d170d/scratchpad",
-   "activeMs": 16444
+   "projectId": "203161f792666b7e135b3b6ac8312d14",
+   "name": "spike-websockets",
+   "rootPath": "/Users/demo/scratch/spike-websockets",
+   "activeMs": 21324000
   },
   {
-   "projectId": "087f3384f50deb1656468d1095bccc38",
-   "name": "tmp",
-   "rootPath": "/private/tmp",
-   "activeMs": 3449
+   "projectId": "421b5d73a5f69c56f83b6ed36e4c4d87",
+   "name": "harbor-cli",
+   "rootPath": "/Users/demo/Coding/harbor-cli",
+   "activeMs": 19345000
   },
   {
-   "projectId": "09b06533673fa8e62fd41da603b13be5",
-   "name": ".claude",
-   "rootPath": "/Users/dev/.claude",
-   "activeMs": 1
+   "projectId": "00042a04f7233532c7303ea4c13fe06d",
+   "name": "doc-classifier",
+   "rootPath": "/Users/demo/Coding/doc-classifier",
+   "activeMs": 17846000
   },
   {
-   "projectId": "abd384d29a514396a1a7e71dd651b31e",
-   "name": "frontend",
-   "rootPath": "/Users/dev/Coding/CC-Insights/frontend",
-   "activeMs": 0
+   "projectId": "5ec77945d4636c1bcdaa63d1f17aea75",
+   "name": "fixtures",
+   "rootPath": "/Users/demo/Coding/cc-insights/.claude/worktrees/fixtures",
+   "activeMs": 17711000
+  },
+  {
+   "projectId": "0c3697c4f5a89cd1168b59b42f2d8def",
+   "name": "latex",
+   "rootPath": "/Users/demo/Coding/slm-finetune/latex",
+   "activeMs": 14408000
+  },
+  {
+   "projectId": "f9219959ce177ec162b67489df799ac0",
+   "name": "bergen",
+   "rootPath": "/Users/demo/conductor/workspaces/atlas-chat/bergen",
+   "activeMs": 14014000
+  },
+  {
+   "projectId": "01f441445982bc0f4abb8e89b93dcc42",
+   "name": "t3code-9d02f5a1",
+   "rootPath": "/Users/demo/.t3/worktrees/cc-insights/t3code-9d02f5a1",
+   "activeMs": 13697000
+  },
+  {
+   "projectId": "7aa05e120e32a6fb09c487fc6b8be6f7",
+   "name": "seaglass",
+   "rootPath": "/Users/demo/Coding/seaglass",
+   "activeMs": 12174000
+  },
+  {
+   "projectId": "88d430e2af3c6468afca0ca00b468e59",
+   "name": "notes",
+   "rootPath": "/Users/demo/Coding/notes",
+   "activeMs": 9028000
+  },
+  {
+   "projectId": "41e929919ad4b347071f8e888400d4de",
+   "name": "atlas-chat",
+   "rootPath": "/Users/demo/Coding/forks/atlas-chat",
+   "activeMs": 6451000
+  },
+  {
+   "projectId": "eea08fc4dbb260ed88ee4cf3b3f18675",
+   "name": "bench-tokenizer",
+   "rootPath": "/Users/demo/scratch/bench-tokenizer",
+   "activeMs": 5931000
+  },
+  {
+   "projectId": "b61137eed7593a9648467f3384f65a6e",
+   "name": "almeria",
+   "rootPath": "/Users/demo/conductor/workspaces/census-pipeline/almeria",
+   "activeMs": 2596000
+  },
+  {
+   "projectId": "3e339e9f5c989c9918b2c27450b095f1",
+   "name": "repro-1284",
+   "rootPath": "/Users/demo/Downloads/repro-1284",
+   "activeMs": 2201000
   }
  ],
  "groups": [
   {
-   "groupId": "537244a50f851cb18dec2c86c9caf96a",
+   "groupId": "7be9a63ab6d23cc3708ff3693546c7de",
    "name": "atlas-chat",
-   "activeMs": 409354554
+   "activeMs": 204873000
   },
   {
-   "groupId": "a667e50d7f3eefedcc9eb0ab9b525f8d",
+   "groupId": "39eb0b9b1e0f7cdb4ac3adba0b1f2ee5",
+   "name": "cc-insights",
+   "activeMs": 97720000
+  },
+  {
+   "groupId": "fe920c93c81ff8ee11d3fae607a0c55c",
    "name": "skill-planner",
-   "activeMs": 103055076
+   "activeMs": 45036000
   },
   {
-   "groupId": "3c7b55363c60b03e0e6fc27c08a3fd71",
-   "name": "pinecrest",
-   "activeMs": 35906543
-  },
-  {
-   "groupId": "bcb9084c7e37a7d59952211f182c963c",
-   "name": "harbor-cli",
-   "activeMs": 30918100
-  },
-  {
-   "groupId": "ba05a891e7a7a8b3afabd6a13181c1e8",
-   "name": "maze-game",
-   "activeMs": 30466974
-  },
-  {
-   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
-   "name": "CC-Insights",
-   "activeMs": 22377872
-  },
-  {
-   "groupId": "cc284b3a28236726919da7227fd4e02e",
-   "name": "millipede",
-   "activeMs": 20346430
-  },
-  {
-   "groupId": "3f111c19e1bc7c2eef9a754d64369c2a",
+   "groupId": "8a5dc036482fb917f6a66339c91b5aa7",
    "name": "slm-finetune",
-   "activeMs": 12934095
+   "activeMs": 38556000
   },
   {
-   "groupId": "b6b6def741fcdcd6066d3305531bb058",
-   "name": "platform-monorepo",
-   "activeMs": 7513971
+   "groupId": "f1bb7f135a2286ee9427249d9732dc13",
+   "name": "atlas-chat-sdk",
+   "activeMs": 33082000
   },
   {
-   "groupId": "f0289f228130d5ad771ba299970fe198",
+   "groupId": "61a43d47731b4ae724831e733c02bd3f",
    "name": "census-pipeline",
-   "activeMs": 6260867
+   "activeMs": 28626000
   },
   {
-   "groupId": "b6b834e245aad230d3ebd70223e47307",
+   "groupId": "251e9c6ece2d873b547d6564a6d736f1",
    "name": "glyphwright",
-   "activeMs": 3947044
+   "activeMs": 22442000
   },
   {
-   "groupId": "398533514ec34cbfe16fbd8f44838d2e",
-   "name": "eye-breaks",
-   "activeMs": 1324307
+   "groupId": "a12b1e43fc4634c9c20a100d29410a79",
+   "name": "pinecrest",
+   "activeMs": 22102000
   },
   {
-   "groupId": "a6790ba1ba466bf6461562dd700eb4bd",
+   "groupId": "6f15ca34dbfdc013e8bb46fe0cbd8e66",
    "name": "tabula-rasa",
-   "activeMs": 916871
+   "activeMs": 21743000
   },
   {
-   "groupId": "cf61f9d925d30e5acd1e741e1199e8ea",
-   "name": "Quickstart",
-   "activeMs": 458516
+   "groupId": "39995b71ba3df308bf7dfdf883bf9509",
+   "name": "harbor-cli",
+   "activeMs": 19345000
   },
   {
-   "groupId": "63ad37419eac3b04331174000890cfa1",
-   "name": "ctx-lens",
-   "activeMs": 390905
+   "groupId": "5724f580aa010fb3455b3e1a391f1678",
+   "name": "doc-classifier",
+   "activeMs": 17846000
   },
   {
-   "groupId": "ffe74b72d353787e90f06ec6e6ce9142",
-   "name": "style-companion",
-   "activeMs": 229225
-  },
-  {
-   "groupId": "b3e92e605ec2ac430bb67326c3248e6a",
-   "name": "tmp",
-   "activeMs": 19893
+   "groupId": "6a3c21e37797f9e205bc26013341dfa2",
+   "name": "seaglass",
+   "activeMs": 12174000
   }
  ],
  "agents": [
   {
-   "agentName": "Aristotle",
+   "agentName": "Ampere",
    "source": "codex"
   },
   {
-   "agentName": "Averroes",
-   "source": "codex"
-  },
-  {
-   "agentName": "Beauvoir",
-   "source": "codex"
-  },
-  {
-   "agentName": "Bohr",
-   "source": "codex"
-  },
-  {
-   "agentName": "Carver",
-   "source": "codex"
-  },
-  {
-   "agentName": "Confucius",
+   "agentName": "Boltzmann",
    "source": "codex"
   },
   {
@@ -432,11 +234,11 @@
    "source": "codex"
   },
   {
-   "agentName": "Dalton",
+   "agentName": "Dirac",
    "source": "codex"
   },
   {
-   "agentName": "Descartes",
+   "agentName": "Euler",
    "source": "codex"
   },
   {
@@ -444,31 +246,39 @@
    "source": "claude_code"
   },
   {
-   "agentName": "Feynman",
+   "agentName": "Faraday",
    "source": "codex"
   },
   {
-   "agentName": "Hilbert",
+   "agentName": "Gauss",
    "source": "codex"
   },
   {
-   "agentName": "Hume",
+   "agentName": "Hopper",
    "source": "codex"
   },
   {
-   "agentName": "Leibniz",
+   "agentName": "Ising",
    "source": "codex"
   },
   {
-   "agentName": "Linnaeus",
+   "agentName": "Joule",
    "source": "codex"
   },
   {
-   "agentName": "McClintock",
+   "agentName": "Kelvin",
    "source": "codex"
   },
   {
-   "agentName": "Mill",
+   "agentName": "Lovelace",
+   "source": "codex"
+  },
+  {
+   "agentName": "Maxwell",
+   "source": "codex"
+  },
+  {
+   "agentName": "Noether",
    "source": "codex"
   },
   {
@@ -476,55 +286,35 @@
    "source": "codex"
   },
   {
-   "agentName": "Parfit",
-   "source": "codex"
-  },
-  {
-   "agentName": "Pauli",
-   "source": "codex"
-  },
-  {
-   "agentName": "Poincare",
-   "source": "codex"
-  },
-  {
-   "agentName": "Popper",
-   "source": "codex"
-  },
-  {
-   "agentName": "Ptolemy",
-   "source": "codex"
-  },
-  {
-   "agentName": "Ramanujan",
-   "source": "codex"
-  },
-  {
-   "agentName": "Schrodinger",
-   "source": "codex"
-  },
-  {
-   "agentName": "Singer",
-   "source": "codex"
-  },
-  {
-   "agentName": "claude",
+   "agentName": "Plan",
    "source": "claude_code"
   },
   {
-   "agentName": "codex:codex-rescue",
+   "agentName": "Planck",
+   "source": "codex"
+  },
+  {
+   "agentName": "Rayleigh",
+   "source": "codex"
+  },
+  {
+   "agentName": "Shannon",
+   "source": "codex"
+  },
+  {
+   "agentName": "code-reviewer",
    "source": "claude_code"
   },
   {
-   "agentName": "explore",
-   "source": "opencode"
-  },
-  {
-   "agentName": "general",
-   "source": "opencode"
+   "agentName": "docs-writer",
+   "source": "claude_code"
   },
   {
    "agentName": "general-purpose",
+   "source": "claude_code"
+  },
+  {
+   "agentName": "test-runner",
    "source": "claude_code"
   },
   {
@@ -533,21 +323,11 @@
   }
  ],
  "models": [
-  "claude-fable-5",
   "claude-fable-5-1",
-  "claude-opus-4-8",
   "claude-opus-5",
   "claude-sonnet-5",
-  "gpt-5.3-codex",
   "gpt-5.4",
-  "gpt-5.5",
-  "gpt-5.6",
-  "gpt-5.6-luna",
-  "gpt-5.6-sol",
-  "gpt-6-astra",
-  "muse-spark-1.3-contributor-free",
-  "pytest",
-  "x-preview-f-free"
+  "gpt-5.6"
  ],
  "idleThresholdS": 300,
  "pricing": {
@@ -566,12 +346,7 @@
     "pricedAs": "openai/gpt-5.6-sol"
    }
   ],
-  "unpricedModels": [
-   "gpt-6-astra",
-   "muse-spark-1.3-contributor-free",
-   "pytest",
-   "x-preview-f-free"
-  ]
+  "unpricedModels": []
  },
- "generatedAt": 1789915611230
+ "generatedAt": 1789935052521
 }

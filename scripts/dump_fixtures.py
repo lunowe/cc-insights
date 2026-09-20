@@ -14,8 +14,13 @@ being a cross-check and became a place for the two to drift -- adding cost
 would have meant writing the day-bucketing and the nano-unit rounding twice.
 It now calls `metrics.endpoint()`, the same function `cci serve` calls. The
 fixtures keep their regression value: they are a committed snapshot of what
-this pipeline answered on a real corpus, and a diff here is a real change in
+this pipeline answered on a fixed corpus, and a diff here is a real change in
 behaviour that a human should look at before committing.
+
+The corpus is a synthetic one, built by `scripts/make_demo_corpus.py` -- see
+that script for why. Point this at a real database to inspect your own
+numbers, but do not commit the result: these files are the sample dashboard
+and ship in the wheel.
 """
 from __future__ import annotations
 

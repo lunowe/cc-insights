@@ -1,196 +1,154 @@
 {
  "agents": [
   {
-   "agentName": "general-purpose",
-   "source": "claude_code",
-   "threads": 209,
-   "activeMs": 212043678
-  },
-  {
-   "agentName": "claude",
-   "source": "claude_code",
-   "threads": 27,
-   "activeMs": 32820759
-  },
-  {
    "agentName": "workflow-subagent",
    "source": "claude_code",
-   "threads": 49,
-   "activeMs": 28604516
+   "threads": 44,
+   "activeMs": 20733000
+  },
+  {
+   "agentName": "code-reviewer",
+   "source": "claude_code",
+   "threads": 38,
+   "activeMs": 20294000
+  },
+  {
+   "agentName": "Plan",
+   "source": "claude_code",
+   "threads": 45,
+   "activeMs": 20273000
+  },
+  {
+   "agentName": "docs-writer",
+   "source": "claude_code",
+   "threads": 40,
+   "activeMs": 18643000
+  },
+  {
+   "agentName": "test-runner",
+   "source": "claude_code",
+   "threads": 39,
+   "activeMs": 17816000
   },
   {
    "agentName": "Explore",
    "source": "claude_code",
-   "threads": 46,
-   "activeMs": 11734188
+   "threads": 36,
+   "activeMs": 16378000
   },
   {
-   "agentName": "general",
-   "source": "opencode",
-   "threads": 8,
-   "activeMs": 5377143
-  },
-  {
-   "agentName": "codex:codex-rescue",
+   "agentName": "general-purpose",
    "source": "claude_code",
-   "threads": 55,
-   "activeMs": 2424971
+   "threads": 31,
+   "activeMs": 14536000
   },
   {
-   "agentName": "Confucius",
+   "agentName": "Ampere",
    "source": "codex",
-   "threads": 2,
-   "activeMs": 1698984
+   "threads": 11,
+   "activeMs": 11365000
   },
   {
-   "agentName": "Singer",
+   "agentName": "Dirac",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 1460506
+   "threads": 10,
+   "activeMs": 9633000
   },
   {
-   "agentName": "Schrodinger",
+   "agentName": "Joule",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 1419689
+   "threads": 10,
+   "activeMs": 8618000
   },
   {
-   "agentName": "Ohm",
+   "agentName": "Faraday",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 1308979
+   "threads": 6,
+   "activeMs": 6606000
   },
   {
-   "agentName": "Popper",
+   "agentName": "Ising",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 1252581
+   "threads": 8,
+   "activeMs": 5898000
   },
   {
-   "agentName": "Poincare",
+   "agentName": "Lovelace",
    "source": "codex",
-   "threads": 2,
-   "activeMs": 1134025
+   "threads": 7,
+   "activeMs": 5788000
   },
   {
    "agentName": "Curie",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 928795
+   "threads": 5,
+   "activeMs": 5344000
   },
   {
-   "agentName": "Hilbert",
+   "agentName": "Boltzmann",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 756008
+   "threads": 7,
+   "activeMs": 5234000
   },
   {
-   "agentName": "Pauli",
+   "agentName": "Planck",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 751449
+   "threads": 5,
+   "activeMs": 4964000
   },
   {
-   "agentName": "Averroes",
+   "agentName": "Maxwell",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 605230
+   "threads": 4,
+   "activeMs": 4859000
   },
   {
-   "agentName": "Descartes",
+   "agentName": "Euler",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 498539
+   "threads": 6,
+   "activeMs": 4793000
   },
   {
-   "agentName": "Hume",
+   "agentName": "Rayleigh",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 319130
+   "threads": 5,
+   "activeMs": 4639000
   },
   {
-   "agentName": "Leibniz",
+   "agentName": "Kelvin",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 307542
+   "threads": 4,
+   "activeMs": 4384000
   },
   {
-   "agentName": "Mill",
+   "agentName": "Shannon",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 233626
+   "threads": 5,
+   "activeMs": 4383000
   },
   {
-   "agentName": "McClintock",
+   "agentName": "Hopper",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 208703
+   "threads": 5,
+   "activeMs": 4103000
   },
   {
-   "agentName": "Parfit",
+   "agentName": "Noether",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 202406
+   "threads": 5,
+   "activeMs": 3756000
   },
   {
-   "agentName": "explore",
-   "source": "opencode",
-   "threads": 1,
-   "activeMs": 101032
-  },
-  {
-   "agentName": "Dalton",
+   "agentName": "Ohm",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 63926
+   "threads": 4,
+   "activeMs": 3653000
   },
   {
-   "agentName": "Aristotle",
+   "agentName": "Gauss",
    "source": "codex",
-   "threads": 1,
-   "activeMs": 0
-  },
-  {
-   "agentName": "Beauvoir",
-   "source": "codex",
-   "threads": 1,
-   "activeMs": 0
-  },
-  {
-   "agentName": "Bohr",
-   "source": "codex",
-   "threads": 1,
-   "activeMs": 0
-  },
-  {
-   "agentName": "Carver",
-   "source": "codex",
-   "threads": 1,
-   "activeMs": 0
-  },
-  {
-   "agentName": "Feynman",
-   "source": "codex",
-   "threads": 1,
-   "activeMs": 0
-  },
-  {
-   "agentName": "Linnaeus",
-   "source": "codex",
-   "threads": 1,
-   "activeMs": 0
-  },
-  {
-   "agentName": "Ptolemy",
-   "source": "codex",
-   "threads": 1,
-   "activeMs": 0
-  },
-  {
-   "agentName": "Ramanujan",
-   "source": "codex",
-   "threads": 1,
-   "activeMs": 0
+   "threads": 5,
+   "activeMs": 3408000
   }
  ]
 }

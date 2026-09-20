@@ -144,7 +144,7 @@ export type Span = {
   /**
    * The **project** this span belongs to (`project_group` in the schema).
    * A swimlane lane is labelled and coloured by this, never by `projectName`:
-   * the path is called `tenant-restricted` while the project is atlas-chat,
+   * the path is called `retry-budget-spike` while the project is atlas-chat,
    * and labelling by path splits one project into a dozen differently-named,
    * differently-coloured lanes. Null when the path has no project yet.
    */
