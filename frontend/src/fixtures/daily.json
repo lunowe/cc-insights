@@ -1313,8 +1313,8 @@
    "activeMs": 11739325,
    "wallMs": 6029006,
    "bySource": {
-    "claude_code": 7056605,
-    "codex": 4682720
+    "codex": 4682720,
+    "claude_code": 7056605
    }
   },
   {
@@ -1349,8 +1349,8 @@
    "activeMs": 2526854,
    "wallMs": 2024473,
    "bySource": {
-    "claude_code": 1463631,
-    "codex": 1063223
+    "codex": 1063223,
+    "claude_code": 1463631
    }
   },
   {
@@ -1421,8 +1421,8 @@
    "activeMs": 1759676,
    "wallMs": 1204516,
    "bySource": {
-    "claude_code": 1503752,
-    "codex": 255924
+    "codex": 255924,
+    "claude_code": 1503752
    }
   },
   {
@@ -1530,11 +1530,19 @@
   },
   {
    "date": "2026-09-19",
-   "activeMs": 11045324,
-   "wallMs": 6860046,
+   "activeMs": 20623469,
+   "wallMs": 13095094,
    "bySource": {
-    "codex": 2449167,
-    "claude_code": 8596157
+    "claude_code": 17340532,
+    "codex": 3282937
+   }
+  },
+  {
+   "date": "2026-09-20",
+   "activeMs": 1766592,
+   "wallMs": 1234417,
+   "bySource": {
+    "claude_code": 1766592
    }
   }
  ]

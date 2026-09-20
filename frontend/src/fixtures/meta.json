@@ -1,7 +1,7 @@
 {
  "hostname": "demo-laptop.local",
  "firstTs": 1770565158571,
- "lastTs": 1789843276191,
+ "lastTs": 1789909193810,
  "sources": [
   "claude_code",
   "codex"
@@ -11,7 +11,7 @@
    "projectId": "d2e5edff5d4079af02553daa5630d5f9",
    "name": "atlas-chat",
    "rootPath": "/Users/dev/Coding/atlas-chat",
-   "activeMs": 196257876
+   "activeMs": 200521549
   },
   {
    "projectId": "2cc665728dc737965416c0355e85453a",
@@ -29,7 +29,7 @@
    "projectId": "148f6478127fd369399e329d4263efd0",
    "name": "pinecrest",
    "rootPath": "/Users/dev/Coding/pinecrest",
-   "activeMs": 35256190
+   "activeMs": 35906543
   },
   {
    "projectId": "03c14aa31eaabeec88ba83b08922d11f",
@@ -86,6 +86,12 @@
    "activeMs": 11988633
   },
   {
+   "projectId": "72d7ccef2e626422ec1bf7083ce5b5b5",
+   "name": "CC-Insights",
+   "rootPath": "/Users/dev/Coding/CC-Insights",
+   "activeMs": 10443879
+  },
+  {
    "projectId": "35cb72a79700c3d2044ae6089f54d2db",
    "name": "app",
    "rootPath": "/Users/dev/Coding/skill-planner/frontend_new/app",
@@ -108,12 +114,6 @@
    "name": "classification",
    "rootPath": "/Users/dev/Coding/census-pipeline/classification",
    "activeMs": 6175751
-  },
-  {
-   "projectId": "72d7ccef2e626422ec1bf7083ce5b5b5",
-   "name": "CC-Insights",
-   "rootPath": "/Users/dev/Coding/CC-Insights",
-   "activeMs": 4013168
   },
   {
    "projectId": "9fac61faec1c810193163cc6a061d1ee",
@@ -278,6 +278,78 @@
    "activeMs": 1
   }
  ],
+ "groups": [
+  {
+   "groupId": "537244a50f851cb18dec2c86c9caf96a",
+   "name": "atlas-chat",
+   "activeMs": 401677227
+  },
+  {
+   "groupId": "a667e50d7f3eefedcc9eb0ab9b525f8d",
+   "name": "skill-planner",
+   "activeMs": 101918416
+  },
+  {
+   "groupId": "3c7b55363c60b03e0e6fc27c08a3fd71",
+   "name": "pinecrest",
+   "activeMs": 35906543
+  },
+  {
+   "groupId": "bcb9084c7e37a7d59952211f182c963c",
+   "name": "harbor-cli",
+   "activeMs": 30918100
+  },
+  {
+   "groupId": "ba05a891e7a7a8b3afabd6a13181c1e8",
+   "name": "maze-game",
+   "activeMs": 30466974
+  },
+  {
+   "groupId": "cc284b3a28236726919da7227fd4e02e",
+   "name": "millipede",
+   "activeMs": 20346430
+  },
+  {
+   "groupId": "3f111c19e1bc7c2eef9a754d64369c2a",
+   "name": "slm-finetune",
+   "activeMs": 12934095
+  },
+  {
+   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
+   "name": "CC-Insights",
+   "activeMs": 10443879
+  },
+  {
+   "groupId": "b6b6def741fcdcd6066d3305531bb058",
+   "name": "platform-monorepo",
+   "activeMs": 7513971
+  },
+  {
+   "groupId": "b6b834e245aad230d3ebd70223e47307",
+   "name": "glyphwright",
+   "activeMs": 3947044
+  },
+  {
+   "groupId": "398533514ec34cbfe16fbd8f44838d2e",
+   "name": "eye-breaks",
+   "activeMs": 1324307
+  },
+  {
+   "groupId": "a6790ba1ba466bf6461562dd700eb4bd",
+   "name": "tabula-rasa",
+   "activeMs": 916871
+  },
+  {
+   "groupId": "cf61f9d925d30e5acd1e741e1199e8ea",
+   "name": "Quickstart",
+   "activeMs": 458516
+  },
+  {
+   "groupId": "63ad37419eac3b04331174000890cfa1",
+   "name": "ctx-lens",
+   "activeMs": 390905
+  }
+ ],
  "agents": [
   {
    "agentName": "Aristotle",
@@ -416,5 +488,5 @@
   "pytest"
  ],
  "idleThresholdS": 300,
- "generatedAt": 1789844761158
+ "generatedAt": 1789909519266
 }

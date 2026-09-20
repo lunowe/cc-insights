@@ -40,7 +40,19 @@ Each project takes the **first** rule that matches. Strongest evidence first.
    - `~/.t3/worktrees/<repo>/<name>` → `<repo>`
    - `~/conductor/workspaces/<repo>/<name>` → `<repo>`
 4. **`path_ancestor`** — the path lies inside another project's `root_path`
-   (`atlas-chat/backend` → `atlas-chat`). Longest matching ancestor wins.
+   (`atlas-chat/backend` → `atlas-chat`). Longest matching ancestor wins,
+   and matching is whole-segment, so `atlas-chat-loam` is never swallowed by
+   `atlas-chat`.
+
+   **Never anchor on the home directory, a filesystem root, or anything at or
+   above `$HOME`.** `~` is itself a project row on this corpus, because someone
+   once ran an agent there for 0.0 h. Read literally, rule 4 makes it the
+   ancestor of every otherwise-unclaimed path and sweeps three unrelated real
+   projects — `slm-finetune`, `atlas-chat-loam`, `census-pipeline/classification` —
+   into one group named after the user. Entry count is not the objective:
+   grouping unrelated work is worse than leaving it alone, because the human
+   then has to *unpick* it. An honest singleton costs a row; a false grouping
+   costs trust in every number on the page.
 5. **ungrouped** — no group. Renders as a group of one. Legal, not an error.
 
 A rule-3 or rule-4 match should adopt the ancestor's rule-1 group where one
@@ -79,8 +91,20 @@ This is what makes ROADMAP v3 possible: with `owner`/`repo` and a local
 same window. **This package stores the metadata only** — no network calls, no
 API tokens, no commit correlation yet.
 
-## Expected result on this corpus
+## Measured result on this corpus (2026-09-20)
 
-~13 groups. atlas-chat should absorb all 5 live rows plus the 9 dead
-`.t3/worktrees/atlas-chat/*` paths. `platform-monorepo` keeps a stripped
-Azure URL and no GitHub owner/repo.
+45 project rows → **14 groups**.
+
+- **atlas-chat: 13 paths, 111.6 h** — the checkout, a `.claude` worktree, two
+  subdirectories, and all 8 `~/.t3/worktrees/atlas-chat/*` rows (7 of which
+  no longer exist on disk). Previously displayed as 54.5 h.
+- **skill-planner: 5 paths, 28.3 h.**
+- `platform-monorepo` keeps a stripped Azure URL (`forge = dev.azure.com`,
+  no GitHub owner) and no credentials.
+
+Ten paths corpus-wide no longer exist and are placed by shape alone.
+
+*Correction:* an earlier draft of this document said 9 dead
+`.t3/worktrees/atlas-chat/*` paths. There are 8 such rows and 7 are dead —
+`t3code-42282307` is still on disk and matches rule 1 directly. Caught by the
+implementer rather than coded to.

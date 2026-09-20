@@ -1,26 +1,26 @@
 {
- "sessions": 305,
- "threads": 713,
- "events": 180453,
- "spans": 1370,
- "activeMs": 667128309,
+ "sessions": 307,
+ "threads": 723,
+ "events": 183724,
+ "spans": 1392,
+ "activeMs": 678473046,
  "bySource": [
   {
    "source": "claude_code",
-   "activeMs": 517652505
+   "activeMs": 528163472
   },
   {
    "source": "codex",
-   "activeMs": 149475804
+   "activeMs": 150309574
   }
  ],
- "humanInitiatedMs": 354192453,
- "autonomousMs": 293010248,
- "unattendedRootMs": 19925608,
+ "humanInitiatedMs": 359201967,
+ "autonomousMs": 298698349,
+ "unattendedRootMs": 20572730,
  "tokens": {
-  "input": 57011769,
-  "output": 48821678,
-  "cacheRead": 10669492554,
-  "cacheWrite": 336321899
+  "input": 57281479,
+  "output": 49779442,
+  "cacheRead": 10966851390,
+  "cacheWrite": 345563072
  }
 }

@@ -1,6 +1,6 @@
 """The local read-only HTTP server behind `cci serve`.
 
-Eight JSON endpoints (`docs/API.md`, frozen) plus the built frontend, on
+Nine JSON endpoints (`docs/API.md`, frozen) plus the built frontend, on
 `127.0.0.1` only. Nothing here is a service: it is a local viewer for a local
 database, and every design choice below follows from that.
 
@@ -81,14 +81,14 @@ class InsightsServer(ThreadingHTTPServer):
     """A threading HTTP server that owns one read-only DB handle per thread.
 
     SQLite connections are not shared across threads, and a single shared
-    connection behind a lock would serialize the dashboard's eight parallel
+    connection behind a lock would serialize the dashboard's nine parallel
     fetches into a queue. One connection per worker thread costs a few file
     handles and keeps the page loading in one round of requests.
     """
 
     daemon_threads = True          # a hung request must never block shutdown
     allow_reuse_address = True
-    # A dashboard opens with eight parallel fetches plus its assets, and the
+    # A dashboard opens with nine parallel fetches plus its assets, and the
     # stdlib default backlog of 5 resets the rest before they are accepted.
     request_queue_size = 128
 
@@ -374,7 +374,7 @@ def run(
         say("  frontend   not built — serving the JSON API only")
         say("             build it with:  cd frontend && pnpm install && pnpm build")
     base = server.url.rstrip("/")
-    say(f"  endpoints  {base}/api/summary  (see docs/API.md for all 8)")
+    say(f"  endpoints  {base}/api/summary  (see docs/API.md for all {len(metrics.ENDPOINTS)})")
     say()
     say("  Ctrl-C to stop")
     say()

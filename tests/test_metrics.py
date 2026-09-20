@@ -84,6 +84,18 @@ MIDNIGHT_MS = 180_000       # T3, 120_000 on the 10th + 60_000 on the 11th
 CODEX_SUB_MS = 120_000      # T4
 TOTAL_MS = ALPHA_MS + SUB_MS + MIDNIGHT_MS + CODEX_SUB_MS
 
+# Grouping (docs/GROUPING.md), laid over the same corpus:
+#
+#   g-omega   alpha (pinned by a human) + gamma (a path with no spans)
+#   g-void    a group no project points at -- a roster entry with no time
+#   p-beta    deliberately ungrouped
+#
+# So the group holds alpha's time, the ungrouped remainder is beta's, and the
+# two must add up to TOTAL_MS. gamma is in the group and contributes nothing,
+# which is what makes "projects counts the members the spans reach" testable.
+OMEGA_MS = ALPHA_MS + SUB_MS        # 420_000
+UNGROUPED_MS = MIDNIGHT_MS + CODEX_SUB_MS   # 300_000
+
 
 def _insert(conn: sqlite3.Connection) -> None:
     conn.execute(
@@ -96,6 +108,21 @@ def _insert(conn: sqlite3.Connection) -> None:
     ):
         conn.execute("INSERT INTO project (project_id, root_path, name) VALUES (?, ?, ?)",
                      (pid, root, name))
+
+    for gid, name, origin, forge, owner, repo, web in (
+        ("g-omega", "omega", "git_remote", "github", "acme", "omega",
+         "https://github.com/acme/omega"),
+        ("g-void", "void", "manual", None, None, None, None),
+    ):
+        conn.execute(
+            "INSERT INTO project_group (group_id, name, origin, match_key, remote_url,"
+            " forge, owner, repo, web_url, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (gid, name, origin, gid, web, forge, owner, repo, web, A_START, A_START))
+    # alpha was placed by a human; gamma was detected. beta stays ungrouped.
+    conn.execute("UPDATE project SET group_id = 'g-omega', group_pinned = 1"
+                 " WHERE project_id = 'p-alpha'")
+    conn.execute("UPDATE project SET group_id = 'g-omega' WHERE project_id = 'p-gamma'")
 
     for sid, source, pid, lo, hi in (
         ("s1", "claude_code", "p-alpha", A_START, A_END),
@@ -161,10 +188,10 @@ def small(conn: sqlite3.Connection, tmp_path: Path):
 # --------------------------------------------------------------------------
 def test_from_query_reads_every_documented_parameter():
     f = Filters.from_query({
-        "project": ["a", "b"], "source": ["codex"],
+        "project": ["a", "b"], "group": ["g1", "g2"], "source": ["codex"],
         "from": ["1000"], "to": ["2000"], "role": ["root"],
     })
-    assert f == Filters(projects=["a", "b"], sources=["codex"],
+    assert f == Filters(projects=["a", "b"], groups=["g1", "g2"], sources=["codex"],
                         ts_from=1000, ts_to=2000, role="root")
 
 
@@ -174,7 +201,7 @@ def test_from_query_defaults_to_no_filter_at_all():
 
 
 @pytest.mark.parametrize("params", [
-    {"project": [""]}, {"source": [""]}, {"from": [""]}, {"to": [""]},
+    {"project": [""]}, {"group": [""]}, {"source": [""]}, {"from": [""]}, {"to": [""]},
 ])
 def test_blank_values_are_not_a_filter(params):
     assert Filters.from_query(params).is_empty
@@ -229,25 +256,56 @@ def _shape(value, key: str | None = None):
     return type(value).__name__
 
 
+def _dropped(expected, actual, path: str = "") -> list[str]:
+    """Every leaf of `expected` that `actual` no longer carries, by path."""
+    here = path or "<root>"
+    if isinstance(expected, dict):
+        if not isinstance(actual, dict):
+            return [f"{here}: was an object, is {actual}"]
+        out: list[str] = []
+        for k, v in expected.items():
+            sub = f"{path}.{k}".lstrip(".")
+            out += [sub] if k not in actual else _dropped(v, actual[k], sub)
+        return out
+    if isinstance(expected, list):
+        if not expected:
+            return []
+        if not isinstance(actual, list) or not actual:
+            return [f"{here}[]: a populated list became {actual}"]
+        return _dropped(expected[0], actual[0], f"{path}[]")
+    return [] if expected == actual else [f"{here}: {expected} became {actual}"]
+
+
 @pytest.mark.parametrize("name", metrics.ENDPOINTS)
-def test_output_shape_matches_the_committed_fixture(small, name):
+def test_output_shape_still_carries_every_committed_field(small, name):
     """Field names and types are the frozen half of the contract.
 
     Numbers drift with the corpus; these do not. The synthetic database is
     built to populate every list, so an empty one here would mean a key the
     frontend reads was renamed or dropped.
+
+    The committed fixtures predate grouping, so this is a **superset** check:
+    every field the frontend already reads must still be there with the same
+    type, and a new one is allowed. Renaming or dropping a field still fails.
+    The fields grouping added are pinned by name in the group tests below, and
+    `groups.json` appears here once the fixtures are regenerated.
     """
     conn, cfg = small
+    fixture = FIXTURES / f"{name}.json"
+    if not fixture.exists():
+        pytest.skip(f"{name}.json is captured when the fixtures are regenerated")
     mine = metrics.endpoint(name, conn, Filters(), cfg)
-    captured = json.loads((FIXTURES / f"{name}.json").read_text())
-    assert _shape(mine) == _shape(captured)
+    captured = json.loads(fixture.read_text())
+    assert _dropped(_shape(captured), _shape(mine)) == []
 
 
 def test_every_contract_endpoint_is_implemented():
-    assert metrics.ENDPOINTS == ("meta", "summary", "timeline", "daily",
-                                 "concurrency", "projects", "agents", "heatmap")
-    assert {p.name.removesuffix(".json") for p in FIXTURES.glob("*.json")} == set(
-        metrics.ENDPOINTS)
+    assert metrics.ENDPOINTS == ("meta", "summary", "timeline", "daily", "concurrency",
+                                 "projects", "groups", "agents", "heatmap")
+    captured = {p.name.removesuffix(".json") for p in FIXTURES.glob("*.json")}
+    assert captured <= set(metrics.ENDPOINTS), "a fixture with no endpoint behind it"
+    # Only `groups` may be missing, and only until the fixtures are regenerated.
+    assert set(metrics.ENDPOINTS) - captured <= {"groups"}
 
 
 def test_unknown_endpoint_name_raises():
@@ -502,6 +560,202 @@ def test_several_projects_union(small):
     assert both["sessions"] == 2
 
 
+# --------------------------------------------------------------------------
+# grouping: the `group` filter and /api/groups
+# --------------------------------------------------------------------------
+def test_a_group_filter_is_exactly_the_union_of_its_member_projects(small):
+    """The whole point: g-omega is alpha + gamma, so it must read as both.
+
+    Compared as whole payloads rather than as one number, because the two
+    filters must select the same *spans*, not merely the same total.
+    """
+    conn, _ = small
+    by_group = metrics.summary(conn, Filters(groups=["g-omega"]))
+    by_members = metrics.summary(conn, Filters(projects=["p-alpha", "p-gamma"]))
+    assert by_group == by_members
+    assert by_group["activeMs"] == OMEGA_MS == 420_000
+    assert by_group["activeMs"] < metrics.summary(conn, Filters())["activeMs"]
+
+    ids = lambda f: {r["spanId"] for r in metrics.timeline(conn, f)["spans"]}
+    assert ids(Filters(groups=["g-omega"])) == ids(Filters(projects=["p-alpha", "p-gamma"]))
+    assert ids(Filters(groups=["g-omega"])) < ids(Filters())
+
+
+def test_group_and_project_combine_as_a_union_not_an_intersection(small):
+    """`?group=G&project=P` is "G plus P", never "P if P is in G".
+
+    The two sets here are disjoint, so an intersection would have answered an
+    empty dashboard -- which is exactly the mistake this pins down.
+    """
+    conn, _ = small
+    ids = lambda **kw: {r["spanId"] for r in metrics.timeline(conn, Filters(**kw))["spans"]}
+    group_only = ids(groups=["g-omega"])
+    project_only = ids(projects=["p-beta"])
+    assert group_only and project_only
+    assert not (group_only & project_only), "the fixture must make the union visible"
+
+    assert ids(groups=["g-omega"], projects=["p-beta"]) == group_only | project_only == ids()
+    s = metrics.summary(conn, Filters(groups=["g-omega"], projects=["p-beta"]))
+    assert s["activeMs"] == OMEGA_MS + UNGROUPED_MS == TOTAL_MS
+    assert s["sessions"] == 2
+
+
+def test_a_project_already_inside_the_filtered_group_is_not_counted_twice(small):
+    conn, _ = small
+    s = metrics.summary(conn, Filters(groups=["g-omega"], projects=["p-alpha"]))
+    assert s["activeMs"] == OMEGA_MS
+    assert s["spans"] == 2
+
+
+def test_the_group_project_union_still_intersects_with_every_other_filter(small):
+    """(G or P) AND source AND role AND range -- the union binds tighter."""
+    conn, _ = small
+    both = dict(groups=["g-omega"], projects=["p-beta"])
+    assert metrics.summary(conn, Filters(**both, sources=["codex"]))["activeMs"] == UNGROUPED_MS
+    assert metrics.summary(conn, Filters(**both, role="subagent"))["activeMs"] == (
+        SUB_MS + CODEX_SUB_MS)
+    assert metrics.summary(conn, Filters(**both, ts_from=at(2026, 5, 11, 0, 0)))[
+        "activeMs"] == CODEX_SUB_MS
+
+
+def test_an_unknown_group_matches_nothing_rather_than_erroring(small):
+    conn, _ = small
+    assert metrics.summary(conn, Filters(groups=["g-nope"]))["activeMs"] == 0
+    assert metrics.groups(conn, Filters(groups=["g-nope"])) == {
+        "groups": [], "ungrouped": {"projects": 0, "activeMs": 0}}
+
+    hostile = "g-omega'; DROP TABLE span; --"
+    assert metrics.summary(conn, Filters(groups=[hostile]))["activeMs"] == 0
+    assert conn.execute("SELECT count(*) FROM span").fetchone()[0] == 4
+
+
+def test_a_group_filter_narrows_every_endpoint_not_just_summary(small):
+    conn, _ = small
+    f = Filters(groups=["g-omega"])
+
+    assert metrics.summary(conn, f)["activeMs"] == OMEGA_MS
+    assert {r["projectId"] for r in metrics.timeline(conn, f)["spans"]} == {"p-alpha"}
+
+    days = metrics.daily(conn, f)["days"]
+    assert [d["date"] for d in days] == ["2026-05-10"]      # beta's days are gone
+    assert sum(d["activeMs"] for d in days) == OMEGA_MS
+    assert days[0]["wallMs"] == ALPHA_MS                     # the subagent overlaps
+
+    c = metrics.concurrency(conn, f)
+    assert c["activeMs"] == OMEGA_MS and c["peak"] == 2
+
+    assert [p["projectId"] for p in metrics.projects(conn, f)["projects"]] == ["p-alpha"]
+    assert metrics.agents(conn, f)["agents"] == [
+        {"agentName": "general-purpose", "source": "claude_code",
+         "threads": 1, "activeMs": SUB_MS}]
+    assert sum(cell["activeMs"] for cell in metrics.heatmap(conn, f)["cells"]) == OMEGA_MS
+
+    g = metrics.groups(conn, f)
+    assert [row["groupId"] for row in g["groups"]] == ["g-omega"]
+    assert g["ungrouped"] == {"projects": 0, "activeMs": 0}
+
+
+def test_groups_rows_carry_the_contract_fields(small):
+    conn, _ = small
+    g = metrics.groups(conn, Filters())
+    assert g["groups"] == [{
+        "groupId": "g-omega", "name": "omega", "origin": "git_remote",
+        "forge": "github", "owner": "acme", "repo": "omega",
+        "webUrl": "https://github.com/acme/omega",
+        "activeMs": OMEGA_MS, "sessions": 1, "threads": 2,
+        # gamma is a member and holds no span, so the ranking counts one
+        # project; alpha was placed by a human, so one of them is pinned.
+        "projects": 1, "pinnedProjects": 1,
+        "firstTs": A_START, "lastTs": A_END,
+    }]
+    # g-void has no members at all: a roster entry, not a ranked row.
+    assert "g-void" not in {row["groupId"] for row in g["groups"]}
+    assert g["ungrouped"] == {"projects": 1, "activeMs": UNGROUPED_MS}
+
+
+def test_groups_and_ungrouped_partition_active_time_under_every_filter(small):
+    """sum(groups[].activeMs) + ungrouped.activeMs == summary.activeMs.
+
+    The two halves are the same FROM with the join inverted, so this is an
+    identity rather than two definitions that happen to agree today.
+    """
+    conn, _ = small
+    unfiltered = metrics.groups(conn, Filters())
+    assert (sum(r["activeMs"] for r in unfiltered["groups"])
+            + unfiltered["ungrouped"]["activeMs"]
+            == metrics.summary(conn, Filters())["activeMs"] == TOTAL_MS)
+
+    for f in (Filters(role="root"), Filters(role="subagent"), Filters(sources=["codex"]),
+              Filters(projects=["p-alpha"]), Filters(groups=["g-omega"]),
+              Filters(groups=["g-omega"], projects=["p-beta"]),
+              Filters(ts_from=at(2026, 5, 11, 0, 0)), Filters(projects=["nope"])):
+        g = metrics.groups(conn, f)
+        assert (sum(r["activeMs"] for r in g["groups"]) + g["ungrouped"]["activeMs"]
+                == metrics.summary(conn, f)["activeMs"]), f
+
+
+def test_a_span_whose_session_has_no_project_still_lands_in_ungrouped(small):
+    """`session.project_id` is nullable, and the partition must survive it.
+
+    Defining `ungrouped` as "project.group_id IS NULL" alone would drop this
+    span from both halves and quietly break the invariant above.
+    """
+    conn, _ = small
+    conn.execute("UPDATE session SET project_id = NULL WHERE id = 's2'")
+    g = metrics.groups(conn, Filters())
+    assert g["ungrouped"] == {"projects": 0, "activeMs": UNGROUPED_MS}
+    assert (sum(r["activeMs"] for r in g["groups"]) + g["ungrouped"]["activeMs"]
+            == metrics.summary(conn, Filters())["activeMs"] == TOTAL_MS)
+
+
+def test_meta_offers_every_group_as_a_filter_choice(small):
+    """A roster, like `meta.projects`: a group with no time is still a choice."""
+    conn, cfg = small
+    m = metrics.meta(conn, cfg)
+    assert m["groups"] == [
+        {"groupId": "g-omega", "name": "omega", "activeMs": OMEGA_MS},
+        {"groupId": "g-void", "name": "void", "activeMs": 0},
+    ]
+
+
+def test_projects_rows_say_which_group_they_sit_in(small):
+    conn, _ = small
+    rows = {p["projectId"]: p for p in metrics.projects(conn, Filters())["projects"]}
+    assert rows["p-alpha"]["groupId"] == "g-omega"
+    assert rows["p-alpha"]["groupName"] == "omega"
+    assert rows["p-alpha"]["groupPinned"] is True      # a human placed it
+    assert rows["p-beta"]["groupId"] is None
+    assert rows["p-beta"]["groupName"] is None
+    assert rows["p-beta"]["groupPinned"] is False
+
+
+def test_everything_works_when_no_groups_exist_at_all(small):
+    """The state before `cci group auto` has ever run -- the common case.
+
+    Nothing may 500, nothing may vanish, and the whole corpus reports as
+    ungrouped rather than as missing.
+    """
+    conn, cfg = small
+    conn.execute("UPDATE project SET group_id = NULL, group_pinned = 0")
+    conn.execute("DELETE FROM project_group")
+
+    assert metrics.meta(conn, cfg)["groups"] == []
+    g = metrics.groups(conn, Filters())
+    assert g["groups"] == []
+    # alpha and beta; gamma holds no span, so no filtered number reaches it.
+    assert g["ungrouped"] == {"projects": 2, "activeMs": TOTAL_MS}
+    assert g["ungrouped"]["activeMs"] == metrics.summary(conn, Filters())["activeMs"]
+
+    assert metrics.summary(conn, Filters(groups=["g-omega"]))["activeMs"] == 0
+    assert metrics.timeline(conn, Filters(groups=["g-omega"]))["spans"] == []
+    assert metrics.groups(conn, Filters(groups=["g-omega"])) == {
+        "groups": [], "ungrouped": {"projects": 0, "activeMs": 0}}
+
+    rows = metrics.projects(conn, Filters())["projects"]
+    assert rows and all(r["groupId"] is None and r["groupName"] is None
+                        and r["groupPinned"] is False for r in rows)
+
+
 def test_role_partitions_active_time_exactly(small):
     conn, _ = small
     everything = metrics.summary(conn, Filters(role="all"))
@@ -564,6 +818,8 @@ def test_a_filter_that_matches_nothing_yields_contract_shaped_emptiness(small):
     assert metrics.daily(conn, f) == {"days": []}
     assert metrics.heatmap(conn, f) == {"cells": []}
     assert metrics.projects(conn, f) == {"projects": []}
+    assert metrics.groups(conn, f) == {"groups": [],
+                                       "ungrouped": {"projects": 0, "activeMs": 0}}
     assert metrics.agents(conn, f) == {"agents": []}
     assert metrics.concurrency(conn, f) == {
         "timeAtLevel": {}, "peak": 0, "peakAt": None,
@@ -571,6 +827,7 @@ def test_a_filter_that_matches_nothing_yields_contract_shaped_emptiness(small):
     # meta is unfiltered by design: the filter controls must still offer every
     # choice, or a narrowed dashboard could never be widened again.
     assert len(metrics.meta(conn, cfg)["projects"]) == 3
+    assert len(metrics.meta(conn, cfg)["groups"]) == 2
 
 
 def test_an_unknown_source_matches_nothing_rather_than_erroring(small):
@@ -622,6 +879,10 @@ def real(tmp_path_factory):
     if existing:
         cfg = config_mod.load(Path(existing), create=False)
         conn = db.connect(cfg.db_path)
+        # A database ingested before a migration landed is otherwise missing
+        # the tables these tests read. This is what `cci init` does to it
+        # anyway, it is idempotent, and it never touches a row.
+        db.migrate(conn)
         return conn, cfg
 
     config_dir = tmp_path_factory.mktemp("real-corpus")
@@ -747,3 +1008,80 @@ def test_day_and_hour_series_conserve_the_filtered_total(real):
         assert sum(d["activeMs"] for d in metrics.daily(conn, f)["days"]) == total
         assert sum(c["activeMs"] for c in metrics.heatmap(conn, f)["cells"]) == total
         assert metrics.concurrency(conn, f)["activeMs"] == total
+
+
+@_real_only
+def test_real_corpus_groups_partition_active_time(real):
+    """The invariant on 45 real project rows, whatever the detector has done.
+
+    Before `cci group auto` has run there are no groups at all and the whole
+    corpus is `ungrouped` -- which is the state this must also survive.
+    """
+    conn, cfg = real
+    everything = metrics.summary(conn, Filters())["activeMs"]
+    g = metrics.groups(conn, Filters())
+
+    assert sum(r["activeMs"] for r in g["groups"]) + g["ungrouped"]["activeMs"] == everything
+    for row in g["groups"]:
+        assert row["projects"] >= 1 and row["pinnedProjects"] <= row["projects"]
+        assert row["firstTs"] <= row["lastTs"] and row["activeMs"] >= 0
+
+    ungrouped_rows = [p for p in metrics.projects(conn, Filters())["projects"]
+                      if p["groupId"] is None]
+    assert g["ungrouped"]["projects"] == len(ungrouped_rows)
+    assert g["ungrouped"]["activeMs"] == sum(p["activeMs"] for p in ungrouped_rows)
+
+    # meta is the roster: every ranked group is offered as a filter choice.
+    offered = {row["groupId"] for row in metrics.meta(conn, cfg)["groups"]}
+    assert {row["groupId"] for row in g["groups"]} <= offered
+
+
+@_real_only
+def test_real_corpus_group_filter_is_the_union_of_its_members(real, tmp_path):
+    """A group laid over the three biggest real projects.
+
+    Built on a BACKUP of the corpus, so the session's database is never
+    written to -- `CC_INSIGHTS_TEST_CONFIG_DIR` may point it at a real one.
+    """
+    conn, _ = real
+    grouped = sqlite3.connect(tmp_path / "grouped.db")
+    conn.backup(grouped)
+    grouped.row_factory = sqlite3.Row
+
+    members = [p["projectId"] for p in metrics.projects(conn, Filters())["projects"][:3]]
+    assert len(members) == 3, "the real corpus has fewer than three projects with time"
+    now = db.now_ms()
+    grouped.execute(
+        "INSERT INTO project_group (group_id, name, origin, match_key, remote_url,"
+        " forge, owner, repo, web_url, created_at, updated_at)"
+        " VALUES ('g-test', 'test-group', 'git_remote', 'k', NULL, 'github', 'acme',"
+        " 'test', 'https://github.com/acme/test', ?, ?)", (now, now))
+    grouped.executemany("UPDATE project SET group_id = 'g-test' WHERE project_id = ?",
+                        [(pid,) for pid in members])
+    grouped.commit()
+
+    by_group = metrics.summary(grouped, Filters(groups=["g-test"]))
+    assert by_group == metrics.summary(grouped, Filters(projects=members))
+    assert 0 < by_group["activeMs"] < metrics.summary(grouped, Filters())["activeMs"]
+
+    g = metrics.groups(grouped, Filters())
+    row = next(r for r in g["groups"] if r["groupId"] == "g-test")
+    assert row["projects"] == 3 and row["pinnedProjects"] == 0
+    assert row["activeMs"] == by_group["activeMs"]
+    assert (sum(r["activeMs"] for r in g["groups"]) + g["ungrouped"]["activeMs"]
+            == metrics.summary(grouped, Filters())["activeMs"])
+
+    # The union arithmetic: the group plus one project outside it, and these
+    # sets are disjoint, so the totals add.
+    outside = next(p["projectId"] for p in metrics.projects(grouped, Filters())["projects"]
+                   if p["projectId"] not in members)
+    union = metrics.summary(grouped, Filters(groups=["g-test"], projects=[outside]))
+    assert union["activeMs"] == by_group["activeMs"] + metrics.summary(
+        grouped, Filters(projects=[outside]))["activeMs"]
+
+    # ... and the split series conserve the filtered total, as everywhere else.
+    f = Filters(groups=["g-test"])
+    assert sum(d["activeMs"] for d in metrics.daily(grouped, f)["days"]) == by_group["activeMs"]
+    assert sum(c["activeMs"] for c in metrics.heatmap(grouped, f)["cells"]) == by_group[
+        "activeMs"]
+    grouped.close()

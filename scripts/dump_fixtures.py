@@ -51,6 +51,16 @@ def meta(conn, cfg):
             LEFT JOIN session s ON s.project_id = p.project_id
             LEFT JOIN span sp ON sp.session_id = s.id
             GROUP BY 1, 2, 3 ORDER BY activeMs DESC"""),
+        # Every group is offered as a filter choice, including one with no
+        # time yet -- `groups.json` is the ranking, this is the roster.
+        "groups": rows(conn, """
+            SELECT g.group_id groupId, g.name,
+                   (SELECT coalesce(sum(sp.ended_at - sp.started_at), 0)
+                      FROM span sp
+                      JOIN session s ON s.id = sp.session_id
+                      JOIN project p ON p.project_id = s.project_id
+                     WHERE p.group_id = g.group_id) activeMs
+            FROM project_group g ORDER BY activeMs DESC, g.name"""),
         "agents": rows(conn, """
             SELECT DISTINCT t.agent_name agentName, s.source
             FROM thread t JOIN session s ON s.id = t.session_id
@@ -223,15 +233,55 @@ def concurrency(conn):
 
 
 def projects(conn):
-    return {"projects": rows(conn, """
+    # groupId/groupName are a LEFT JOIN: an ungrouped project is legal and
+    # reports both null. groupPinned = a human placed this project.
+    out = rows(conn, """
         SELECT p.project_id projectId, p.name, p.root_path rootPath,
+               p.group_id groupId, g.name groupName, p.group_pinned groupPinned,
                coalesce(sum(sp.ended_at - sp.started_at),0) activeMs,
                count(DISTINCT s.id) sessions, count(DISTINCT sp.thread_id) threads,
                min(sp.started_at) firstTs, max(sp.ended_at) lastTs
         FROM project p
         JOIN session s ON s.project_id = p.project_id
         JOIN span sp ON sp.session_id = s.id
-        GROUP BY 1,2,3 ORDER BY activeMs DESC""")}
+        LEFT JOIN project_group g ON g.group_id = p.group_id
+        GROUP BY 1,2,3,4,5,6 ORDER BY activeMs DESC""")
+    for r in out:
+        r["groupPinned"] = bool(r["groupPinned"])
+    return {"projects": out}
+
+
+def groups(conn):
+    """One row per logical project (docs/GROUPING.md), plus the remainder.
+
+    `ungrouped` is the exact complement of the join above, so the two halves
+    add up to summary.activeMs. Before `cci group auto` has run, every project
+    is ungrouped and `groups` is empty -- the normal starting state.
+    """
+    return {
+        "groups": rows(conn, """
+            SELECT g.group_id groupId, g.name, g.origin, g.forge, g.owner, g.repo,
+                   g.web_url webUrl,
+                   coalesce(sum(sp.ended_at - sp.started_at),0) activeMs,
+                   count(DISTINCT sp.session_id) sessions,
+                   count(DISTINCT sp.thread_id) threads,
+                   count(DISTINCT p.project_id) projects,
+                   count(DISTINCT CASE WHEN p.group_pinned = 1 THEN p.project_id END)
+                       pinnedProjects,
+                   min(sp.started_at) firstTs, max(sp.ended_at) lastTs
+            FROM project_group g
+            JOIN project p ON p.group_id = g.group_id
+            JOIN session s ON s.project_id = p.project_id
+            JOIN span sp ON sp.session_id = s.id
+            GROUP BY 1,2,3,4,5,6,7 ORDER BY activeMs DESC, g.name"""),
+        "ungrouped": one(conn, """
+            SELECT count(DISTINCT s.project_id) projects,
+                   coalesce(sum(sp.ended_at - sp.started_at),0) activeMs
+            FROM span sp JOIN session s ON s.id = sp.session_id
+            WHERE NOT EXISTS (SELECT 1 FROM project p
+                              JOIN project_group g ON g.group_id = p.group_id
+                              WHERE p.project_id = s.project_id)"""),
+    }
 
 
 def agents(conn):
@@ -255,7 +305,8 @@ def main():
 
     for name, fn in (("meta", lambda c: meta(c, cfg)), ("summary", summary),
                      ("timeline", timeline), ("daily", daily), ("concurrency", concurrency),
-                     ("projects", projects), ("agents", agents), ("heatmap", heatmap)):
+                     ("projects", projects), ("groups", groups), ("agents", agents),
+                     ("heatmap", heatmap)):
         data = fn(conn)
         p = a.out / f"{name}.json"
         p.write_text(json.dumps(data, indent=1))

@@ -23,7 +23,8 @@ import pytest
 
 from cc_insights import cli, derive, metrics, serve
 from cc_insights.config import Config
-from test_metrics import ALPHA_MS, SUB_MS, TOTAL_MS, _insert
+from test_metrics import (ALPHA_MS, CODEX_SUB_MS, MIDNIGHT_MS, OMEGA_MS, SUB_MS,
+                          TOTAL_MS, UNGROUPED_MS, _insert)
 
 TIMEOUT = 15
 # `shutdown()` only takes effect at the next poll, so the stdlib default of
@@ -76,7 +77,7 @@ def get_json(srv, path: str):
 
 
 # --------------------------------------------------------------------------
-# the eight endpoints
+# the nine endpoints
 # --------------------------------------------------------------------------
 @pytest.mark.parametrize("name", metrics.ENDPOINTS)
 def test_every_endpoint_answers_over_http(server, name):
@@ -92,8 +93,8 @@ def test_every_endpoint_answers_over_http(server, name):
 
 def test_top_level_keys_match_the_contract(server):
     for name, keys in (
-        ("meta", {"hostname", "firstTs", "lastTs", "sources", "projects", "agents",
-                  "models", "idleThresholdS", "generatedAt"}),
+        ("meta", {"hostname", "firstTs", "lastTs", "sources", "projects", "groups",
+                  "agents", "models", "idleThresholdS", "generatedAt"}),
         ("summary", {"sessions", "threads", "events", "spans", "activeMs", "bySource",
                      "humanInitiatedMs", "autonomousMs", "unattendedRootMs", "tokens"}),
         ("timeline", {"spans", "truncated", "limit"}),
@@ -101,6 +102,7 @@ def test_top_level_keys_match_the_contract(server):
         ("concurrency", {"timeAtLevel", "peak", "peakAt", "wallMs", "activeMs",
                          "multiplier"}),
         ("projects", {"projects"}),
+        ("groups", {"groups", "ungrouped"}),
         ("agents", {"agents"}),
         ("heatmap", {"cells"}),
     ):
@@ -127,9 +129,95 @@ def test_filters_travel_through_the_query_string(server):
     assert early["spans"] == []
 
 
+def test_a_group_filter_travels_through_the_query_string(server):
+    """`?group=` selects a whole logical project, and unions with `project=`.
+
+    Asserted over the wire because the union is assembled in the query
+    parser: a `group` that never reached `Filters` would still answer 200.
+    """
+    _, everything = get_json(server, "/api/summary")
+    _, omega = get_json(server, "/api/summary?group=g-omega")
+    assert omega["activeMs"] == OMEGA_MS < everything["activeMs"]
+
+    # ... and it is exactly the union of the group's member projects.
+    _, members = get_json(server, "/api/summary?project=p-alpha&project=p-gamma")
+    assert members == omega
+
+    # group + project is a UNION, not an intersection: p-beta is not in
+    # g-omega, and an intersection would have answered with nothing.
+    _, both = get_json(server, "/api/summary?group=g-omega&project=p-beta")
+    assert both["activeMs"] == OMEGA_MS + UNGROUPED_MS == TOTAL_MS
+
+    # The union binds tighter than the rest, which still intersect.
+    _, narrowed = get_json(server, "/api/summary?group=g-omega&project=p-beta&role=subagent")
+    assert narrowed["activeMs"] == SUB_MS + CODEX_SUB_MS
+
+    _, timeline = get_json(server, "/api/timeline?group=g-omega")
+    assert {r["projectId"] for r in timeline["spans"]} == {"p-alpha"}
+
+
+def test_groups_answers_over_the_wire_and_adds_up_to_summary(server):
+    _, payload = get_json(server, "/api/groups")
+    assert [g["groupId"] for g in payload["groups"]] == ["g-omega"]
+    row = payload["groups"][0]
+    assert row["name"] == "omega" and row["origin"] == "git_remote"
+    assert row["webUrl"] == "https://github.com/acme/omega"
+    assert row["activeMs"] == OMEGA_MS and row["pinnedProjects"] == 1
+    assert payload["ungrouped"] == {"projects": 1, "activeMs": UNGROUPED_MS}
+
+    _, summary = get_json(server, "/api/summary")
+    assert (sum(g["activeMs"] for g in payload["groups"])
+            + payload["ungrouped"]["activeMs"] == summary["activeMs"] == TOTAL_MS)
+
+    # ... and it is filter-aware like every other endpoint.
+    _, codex = get_json(server, "/api/groups?source=codex")
+    assert codex["groups"] == []
+    assert codex["ungrouped"] == {"projects": 1,
+                                  "activeMs": MIDNIGHT_MS + CODEX_SUB_MS}
+
+
+def test_projects_rows_carry_their_group_over_the_wire(server):
+    _, payload = get_json(server, "/api/projects")
+    rows = {p["projectId"]: p for p in payload["projects"]}
+    assert rows["p-alpha"]["groupId"] == "g-omega"
+    assert rows["p-alpha"]["groupName"] == "omega"
+    assert rows["p-alpha"]["groupPinned"] is True
+    assert rows["p-beta"]["groupId"] is None and rows["p-beta"]["groupPinned"] is False
+
+
+def test_meta_offers_the_group_filter_control(server):
+    _, payload = get_json(server, "/api/meta")
+    assert payload["groups"] == [
+        {"groupId": "g-omega", "name": "omega", "activeMs": OMEGA_MS},
+        {"groupId": "g-void", "name": "void", "activeMs": 0},
+    ]
+
+
+@pytest.mark.parametrize("value", [
+    "g-nope", "", "%20", "g-omega%27%3B+DROP+TABLE+span%3B+--", "../../etc/passwd",
+    "%E2%98%83", "1", "null",
+])
+def test_a_bad_group_value_is_an_empty_answer_not_a_500(server, value):
+    """An unknown id matches nothing, exactly as `project` already does."""
+    status, payload = get_json(server, f"/api/summary?group={value}")
+    assert status == 200 and "error" not in payload
+    status, payload = get_json(server, f"/api/groups?group={value}")
+    assert status == 200 and set(payload) == {"groups", "ungrouped"}
+    if value == "":
+        # An empty value is no filter at all -- the whole corpus answers.
+        assert payload["ungrouped"]["activeMs"] == UNGROUPED_MS
+        assert [g["groupId"] for g in payload["groups"]] == ["g-omega"]
+    else:
+        # Everything else is a real id that simply matches nothing. A single
+        # space is a value, not a blank.
+        assert payload == {"groups": [], "ungrouped": {"projects": 0, "activeMs": 0}}
+    # ... and the database is untouched afterwards.
+    assert get_json(server, "/api/summary")[1]["activeMs"] == TOTAL_MS
+
+
 def test_meta_ignores_filters(server):
     _, unfiltered = get_json(server, "/api/meta")
-    _, filtered = get_json(server, "/api/meta?project=p-alpha&role=subagent")
+    _, filtered = get_json(server, "/api/meta?project=p-alpha&group=g-omega&role=subagent")
     unfiltered.pop("generatedAt"), filtered.pop("generatedAt")
     assert unfiltered == filtered
 
@@ -142,6 +230,7 @@ def test_meta_ignores_filters(server):
     "/api/summary?to=12.5",
     "/api/timeline?role=human",
     "/api/daily?from=abc&project=p-alpha",
+    "/api/groups?role=human",
 ])
 def test_a_malformed_filter_is_400_json(server, path):
     status, payload = get_json(server, path)

@@ -1,9 +1,9 @@
 """Filter-aware read queries behind the local HTTP API.
 
 One function per endpoint in **docs/API.md**, which is the frozen contract:
-`meta`, `summary`, `timeline`, `daily`, `concurrency`, `projects`, `agents`,
-`heatmap`. Every one returns plain dicts and lists whose keys are the wire
-names (camelCase) exactly as the contract spells them, so `serve.py` is a
+`meta`, `summary`, `timeline`, `daily`, `concurrency`, `projects`, `groups`,
+`agents`, `heatmap`. Every one returns plain dicts and lists whose keys are the
+wire names (camelCase) exactly as the contract spells them, so `serve.py` is a
 `json.dumps` away from a response and `scripts/dump_fixtures.py` captures the
 same bytes the server would send.
 
@@ -17,6 +17,15 @@ from the surviving spans* -- not as global table counts -- because under a
 project or role filter a global count would report rows the numbers beside it
 do not describe. A thread whose single event is an instant has no span, so it
 is outside every number here; that is the definition working, not a loss.
+
+A project row is one on-disk path; a **group** is the logical project behind
+several of them (`docs/GROUPING.md`). `project` and `group` therefore both
+select spans by *which project their session belongs to*, and they combine as a
+**union**, not an intersection: `?group=G&project=P` is "the spans of group G,
+plus the spans of project P". A user who narrows to a group and then ticks one
+more stray project expects to see both, and an intersection would answer with
+an empty dashboard whenever P is not in G. Every other filter still intersects
+with that union.
 
 `ts_from` is inclusive and `ts_to` exclusive, both compared against the span's
 **start**. A span is therefore in or out as a whole: no span is ever clipped,
@@ -60,6 +69,7 @@ __all__ = [
     "daily",
     "concurrency",
     "projects",
+    "groups",
     "agents",
     "heatmap",
     "ENDPOINTS",
@@ -83,10 +93,16 @@ class Filters:
 
     An empty list means the same as `None` -- no constraint -- because that is
     what an omitted repeated query parameter parses to. A value that matches
-    nothing (an unknown project id) is not an error: it yields empty results.
+    nothing (an unknown project or group id) is not an error: it yields empty
+    results.
+
+    `projects` and `groups` are the two spellings of one question -- which
+    project a span's session belongs to -- so they UNION with each other while
+    intersecting with everything else. See the module docstring.
     """
 
     projects: list[str] | None = None
+    groups: list[str] | None = None
     sources: list[str] | None = None
     ts_from: int | None = None
     ts_to: int | None = None
@@ -98,7 +114,7 @@ class Filters:
 
     @property
     def is_empty(self) -> bool:
-        return not (self.projects or self.sources) and (
+        return not (self.projects or self.groups or self.sources) and (
             self.ts_from is None and self.ts_to is None and self.role == "all"
         )
 
@@ -106,9 +122,9 @@ class Filters:
     def from_query(cls, params: Mapping[str, Sequence[str]]) -> "Filters":
         """Build from `urllib.parse.parse_qs` output. Raises `FilterError`.
 
-        `project` and `source` are repeatable. `from`/`to` are epoch ms; a
-        repeated one takes the last value, matching how a browser treats a
-        duplicated form field. Unknown parameters are ignored rather than
+        `project`, `group` and `source` are repeatable. `from`/`to` are epoch
+        ms; a repeated one takes the last value, matching how a browser treats
+        a duplicated form field. Unknown parameters are ignored rather than
         rejected: a cache-buster in the URL is not a malformed filter.
         """
         role = _last(params.get("role")) or "all"
@@ -116,6 +132,7 @@ class Filters:
             raise FilterError(f"role must be one of {', '.join(ROLES)}; got {role!r}")
         return cls(
             projects=[v for v in params.get("project", []) if v] or None,
+            groups=[v for v in params.get("group", []) if v] or None,
             sources=[v for v in params.get("source", []) if v] or None,
             ts_from=_int_param(params, "from"),
             ts_to=_int_param(params, "to"),
@@ -162,13 +179,27 @@ def _where(f: Filters, *extra: str) -> tuple[str, list[Any]]:
     parameters; the sole thing interpolated is a run of `?`. `extra` conditions
     are literal SQL written in this module and must carry no placeholder, so
     that `params` always lines up with the filter clauses alone.
+
+    `project` and `group` are OR-ed into a single clause -- the union the
+    contract promises -- and that clause then AND-s with the rest. The group
+    arm is a subquery rather than a join so that every endpoint keeps the same
+    `_FROM`, including the two that already join `project` themselves.
     """
     clauses: list[str] = list(extra)
     params: list[Any] = []
 
+    identity: list[str] = []
     if f.projects:
-        clauses.append(f"s.project_id IN ({_marks(len(f.projects))})")
+        identity.append(f"s.project_id IN ({_marks(len(f.projects))})")
         params += list(f.projects)
+    if f.groups:
+        identity.append(
+            "s.project_id IN (SELECT project_id FROM project"
+            f" WHERE group_id IN ({_marks(len(f.groups))}))")
+        params += list(f.groups)
+    if identity:
+        clauses.append("(" + " OR ".join(identity) + ")")
+
     if f.sources:
         clauses.append(f"s.source IN ({_marks(len(f.sources))})")
         params += list(f.sources)
@@ -208,8 +239,8 @@ def meta(conn: sqlite3.Connection, cfg: Config) -> dict:
 
     It is deliberately unfiltered: these are the *choices*, and a filter that
     narrowed its own set of options could not be widened again from the UI.
-    `projects` here is a LEFT JOIN so a project with no derived spans is still
-    offered, with `activeMs` 0.
+    `projects` and `groups` here are LEFT JOINs so a project or group with no
+    derived spans is still offered, with `activeMs` 0.
     """
     host = _one(conn, "SELECT hostname FROM host ORDER BY last_seen DESC LIMIT 1")
     bounds = _one(conn, "SELECT min(ts) AS lo, max(ts) AS hi FROM event")
@@ -227,6 +258,17 @@ def meta(conn: sqlite3.Connection, cfg: Config) -> dict:
             LEFT JOIN session s ON s.project_id = p.project_id
             LEFT JOIN span sp ON sp.session_id = s.id
             GROUP BY 1, 2, 3 ORDER BY activeMs DESC"""),
+        # The group filter control, populated in the same call as the project
+        # one. A group with no time yet is still a choice, so this is a roster
+        # like `projects` above -- `/api/groups` is the ranking.
+        "groups": _rows(conn, """
+            SELECT g.group_id AS groupId, g.name AS name,
+                   coalesce(sum(sp.ended_at - sp.started_at), 0) AS activeMs
+            FROM project_group g
+            LEFT JOIN project p ON p.group_id = g.group_id
+            LEFT JOIN session s ON s.project_id = p.project_id
+            LEFT JOIN span sp ON sp.session_id = s.id
+            GROUP BY 1, 2 ORDER BY activeMs DESC, g.name"""),
         "agents": _rows(conn, """
             SELECT DISTINCT t.agent_name AS agentName, s.source AS source
             FROM thread t JOIN session s ON s.id = t.session_id
@@ -479,17 +521,83 @@ def projects(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
     Inner joins throughout: a project with no span in range is absent rather
     than present with zeros, because this table is a ranking, not a roster.
     `meta.projects` is the roster.
+
+    `groupId`/`groupName` are a LEFT JOIN: an ungrouped project is legal and
+    reports both as null. `groupPinned` says a human placed this project in
+    that group, which is the difference between a row detection may move and
+    one it must not.
     """
     where, params = _where(f)
-    return {"projects": _rows(conn, f"""
+    rows = _rows(conn, f"""
         SELECT p.project_id AS projectId, p.name AS name, p.root_path AS rootPath,
+               p.group_id AS groupId, g.name AS groupName,
+               p.group_pinned AS groupPinned,
                coalesce(sum(sp.ended_at - sp.started_at), 0) AS activeMs,
                count(DISTINCT s.id) AS sessions, count(DISTINCT sp.thread_id) AS threads,
                min(sp.started_at) AS firstTs, max(sp.ended_at) AS lastTs
         {_FROM}
         JOIN project p ON p.project_id = s.project_id
+        LEFT JOIN project_group g ON g.group_id = p.group_id
         {where}
-        GROUP BY 1, 2, 3 ORDER BY activeMs DESC""", params)}
+        GROUP BY 1, 2, 3, 4, 5, 6 ORDER BY activeMs DESC""", params)
+    for r in rows:
+        r["groupPinned"] = bool(r["groupPinned"])
+    return {"projects": rows}
+
+
+def groups(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
+    """GET /api/groups -- per-group totals over the surviving spans.
+
+    A group is the logical project (`docs/GROUPING.md`): on the author's
+    corpus 45 project rows are really ~13 groups, and the largest of them
+    reads barely half its true time until they are added up here.
+
+    Like `projects`, this is a ranking and not a roster: a group none of the
+    surviving spans reaches is absent rather than present with zeros.
+    `meta.groups` is the roster.
+
+    `ungrouped` is the exact complement -- every surviving span whose project
+    has no group, including the rare span whose session carries no project at
+    all -- so that
+
+        sum(groups[].activeMs) + ungrouped.activeMs == summary.activeMs
+
+    holds under every filter. Before `cci group auto` has ever run, `groups`
+    is empty and `ungrouped` holds the whole corpus; that is the normal
+    starting state, not an error.
+
+    Counts are filter-aware like everywhere else: `projects` and
+    `pinnedProjects` count the group's members that the surviving spans
+    reach, not its membership on paper.
+    """
+    where, params = _where(f)
+    rows = _rows(conn, f"""
+        SELECT g.group_id AS groupId, g.name AS name, g.origin AS origin,
+               g.forge AS forge, g.owner AS owner, g.repo AS repo, g.web_url AS webUrl,
+               coalesce(sum(sp.ended_at - sp.started_at), 0) AS activeMs,
+               count(DISTINCT s.id) AS sessions,
+               count(DISTINCT sp.thread_id) AS threads,
+               count(DISTINCT p.project_id) AS projects,
+               count(DISTINCT CASE WHEN p.group_pinned = 1 THEN p.project_id END)
+                   AS pinnedProjects,
+               min(sp.started_at) AS firstTs, max(sp.ended_at) AS lastTs
+        {_FROM}
+        JOIN project p ON p.project_id = s.project_id
+        JOIN project_group g ON g.group_id = p.group_id
+        {where}
+        GROUP BY 1, 2, 3, 4, 5, 6, 7 ORDER BY activeMs DESC, g.name""", params)
+
+    # The same FROM with the join inverted, so the two halves partition the
+    # filtered spans by construction rather than by two definitions agreeing.
+    un_where, un_params = _where(f, "g.group_id IS NULL")
+    ungrouped = _one(conn, f"""
+        SELECT count(DISTINCT s.project_id) AS projects,
+               coalesce(sum(sp.ended_at - sp.started_at), 0) AS activeMs
+        {_FROM}
+        LEFT JOIN project p ON p.project_id = s.project_id
+        LEFT JOIN project_group g ON g.group_id = p.group_id
+        {un_where}""", un_params)
+    return {"groups": rows, "ungrouped": ungrouped}
 
 
 def agents(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
@@ -508,7 +616,7 @@ def agents(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
         {_FROM}{where} GROUP BY 1, 2 ORDER BY activeMs DESC""", params)}
 
 
-# The eight endpoint names of the contract, in the order docs/API.md lists
+# The nine endpoint names of the contract, in the order docs/API.md lists
 # them. serve.py routes on this and the tests iterate it, so adding an endpoint
 # to the contract is one edit here plus its function.
 _FILTERED = {
@@ -517,6 +625,7 @@ _FILTERED = {
     "daily": daily,
     "concurrency": concurrency,
     "projects": projects,
+    "groups": groups,
     "agents": agents,
     "heatmap": heatmap,
 }

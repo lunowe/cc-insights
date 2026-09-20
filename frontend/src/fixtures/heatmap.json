@@ -443,32 +443,32 @@
   {
    "weekday": 5,
    "hour": 20,
-   "activeMs": 7936806
+   "activeMs": 9385758
   },
   {
    "weekday": 5,
    "hour": 21,
-   "activeMs": 5466471
+   "activeMs": 9460588
   },
   {
    "weekday": 5,
    "hour": 22,
-   "activeMs": 4507449
+   "activeMs": 4890540
   },
   {
    "weekday": 5,
    "hour": 23,
-   "activeMs": 1324673
+   "activeMs": 5076658
   },
   {
    "weekday": 6,
    "hour": 0,
-   "activeMs": 7717899
+   "activeMs": 7804100
   },
   {
    "weekday": 6,
    "hour": 1,
-   "activeMs": 4453743
+   "activeMs": 4879230
   },
   {
    "weekday": 6,
@@ -493,7 +493,7 @@
   {
    "weekday": 6,
    "hour": 14,
-   "activeMs": 384720
+   "activeMs": 1639624
   },
   {
    "weekday": 6,

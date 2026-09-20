@@ -5,6 +5,11 @@ JSON API and the built frontend. Backend and frontend are built in parallel
 against this document; **it is frozen** — if it needs to change, say so rather
 than diverging.
 
+Extended once, **additively**, for project grouping (`docs/GROUPING.md`): the
+`group` filter, `GET /api/groups`, `groupId`/`groupName`/`groupPinned` on
+`/api/projects`, and `groups` on `/api/meta`. No field that existed before it
+changed name, type or meaning.
+
 - All times on the wire are **epoch milliseconds UTC**. The frontend converts to
   local for display; the backend never guesses a timezone.
 - All durations are **milliseconds**, named `*Ms`.
@@ -16,6 +21,7 @@ than diverging.
 | param | type | meaning |
 | --- | --- | --- |
 | `project` | repeated | `project_id`; repeat to include several. Omitted = all |
+| `group` | repeated | `group_id`; repeat to include several. Omitted = all |
 | `source` | repeated | `claude_code` \| `codex`. Omitted = all |
 | `from` | epoch ms | inclusive lower bound on span start |
 | `to` | epoch ms | exclusive upper bound on span start |
@@ -25,6 +31,25 @@ than diverging.
 
 A filter narrows **spans**; counts of sessions/threads are counts of those
 reachable from the surviving spans.
+
+An unknown `project` or `group` id matches nothing; it is never an error.
+
+### `project` + `group` is a UNION
+
+A project row is one on-disk path; a **group** is the logical project behind
+several of them (`docs/GROUPING.md`). Both select spans by which project the
+span's session belongs to, so the two **union** with each other:
+
+`?group=G&project=P` = "the spans of group G, **plus** the spans of project P"
+
+not "the spans of project P that are also in group G". A user who narrows to a
+group and then ticks one more stray project expects to see both, and an
+intersection would empty the dashboard whenever P is not a member of G.
+Repeating either parameter already unions, and this is the same rule across
+the two.
+
+That union then **intersects** with `source`, `from`, `to` and `role` as
+usual: `?group=G&project=P&source=codex` is "(G or P) and codex".
 
 ## Types
 
@@ -40,6 +65,10 @@ type Meta = {
   lastTs: number | null;
   sources: Source[];
   projects: { projectId: string; name: string; rootPath: string; activeMs: number }[];
+  // The group filter control, in the same call as the project one. A roster,
+  // like `projects`: a group with no time yet is still a choice, at 0 ms.
+  // Empty until `cci group auto` has run, which is the normal first state.
+  groups: { groupId: string; name: string; activeMs: number }[];
   agents: { agentName: string; source: Source }[];
   models: string[];
   idleThresholdS: number;   // must be shown wherever a duration is exported
@@ -100,11 +129,43 @@ type Concurrency = {
   multiplier: number;  // activeMs / wallMs
 };
 
-// GET /api/projects
+// GET /api/projects — one row per on-disk path. `groupId`/`groupName` are null
+// for an ungrouped project, which is legal. `groupPinned` means a human placed
+// this project in that group, so detection must never move it.
 type Projects = {
   projects: { projectId: string; name: string; rootPath: string;
+              groupId: string | null; groupName: string | null;
+              groupPinned: boolean;
               activeMs: number; sessions: number; threads: number;
               firstTs: number; lastTs: number }[];
+};
+
+// GET /api/groups — one row per LOGICAL project (docs/GROUPING.md): the 5 rows
+// and 9 dead worktree paths of one repo add up here instead of reading as 14
+// unrelated projects.
+//
+// A ranking, not a roster: a group no surviving span reaches is absent rather
+// than present with zeros. `meta.groups` is the roster.
+//
+// `ungrouped` is the exact complement — every surviving span whose project has
+// no group, including the rare span whose session carries no project at all —
+// so that, under ANY filter:
+//     sum(groups[].activeMs) + ungrouped.activeMs === summary.activeMs
+// Before `cci group auto` has ever run, `groups` is [] and `ungrouped` holds
+// the whole corpus. That is the starting state, not an error.
+//
+// `projects`/`pinnedProjects` are filter-aware like every other count here:
+// they count the members the surviving spans reach, not membership on paper.
+type Groups = {
+  groups: {
+    groupId: string; name: string;
+    origin: "git_remote" | "git_common_dir" | "path_worktree" | "path_ancestor" | "manual";
+    forge: string | null; owner: string | null; repo: string | null; webUrl: string | null;
+    activeMs: number; sessions: number; threads: number; projects: number;
+    pinnedProjects: number;
+    firstTs: number; lastTs: number;
+  }[];
+  ungrouped: { projects: number; activeMs: number };  // projects with no group
 };
 
 // GET /api/agents  — Claude records an agent TYPE; Codex records a random
@@ -128,3 +189,7 @@ for an unknown path. Never return `200` with an error body.
 by `scripts/dump_fixtures.py` from a live database. The frontend must render
 correctly from these with no server running, so the UI can be built and reviewed
 independently of the backend.
+
+The committed capture predates grouping: it has no `groups.json` and no group
+fields, and is regenerated once the detector has run. `dump_fixtures.py`
+already emits both.
