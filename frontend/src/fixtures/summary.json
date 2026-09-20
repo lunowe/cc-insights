@@ -1,26 +1,43 @@
 {
- "sessions": 307,
- "threads": 723,
- "events": 183724,
- "spans": 1392,
- "activeMs": 678473046,
+ "sessions": 318,
+ "threads": 744,
+ "events": 187809,
+ "spans": 1427,
+ "activeMs": 693112379,
  "bySource": [
   {
    "source": "claude_code",
-   "activeMs": 528163472
+   "activeMs": 533595191
   },
   {
    "source": "codex",
    "activeMs": 150309574
+  },
+  {
+   "source": "opencode",
+   "activeMs": 9207614
   }
  ],
- "humanInitiatedMs": 359201967,
- "autonomousMs": 298698349,
- "unattendedRootMs": 20572730,
+ "humanInitiatedMs": 364607983,
+ "autonomousMs": 306686912,
+ "unattendedRootMs": 21817484,
  "tokens": {
-  "input": 57281479,
-  "output": 49779442,
-  "cacheRead": 10966851390,
-  "cacheWrite": 345563072
+  "input": 59084260,
+  "output": 50311385,
+  "cacheRead": 11130106660,
+  "cacheWrite": 347041254
+ },
+ "cost": {
+  "total": 13272.751105,
+  "currency": "USD",
+  "byComponent": {
+   "input": 216.056925,
+   "output": 1858.307251,
+   "cacheRead": 7762.318031,
+   "cacheWrite": 3436.068897
+  },
+  "pricedEvents": 65846,
+  "attributedEvents": 11097,
+  "unpricedTokens": 138131650
  }
 }

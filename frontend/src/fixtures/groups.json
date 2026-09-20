@@ -8,9 +8,9 @@
    "owner": "northwind-labs",
    "repo": "atlas-chat",
    "webUrl": "https://github.com/northwind-labs/atlas-chat",
-   "activeMs": 401677227,
-   "sessions": 125,
-   "threads": 382,
+   "activeMs": 409354554,
+   "sessions": 128,
+   "threads": 393,
    "projects": 13,
    "pinnedProjects": 0,
    "firstTs": 1771509392842,
@@ -24,9 +24,9 @@
    "owner": "lunowe",
    "repo": "skill-planner",
    "webUrl": "https://github.com/lunowe/skill-planner",
-   "activeMs": 101918416,
-   "sessions": 88,
-   "threads": 114,
+   "activeMs": 103055076,
+   "sessions": 89,
+   "threads": 115,
    "projects": 5,
    "pinnedProjects": 0,
    "firstTs": 1770565158571,
@@ -97,6 +97,22 @@
    "lastTs": 1788122318675
   },
   {
+   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
+   "name": "CC-Insights",
+   "origin": "git_common_dir",
+   "forge": null,
+   "owner": null,
+   "repo": null,
+   "webUrl": null,
+   "activeMs": 15934991,
+   "sessions": 4,
+   "threads": 15,
+   "projects": 2,
+   "pinnedProjects": 0,
+   "firstTs": 1789840454632,
+   "lastTs": 1789912833071
+  },
+  {
    "groupId": "3f111c19e1bc7c2eef9a754d64369c2a",
    "name": "slm-finetune",
    "origin": "path_ancestor",
@@ -113,22 +129,6 @@
    "lastTs": 1788862136533
   },
   {
-   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
-   "name": "CC-Insights",
-   "origin": "git_common_dir",
-   "forge": null,
-   "owner": null,
-   "repo": null,
-   "webUrl": null,
-   "activeMs": 10443879,
-   "sessions": 1,
-   "threads": 11,
-   "projects": 1,
-   "pinnedProjects": 0,
-   "firstTs": 1789840454632,
-   "lastTs": 1789909193810
-  },
-  {
    "groupId": "b6b6def741fcdcd6066d3305531bb058",
    "name": "platform-monorepo",
    "origin": "git_remote",
@@ -143,6 +143,22 @@
    "pinnedProjects": 0,
    "firstTs": 1789037525950,
    "lastTs": 1789647898170
+  },
+  {
+   "groupId": "f0289f228130d5ad771ba299970fe198",
+   "name": "census-pipeline",
+   "origin": "path_ancestor",
+   "forge": null,
+   "owner": null,
+   "repo": null,
+   "webUrl": null,
+   "activeMs": 6260867,
+   "sessions": 2,
+   "threads": 2,
+   "projects": 2,
+   "pinnedProjects": 0,
+   "firstTs": 1788514204018,
+   "lastTs": 1788942174269
   },
   {
    "groupId": "b6b834e245aad230d3ebd70223e47307",
@@ -223,10 +239,42 @@
    "pinnedProjects": 0,
    "firstTs": 1775594735561,
    "lastTs": 1775595519906
+  },
+  {
+   "groupId": "ffe74b72d353787e90f06ec6e6ce9142",
+   "name": "style-companion",
+   "origin": "git_remote",
+   "forge": "github",
+   "owner": "lunowe",
+   "repo": "style-companion",
+   "webUrl": "https://github.com/lunowe/style-companion",
+   "activeMs": 229225,
+   "sessions": 1,
+   "threads": 2,
+   "projects": 1,
+   "pinnedProjects": 0,
+   "firstTs": 1787340612653,
+   "lastTs": 1787340740846
+  },
+  {
+   "groupId": "b3e92e605ec2ac430bb67326c3248e6a",
+   "name": "tmp",
+   "origin": "path_ancestor",
+   "forge": null,
+   "owner": null,
+   "repo": null,
+   "webUrl": null,
+   "activeMs": 19893,
+   "sessions": 2,
+   "threads": 2,
+   "projects": 2,
+   "pinnedProjects": 0,
+   "firstTs": 1789840979285,
+   "lastTs": 1789841130837
   }
  ],
  "ungrouped": {
-  "projects": 12,
-  "activeMs": 19309768
+  "projects": 11,
+  "activeMs": 13134017
  }
 }

@@ -32,6 +32,11 @@ class Summary:
     agents: list[tuple[str, int, float]] = field(default_factory=list)
     models: list[tuple[str, int]] = field(default_factory=list)
     tokens: tuple[int, int, int] = (0, 0, 0)
+    #: List-price equivalent of every priced event, in nano-currency-units,
+    #: with the tokens no rate covered. Never a bill -- see cost.py.
+    cost_nano: int = 0
+    cost_currency: str = "USD"
+    unpriced_tokens: int = 0
 
 
 _H = 3_600_000.0  # ms per hour
@@ -121,4 +126,25 @@ def summarize(conn: sqlite3.Connection) -> Summary:
                   coalesce(sum(cache_read_tokens), 0) FROM event"""
     ).fetchone()
     s.tokens = (row[0], row[1], row[2])
+
+    s.cost_nano = _scalar(
+        conn,
+        """SELECT coalesce(sum(input_nano + output_nano + cache_read_nano
+                            + cache_write_nano), 0) FROM event_cost""",
+    )
+    # Tokens on events that were never priced. The anti-join is the whole
+    # point: a total is only quotable next to what it could not see.
+    s.unpriced_tokens = _scalar(
+        conn,
+        """SELECT coalesce(sum(coalesce(e.input_tokens, 0) + coalesce(e.output_tokens, 0)
+                            + coalesce(e.cache_read_tokens, 0)
+                            + coalesce(e.cache_write_tokens, 0)), 0)
+           FROM event e
+           WHERE NOT EXISTS (SELECT 1 FROM event_cost c WHERE c.event_id = e.id)""",
+    )
+    currencies = [r[0] for r in conn.execute(
+        """SELECT DISTINCT p.currency FROM model_price p
+           WHERE EXISTS (SELECT 1 FROM event_cost c WHERE c.model = p.model)"""
+    )]
+    s.cost_currency = currencies[0] if len(currencies) == 1 else "mixed"
     return s

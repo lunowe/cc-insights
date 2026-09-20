@@ -6,7 +6,8 @@
    "wallMs": 3212195,
    "bySource": {
     "codex": 3212195
-   }
+   },
+   "cost": 13.541612
   },
   {
    "date": "2026-02-09",
@@ -14,7 +15,8 @@
    "wallMs": 1018997,
    "bySource": {
     "codex": 1018997
-   }
+   },
+   "cost": 5.161537
   },
   {
    "date": "2026-02-10",
@@ -22,55 +24,66 @@
    "wallMs": 2401410,
    "bySource": {
     "codex": 2401410
-   }
+   },
+   "cost": 9.172803
   },
   {
    "date": "2026-02-11",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-02-12",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-02-13",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-02-14",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-02-15",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-02-16",
-   "activeMs": 0,
-   "wallMs": 0,
-   "bySource": {}
+   "activeMs": 865565,
+   "wallMs": 865565,
+   "bySource": {
+    "opencode": 865565
+   },
+   "cost": 1.985459
   },
   {
    "date": "2026-02-17",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-02-18",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-02-19",
@@ -78,33 +91,39 @@
    "wallMs": 524794,
    "bySource": {
     "codex": 524794
-   }
+   },
+   "cost": 2.534611
   },
   {
    "date": "2026-02-20",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-02-21",
-   "activeMs": 818860,
-   "wallMs": 818860,
+   "activeMs": 1089955,
+   "wallMs": 1089955,
    "bySource": {
+    "opencode": 271095,
     "codex": 818860
-   }
+   },
+   "cost": 6.734328
   },
   {
    "date": "2026-02-22",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-02-23",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-02-24",
@@ -112,7 +131,8 @@
    "wallMs": 1088945,
    "bySource": {
     "codex": 1088945
-   }
+   },
+   "cost": 7.43827
   },
   {
    "date": "2026-02-25",
@@ -120,7 +140,8 @@
    "wallMs": 2164921,
    "bySource": {
     "codex": 2164921
-   }
+   },
+   "cost": 10.910977
   },
   {
    "date": "2026-02-26",
@@ -128,19 +149,22 @@
    "wallMs": 365018,
    "bySource": {
     "codex": 365018
-   }
+   },
+   "cost": 1.878412
   },
   {
    "date": "2026-02-27",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-02-28",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-01",
@@ -148,129 +172,151 @@
    "wallMs": 4354739,
    "bySource": {
     "codex": 4354739
-   }
+   },
+   "cost": 20.274934
   },
   {
    "date": "2026-03-02",
-   "activeMs": 1378146,
-   "wallMs": 1378146,
+   "activeMs": 1468797,
+   "wallMs": 1468797,
    "bySource": {
-    "codex": 1378146
-   }
+    "codex": 1378146,
+    "opencode": 90651
+   },
+   "cost": 9.339963
   },
   {
    "date": "2026-03-03",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-04",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-05",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-06",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-07",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-08",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-09",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-10",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-11",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-12",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-13",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-14",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-15",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-16",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-17",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-18",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-19",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-20",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-21",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-22",
@@ -278,7 +324,8 @@
    "wallMs": 880252,
    "bySource": {
     "codex": 880252
-   }
+   },
+   "cost": 2.122748
   },
   {
    "date": "2026-03-23",
@@ -286,13 +333,15 @@
    "wallMs": 1770509,
    "bySource": {
     "codex": 1770509
-   }
+   },
+   "cost": 4.861664
   },
   {
    "date": "2026-03-24",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-25",
@@ -300,37 +349,43 @@
    "wallMs": 439530,
    "bySource": {
     "codex": 439530
-   }
+   },
+   "cost": 1.13929
   },
   {
    "date": "2026-03-26",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-27",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-28",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-29",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-30",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-03-31",
@@ -338,25 +393,29 @@
    "wallMs": 2573584,
    "bySource": {
     "codex": 2573584
-   }
+   },
+   "cost": 6.456996
   },
   {
    "date": "2026-04-01",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-02",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-03",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-04",
@@ -364,19 +423,22 @@
    "wallMs": 809432,
    "bySource": {
     "codex": 809432
-   }
+   },
+   "cost": 1.492091
   },
   {
    "date": "2026-04-05",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-06",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-07",
@@ -384,13 +446,15 @@
    "wallMs": 2835037,
    "bySource": {
     "codex": 2971124
-   }
+   },
+   "cost": 8.016142
   },
   {
    "date": "2026-04-08",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-09",
@@ -398,7 +462,8 @@
    "wallMs": 3053680,
    "bySource": {
     "codex": 3053680
-   }
+   },
+   "cost": 9.23228
   },
   {
    "date": "2026-04-10",
@@ -406,31 +471,36 @@
    "wallMs": 468863,
    "bySource": {
     "codex": 468863
-   }
+   },
+   "cost": 1.034577
   },
   {
    "date": "2026-04-11",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-12",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-13",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-14",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-15",
@@ -438,7 +508,8 @@
    "wallMs": 3412033,
    "bySource": {
     "codex": 3412033
-   }
+   },
+   "cost": 8.970021
   },
   {
    "date": "2026-04-16",
@@ -446,25 +517,29 @@
    "wallMs": 1322763,
    "bySource": {
     "codex": 1322763
-   }
+   },
+   "cost": 2.642991
   },
   {
    "date": "2026-04-17",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-18",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-19",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-20",
@@ -472,7 +547,8 @@
    "wallMs": 1103387,
    "bySource": {
     "codex": 1107105
-   }
+   },
+   "cost": 2.35324
   },
   {
    "date": "2026-04-21",
@@ -480,43 +556,50 @@
    "wallMs": 263897,
    "bySource": {
     "codex": 263897
-   }
+   },
+   "cost": 1.531745
   },
   {
    "date": "2026-04-22",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-23",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-24",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-25",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-26",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-27",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-04-28",
@@ -524,7 +607,8 @@
    "wallMs": 483476,
    "bySource": {
     "codex": 483476
-   }
+   },
+   "cost": 3.851686
   },
   {
    "date": "2026-04-29",
@@ -532,13 +616,15 @@
    "wallMs": 288970,
    "bySource": {
     "codex": 288970
-   }
+   },
+   "cost": 0.357714
   },
   {
    "date": "2026-04-30",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-01",
@@ -546,31 +632,36 @@
    "wallMs": 251095,
    "bySource": {
     "codex": 251095
-   }
+   },
+   "cost": 2.241529
   },
   {
    "date": "2026-05-02",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-03",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-04",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-05",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-06",
@@ -578,37 +669,43 @@
    "wallMs": 312683,
    "bySource": {
     "codex": 312683
-   }
+   },
+   "cost": 4.311033
   },
   {
    "date": "2026-05-07",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-08",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-09",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-10",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-11",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-12",
@@ -616,7 +713,8 @@
    "wallMs": 1722347,
    "bySource": {
     "codex": 1722347
-   }
+   },
+   "cost": 13.303745
   },
   {
    "date": "2026-05-13",
@@ -624,49 +722,57 @@
    "wallMs": 148119,
    "bySource": {
     "codex": 148119
-   }
+   },
+   "cost": 0.723649
   },
   {
    "date": "2026-05-14",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-15",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-16",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-17",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-18",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-19",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-20",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-21",
@@ -674,7 +780,8 @@
    "wallMs": 500006,
    "bySource": {
     "codex": 500006
-   }
+   },
+   "cost": 3.41613
   },
   {
    "date": "2026-05-22",
@@ -682,25 +789,29 @@
    "wallMs": 217935,
    "bySource": {
     "codex": 217935
-   }
+   },
+   "cost": 2.013015
   },
   {
    "date": "2026-05-23",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-24",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-25",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-26",
@@ -708,19 +819,22 @@
    "wallMs": 635496,
    "bySource": {
     "codex": 635496
-   }
+   },
+   "cost": 3.309924
   },
   {
    "date": "2026-05-27",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-28",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-29",
@@ -728,19 +842,22 @@
    "wallMs": 1179747,
    "bySource": {
     "codex": 1179747
-   }
+   },
+   "cost": 9.10327
   },
   {
    "date": "2026-05-30",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-05-31",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-01",
@@ -748,7 +865,8 @@
    "wallMs": 458516,
    "bySource": {
     "codex": 458516
-   }
+   },
+   "cost": 2.115044
   },
   {
    "date": "2026-06-02",
@@ -756,7 +874,8 @@
    "wallMs": 3049059,
    "bySource": {
     "codex": 3049059
-   }
+   },
+   "cost": 17.192794
   },
   {
    "date": "2026-06-03",
@@ -764,43 +883,50 @@
    "wallMs": 31956,
    "bySource": {
     "codex": 31956
-   }
+   },
+   "cost": 0.777382
   },
   {
    "date": "2026-06-04",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-05",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-06",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-07",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-08",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-09",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-10",
@@ -808,31 +934,36 @@
    "wallMs": 805289,
    "bySource": {
     "codex": 805289
-   }
+   },
+   "cost": 2.679954
   },
   {
    "date": "2026-06-11",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-12",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-13",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-14",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-15",
@@ -840,55 +971,64 @@
    "wallMs": 166309,
    "bySource": {
     "codex": 166309
-   }
+   },
+   "cost": 1.011827
   },
   {
    "date": "2026-06-16",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-17",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-18",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-19",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-20",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-21",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-22",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-23",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-24",
@@ -896,67 +1036,78 @@
    "wallMs": 3524725,
    "bySource": {
     "claude_code": 4892596
-   }
+   },
+   "cost": 99.788933
   },
   {
    "date": "2026-06-25",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-26",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-27",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-28",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-29",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-06-30",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-01",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-02",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-03",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-04",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-05",
@@ -964,49 +1115,57 @@
    "wallMs": 198,
    "bySource": {
     "claude_code": 198
-   }
+   },
+   "cost": 0.0
   },
   {
    "date": "2026-07-06",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-07",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-08",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-09",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-10",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-11",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-12",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-13",
@@ -1014,7 +1173,8 @@
    "wallMs": 880691,
    "bySource": {
     "codex": 880691
-   }
+   },
+   "cost": 2.953879
   },
   {
    "date": "2026-07-14",
@@ -1022,7 +1182,8 @@
    "wallMs": 687242,
    "bySource": {
     "codex": 687242
-   }
+   },
+   "cost": 2.459235
   },
   {
    "date": "2026-07-15",
@@ -1030,7 +1191,8 @@
    "wallMs": 4630031,
    "bySource": {
     "codex": 4866956
-   }
+   },
+   "cost": 22.433036
   },
   {
    "date": "2026-07-16",
@@ -1039,25 +1201,29 @@
    "bySource": {
     "claude_code": 15714490,
     "codex": 8526170
-   }
+   },
+   "cost": 272.628179
   },
   {
    "date": "2026-07-17",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-18",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-19",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-20",
@@ -1065,19 +1231,22 @@
    "wallMs": 201620,
    "bySource": {
     "codex": 201620
-   }
+   },
+   "cost": 1.24066
   },
   {
    "date": "2026-07-21",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-22",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-23",
@@ -1085,19 +1254,22 @@
    "wallMs": 1774410,
    "bySource": {
     "codex": 1774410
-   }
+   },
+   "cost": 8.947689
   },
   {
    "date": "2026-07-24",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-25",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-26",
@@ -1105,7 +1277,8 @@
    "wallMs": 238613,
    "bySource": {
     "codex": 238613
-   }
+   },
+   "cost": 1.22545
   },
   {
    "date": "2026-07-27",
@@ -1113,7 +1286,8 @@
    "wallMs": 1717582,
    "bySource": {
     "codex": 1717582
-   }
+   },
+   "cost": 10.965269
   },
   {
    "date": "2026-07-28",
@@ -1121,31 +1295,36 @@
    "wallMs": 46877,
    "bySource": {
     "codex": 46877
-   }
+   },
+   "cost": 0.803708
   },
   {
    "date": "2026-07-29",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-30",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-07-31",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-08-01",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-08-02",
@@ -1153,7 +1332,8 @@
    "wallMs": 14607561,
    "bySource": {
     "claude_code": 26215307
-   }
+   },
+   "cost": 269.426424
   },
   {
    "date": "2026-08-03",
@@ -1161,19 +1341,22 @@
    "wallMs": 3995827,
    "bySource": {
     "claude_code": 4600219
-   }
+   },
+   "cost": 46.001732
   },
   {
    "date": "2026-08-04",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-08-05",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-08-06",
@@ -1181,7 +1364,8 @@
    "wallMs": 428488,
    "bySource": {
     "codex": 428488
-   }
+   },
+   "cost": 2.716494
   },
   {
    "date": "2026-08-07",
@@ -1189,7 +1373,8 @@
    "wallMs": 1623903,
    "bySource": {
     "codex": 1623903
-   }
+   },
+   "cost": 7.820564
   },
   {
    "date": "2026-08-08",
@@ -1197,7 +1382,8 @@
    "wallMs": 1260017,
    "bySource": {
     "codex": 1260017
-   }
+   },
+   "cost": 9.844681
   },
   {
    "date": "2026-08-09",
@@ -1205,25 +1391,29 @@
    "wallMs": 4045189,
    "bySource": {
     "codex": 5772435
-   }
+   },
+   "cost": 26.910984
   },
   {
    "date": "2026-08-10",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-08-11",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-08-12",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-08-13",
@@ -1231,19 +1421,22 @@
    "wallMs": 249618,
    "bySource": {
     "codex": 249618
-   }
+   },
+   "cost": 1.091918
   },
   {
    "date": "2026-08-14",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-08-15",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-08-16",
@@ -1251,7 +1444,8 @@
    "wallMs": 1256829,
    "bySource": {
     "codex": 1256829
-   }
+   },
+   "cost": 7.795574
   },
   {
    "date": "2026-08-17",
@@ -1259,7 +1453,8 @@
    "wallMs": 5085336,
    "bySource": {
     "codex": 5085336
-   }
+   },
+   "cost": 90.76349
   },
   {
    "date": "2026-08-18",
@@ -1267,7 +1462,8 @@
    "wallMs": 2120160,
    "bySource": {
     "claude_code": 3213599
-   }
+   },
+   "cost": 39.34545
   },
   {
    "date": "2026-08-19",
@@ -1275,21 +1471,25 @@
    "wallMs": 1,
    "bySource": {
     "claude_code": 1
-   }
+   },
+   "cost": 0.0
   },
   {
    "date": "2026-08-20",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-08-21",
-   "activeMs": 14211971,
-   "wallMs": 6688145,
+   "activeMs": 20767939,
+   "wallMs": 8804468,
    "bySource": {
-    "claude_code": 14211971
-   }
+    "claude_code": 14211971,
+    "opencode": 6555968
+   },
+   "cost": 317.064155
   },
   {
    "date": "2026-08-22",
@@ -1297,7 +1497,8 @@
    "wallMs": 3237730,
    "bySource": {
     "claude_code": 3353215
-   }
+   },
+   "cost": 100.636203
   },
   {
    "date": "2026-08-23",
@@ -1306,7 +1507,8 @@
    "bySource": {
     "claude_code": 4082197,
     "codex": 19867558
-   }
+   },
+   "cost": 213.187455
   },
   {
    "date": "2026-08-24",
@@ -1315,7 +1517,8 @@
    "bySource": {
     "codex": 4682720,
     "claude_code": 7056605
-   }
+   },
+   "cost": 128.184961
   },
   {
    "date": "2026-08-25",
@@ -1324,7 +1527,8 @@
    "bySource": {
     "claude_code": 8462586,
     "codex": 1827155
-   }
+   },
+   "cost": 161.165938
   },
   {
    "date": "2026-08-26",
@@ -1333,7 +1537,8 @@
    "bySource": {
     "claude_code": 25384108,
     "codex": 5641456
-   }
+   },
+   "cost": 621.861015
   },
   {
    "date": "2026-08-27",
@@ -1342,7 +1547,8 @@
    "bySource": {
     "claude_code": 7135066,
     "codex": 5558342
-   }
+   },
+   "cost": 280.28703
   },
   {
    "date": "2026-08-28",
@@ -1351,7 +1557,8 @@
    "bySource": {
     "codex": 1063223,
     "claude_code": 1463631
-   }
+   },
+   "cost": 55.986137
   },
   {
    "date": "2026-08-29",
@@ -1360,7 +1567,8 @@
    "bySource": {
     "claude_code": 17405080,
     "codex": 1525175
-   }
+   },
+   "cost": 401.163103
   },
   {
    "date": "2026-08-30",
@@ -1369,7 +1577,8 @@
    "bySource": {
     "claude_code": 13632724,
     "codex": 1958820
-   }
+   },
+   "cost": 368.206038
   },
   {
    "date": "2026-08-31",
@@ -1378,7 +1587,8 @@
    "bySource": {
     "claude_code": 7010550,
     "codex": 819206
-   }
+   },
+   "cost": 265.014688
   },
   {
    "date": "2026-09-01",
@@ -1387,7 +1597,8 @@
    "bySource": {
     "claude_code": 11423706,
     "codex": 991032
-   }
+   },
+   "cost": 178.322843
   },
   {
    "date": "2026-09-02",
@@ -1396,7 +1607,8 @@
    "bySource": {
     "claude_code": 68061536,
     "codex": 7667657
-   }
+   },
+   "cost": 1661.538197
   },
   {
    "date": "2026-09-03",
@@ -1405,16 +1617,19 @@
    "bySource": {
     "claude_code": 37795255,
     "codex": 1069306
-   }
+   },
+   "cost": 1223.01741
   },
   {
    "date": "2026-09-04",
-   "activeMs": 16576176,
-   "wallMs": 13394861,
+   "activeMs": 16661292,
+   "wallMs": 13479977,
    "bySource": {
     "claude_code": 15321721,
+    "opencode": 85116,
     "codex": 1254455
-   }
+   },
+   "cost": 209.395237
   },
   {
    "date": "2026-09-05",
@@ -1423,7 +1638,8 @@
    "bySource": {
     "codex": 255924,
     "claude_code": 1503752
-   }
+   },
+   "cost": 46.320142
   },
   {
    "date": "2026-09-06",
@@ -1432,7 +1648,8 @@
    "bySource": {
     "claude_code": 28989746,
     "codex": 3090624
-   }
+   },
+   "cost": 963.421145
   },
   {
    "date": "2026-09-07",
@@ -1440,7 +1657,8 @@
    "wallMs": 6916830,
    "bySource": {
     "claude_code": 14252121
-   }
+   },
+   "cost": 441.76186
   },
   {
    "date": "2026-09-08",
@@ -1448,7 +1666,8 @@
    "wallMs": 7128233,
    "bySource": {
     "claude_code": 9147697
-   }
+   },
+   "cost": 284.359171
   },
   {
    "date": "2026-09-09",
@@ -1456,7 +1675,8 @@
    "wallMs": 13537791,
    "bySource": {
     "claude_code": 31468279
-   }
+   },
+   "cost": 561.745819
   },
   {
    "date": "2026-09-10",
@@ -1465,7 +1685,8 @@
    "bySource": {
     "claude_code": 4419398,
     "codex": 2275585
-   }
+   },
+   "cost": 151.141634
   },
   {
    "date": "2026-09-11",
@@ -1474,25 +1695,29 @@
    "bySource": {
     "claude_code": 26527582,
     "codex": 1012756
-   }
+   },
+   "cost": 544.99111
   },
   {
    "date": "2026-09-12",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-09-13",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-09-14",
    "activeMs": 0,
    "wallMs": 0,
-   "bySource": {}
+   "bySource": {},
+   "cost": 0.0
   },
   {
    "date": "2026-09-15",
@@ -1500,7 +1725,8 @@
    "wallMs": 83024,
    "bySource": {
     "claude_code": 83024
-   }
+   },
+   "cost": 9.768581
   },
   {
    "date": "2026-09-16",
@@ -1509,7 +1735,8 @@
    "bySource": {
     "claude_code": 49399179,
     "codex": 2418370
-   }
+   },
+   "cost": 1160.485234
   },
   {
    "date": "2026-09-17",
@@ -1518,7 +1745,8 @@
    "bySource": {
     "claude_code": 34295592,
     "codex": 2778686
-   }
+   },
+   "cost": 804.510385
   },
   {
    "date": "2026-09-18",
@@ -1526,24 +1754,29 @@
    "wallMs": 11710310,
    "bySource": {
     "claude_code": 12533617
-   }
+   },
+   "cost": 351.376179
   },
   {
    "date": "2026-09-19",
-   "activeMs": 20623469,
-   "wallMs": 13095094,
+   "activeMs": 21962688,
+   "wallMs": 13763541,
    "bySource": {
     "claude_code": 17340532,
+    "opencode": 1339219,
     "codex": 3282937
-   }
+   },
+   "cost": 476.304998
   },
   {
    "date": "2026-09-20",
-   "activeMs": 1766592,
-   "wallMs": 1234417,
+   "activeMs": 7198311,
+   "wallMs": 4817599,
    "bySource": {
-    "claude_code": 1766592
-   }
+    "claude_code": 7198311
+   },
+   "cost": 161.135701
   }
- ]
+ ],
+ "currency": "USD"
 }

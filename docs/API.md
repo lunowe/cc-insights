@@ -5,16 +5,26 @@ JSON API and the built frontend. Backend and frontend are built in parallel
 against this document; **it is frozen** — if it needs to change, say so rather
 than diverging.
 
-Extended once, **additively**, for project grouping (`docs/GROUPING.md`): the
-`group` filter, `GET /api/groups`, `groupId`/`groupName`/`groupPinned` on
-`/api/projects`, and `groups` on `/api/meta`. No field that existed before it
-changed name, type or meaning.
+Extended twice, both times **additively**, and no field that existed before
+either change has changed name, type or meaning:
+
+1. Project grouping (`docs/GROUPING.md`): the `group` filter, `GET
+   /api/groups`, `groupId`/`groupName`/`groupPinned` on `/api/projects`, and
+   `groups` on `/api/meta`.
+2. Cost: `GET /api/cost`, `cost` on `/api/summary`, `/api/daily` days and
+   `/api/projects` rows, `currency` beside those, and `pricing` on
+   `/api/meta`.
 
 - All times on the wire are **epoch milliseconds UTC**. The frontend converts to
   local for display; the backend never guesses a timezone.
 - All durations are **milliseconds**, named `*Ms`.
 - Every endpoint accepts the same `Filters` query string.
 - Read-only. No POST, no auth, localhost only.
+- Every `cost` is a **list-price equivalent** in `currency` units: what the
+  filtered traffic would have cost at published API rates. **It is not a
+  bill** — a subscription charges a flat fee however many tokens run through
+  it. A renderer must label it as such, and must show `unpricedTokens`
+  alongside it: tokens no rate covered are unknown, not free.
 
 ## Filters (query string, all optional)
 
@@ -72,6 +82,16 @@ type Meta = {
   agents: { agentName: string; source: Source }[];
   models: string[];
   idleThresholdS: number;   // must be shown wherever a duration is exported
+  // Where the money came from, so a page can footnote its own totals without
+  // a second round trip. `approximations` are models the price catalog
+  // matched to a NEAR RELATIVE rather than to themselves -- defensible as a
+  // default, never acceptable to hide. `unpricedModels` have no rate at all.
+  pricing: {
+    catalog: { repo?: string; commit?: string; fetched_at?: string; license?: string };
+    currency: string;
+    approximations: { model: string; pricedAs: string }[];
+    unpricedModels: string[];
+  };
   generatedAt: number;
 };
 
@@ -89,6 +109,22 @@ type Summary = {
   autonomousMs: number;       // subagent thread: a model spawned it
   unattendedRootMs: number;   // root thread that resumed with no human turn
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  cost: CostTotals;
+};
+
+// Shared by /api/summary.cost and /api/cost. A LIST-PRICE EQUIVALENT, not a
+// bill -- see the note at the top.
+type CostTotals = {
+  total: number;                 // in `currency` units
+  currency: string;              // "USD", or "mixed" if rates disagree
+  byComponent: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  pricedEvents: number;
+  // Priced off a model carried forward from an earlier event in the same
+  // thread, because Codex records usage on events that name no model.
+  attributedEvents: number;
+  // Tokens inside the filtered spans that no rate covered. NOT zero-cost:
+  // unknown. Show this wherever `total` is shown.
+  unpricedTokens: number;
 };
 
 // GET /api/timeline — the swimlane. One row per span.
@@ -122,7 +158,9 @@ type Daily = {
   // agents ran in parallel that day. bySource OMITS a source with no activity,
   // so it is Partial, not a total Record.
   days: { date: string; activeMs: number; wallMs: number;
-          bySource: Partial<Record<Source, number>> }[];
+          bySource: Partial<Record<Source, number>>;
+          cost: number }[];
+  currency: string;
 };
 
 // GET /api/concurrency — sweep-line over the filtered spans.
@@ -151,7 +189,9 @@ type Projects = {
               // inferring it that way mislabels 5 live worktrees out of 15.
               pathExists: boolean | null;
               activeMs: number; sessions: number; threads: number;
-              firstTs: number; lastTs: number }[];
+              firstTs: number; lastTs: number;
+              cost: number }[];   // list-price equivalent, in `currency`
+  currency: string;
 };
 
 // GET /api/groups — one row per LOGICAL project (docs/GROUPING.md): the 5 rows
@@ -190,6 +230,33 @@ type Agents = {
 
 // GET /api/heatmap — local weekday x hour. weekday 0 = Monday.
 type Heatmap = { cells: { weekday: number; hour: number; activeMs: number }[] };
+
+// GET /api/cost — the list-price equivalent, broken down and qualified.
+//
+// NOT A BILL. A Claude Max or ChatGPT Plus subscription charges a flat monthly
+// fee no matter how many tokens run through it, and opencode reports 0 for
+// every call it makes. This number is for comparing projects, models and
+// months against each other; it is wrong in an invoice. Every caveat below is
+// machine-readable so a renderer can show them rather than paraphrase them.
+type Cost = CostTotals & {
+  byModel: { model: string; cost: number; events: number; attributed: number }[];
+  bySource: { source: Source; cost: number }[];
+  daily: { date: string; cost: number }[];      // local calendar days, no gap fill
+  // What could not be priced, and why:
+  //   no_rate      the model has no rate on file at that date
+  //   no_model     nothing in the thread said which model ran (model is null)
+  //   no_component the model is priced, but not for this token component
+  //                (OpenAI publishes no cache-write rate)
+  unpriced: { model: string | null;
+              reason: "no_rate" | "no_model" | "no_component";
+              tokens: number; events: number }[];
+  // Models the catalog priced as a near relative. On the author's corpus
+  // `claude-fable-5-1` is priced as `claude-fable-5`, whose cache reads cost
+  // four times as much -- thousands of dollars of difference on a corpus with
+  // billions of cache-read tokens. Show it next to the total.
+  approximations: { model: string; pricedAs: string }[];
+  catalog: { repo?: string; commit?: string; fetched_at?: string; license?: string };
+};
 ```
 
 ## Errors

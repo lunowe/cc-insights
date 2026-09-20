@@ -94,17 +94,21 @@ def test_every_endpoint_answers_over_http(server, name):
 def test_top_level_keys_match_the_contract(server):
     for name, keys in (
         ("meta", {"hostname", "firstTs", "lastTs", "sources", "projects", "groups",
-                  "agents", "models", "idleThresholdS", "generatedAt"}),
+                  "agents", "models", "idleThresholdS", "pricing", "generatedAt"}),
         ("summary", {"sessions", "threads", "events", "spans", "activeMs", "bySource",
-                     "humanInitiatedMs", "autonomousMs", "unattendedRootMs", "tokens"}),
+                     "humanInitiatedMs", "autonomousMs", "unattendedRootMs", "tokens",
+                     "cost"}),
         ("timeline", {"spans", "truncated", "limit"}),
-        ("daily", {"days"}),
+        ("daily", {"days", "currency"}),
         ("concurrency", {"timeAtLevel", "peak", "peakAt", "wallMs", "activeMs",
                          "multiplier"}),
-        ("projects", {"projects"}),
+        ("projects", {"projects", "currency"}),
         ("groups", {"groups", "ungrouped"}),
         ("agents", {"agents"}),
         ("heatmap", {"cells"}),
+        ("cost", {"total", "currency", "byComponent", "pricedEvents", "attributedEvents",
+                  "unpricedTokens", "byModel", "bySource", "daily", "unpriced",
+                  "approximations", "catalog"}),
     ):
         status, payload = get_json(server, f"/api/{name}")
         assert status == 200 and set(payload) == keys, name
