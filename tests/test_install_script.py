@@ -342,3 +342,122 @@ def test_piping_into_sh_says_to_use_bash(tmp_path: Path):
     assert "pipefail" not in proc.stderr, (
         "the shell guard must come before `set -o pipefail`, or dash never reaches it"
     )
+
+
+# ------------------------------------------------------ somebody else's cci --
+
+
+def test_installing_does_not_delete_a_cci_it_did_not_create(tmp_path: Path):
+    """A regular file at `$BIN_DIR/cci` is another installation's entry point.
+
+    `pip install --user cc-insights` writes exactly that. The old code warned
+    "replacing $link, which pointed somewhere else" and then `rm -f`'d it,
+    which leaves that installation with its package still on disk and no way
+    to run it -- and nothing to restore from, because a console script is
+    generated at install time. `do_uninstall` has always refused to touch a
+    cci it did not create; this is the same rule on the way in.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    foreign = bin_dir / "cci"
+    foreign.write_text("#!/usr/bin/python3\n# a console script from pip --user\n")
+    foreign.chmod(0o755)
+
+    target = tmp_path / "venv" / "bin" / "cci"
+    target.parent.mkdir(parents=True)
+    target.write_text("#!/bin/sh\n")
+    target.chmod(0o755)
+
+    proc = source_and_run(f'link_into_bin_dir "{target}"',
+                          env={"CC_INSIGHTS_BIN_DIR": str(bin_dir),
+                               "HOME": str(tmp_path)})
+
+    assert proc.returncode == 0, proc.stderr
+    assert foreign.is_file() and not foreign.is_symlink()
+    assert "pip --user" in foreign.read_text(), "somebody else's cci was destroyed"
+    # The install is still usable, and what comes back is the path that works.
+    assert proc.stdout.strip() == str(target)
+    assert "left" in proc.stderr and str(foreign) in proc.stderr
+
+
+def test_a_symlink_from_a_previous_run_is_still_replaced(tmp_path: Path):
+    """The rule is about what cannot be recovered, not about caution.
+
+    Deleting a symlink costs nothing -- whatever it pointed at is still
+    there -- so an upgrade must not refuse to relink its own link and leave
+    the user running the previous venv.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    old_target = tmp_path / "old" / "cci"
+    old_target.parent.mkdir()
+    old_target.write_text("#!/bin/sh\n")
+    (bin_dir / "cci").symlink_to(old_target)
+
+    target = tmp_path / "venv" / "bin" / "cci"
+    target.parent.mkdir(parents=True)
+    target.write_text("#!/bin/sh\n")
+
+    proc = source_and_run(f'link_into_bin_dir "{target}"',
+                          env={"CC_INSIGHTS_BIN_DIR": str(bin_dir),
+                               "HOME": str(tmp_path)})
+
+    assert proc.returncode == 0, proc.stderr
+    assert (bin_dir / "cci").resolve() == target.resolve()
+    assert proc.stdout.strip() == str(bin_dir / "cci")
+
+
+# ------------------------------------------- uninstalling a broken install --
+
+
+def test_uninstall_unloads_the_job_even_when_cci_cannot_run(tmp_path: Path,
+                                                            shim_dir: Path):
+    """The job must not outlive the binary it points at.
+
+    `cci` carries the venv's interpreter in its shebang, so a Homebrew python
+    bump leaves it dying with "bad interpreter" -- on precisely the machine
+    somebody is now uninstalling. `cci install --uninstall` fails, the warning
+    scrolls past, `rm -rf $INSTALL_DIR` runs anyway, and the plist stays
+    loaded: firing every 15 minutes at a path that no longer exists, into a
+    log nobody opens, surviving every reboot.
+
+    Runs entirely inside tmp_path with a stubbed launchctl -- the machine
+    running this suite has a live com.cc-insights job that must keep going.
+    """
+    home = tmp_path / "home"
+    agents = home / "Library" / "LaunchAgents"
+    agents.mkdir(parents=True)
+    interval = agents / "com.cc-insights.plist"
+    watch = agents / "com.cc-insights.watch.plist"
+    interval.write_text("<plist/>")
+    watch.write_text("<plist/>")
+
+    install_dir = tmp_path / "share" / "cc-insights"
+    (install_dir / "venv" / "bin").mkdir(parents=True)
+    broken = install_dir / "venv" / "bin" / "cci"
+    broken.write_text("#!/nonexistent/python3.11\nprint('unreachable')\n")
+    broken.chmod(0o755)
+
+    log = tmp_path / "launchctl.log"
+    write_shim(shim_dir, "launchctl", f'printf "%s\\n" "$*" >> "{log}"')
+    # Never let a real pipx anywhere near this: it would uninstall the
+    # developer's own copy of the package.
+    write_shim(shim_dir, "pipx", "exit 1")
+
+    proc = source_and_run("do_uninstall", env={
+        "PATH": f"{shim_dir}{os.pathsep}/usr/bin{os.pathsep}/bin",
+        "HOME": str(home),
+        "CC_INSIGHTS_INSTALL_DIR": str(install_dir),
+        "CC_INSIGHTS_BIN_DIR": str(tmp_path / "bin"),
+    })
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert not interval.exists(), "a loaded job was left pointing at a deleted venv"
+    assert not watch.exists()
+
+    unloaded = log.read_text()
+    assert str(interval) in unloaded and "unload" in unloaded, (
+        "removing the file is not enough: launchd keeps running a job it has "
+        f"already loaded.\n{unloaded}"
+    )
+    assert not install_dir.exists(), "the managed install should still be removed"

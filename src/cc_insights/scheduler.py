@@ -11,7 +11,7 @@ to make it automatic.
 So the logic moves here, next to the templates it writes, and the shell
 script becomes a thin wrapper for the checkout case. One implementation.
 
-Two jobs, and you install exactly one:
+Two jobs, and on macOS you install exactly one:
 
 * **interval** -- `cci ingest && cci derive` every 15 minutes, then exits.
 * **watch** -- one `cci watch` process that follows the logs, seconds behind.
@@ -19,6 +19,13 @@ Two jobs, and you install exactly one:
 Both at once is two writers on one SQLite database, which is the one way to
 make this tool contend with itself. Installing either removes the other
 first; that rule is enforced here rather than documented.
+
+Windows has the interval job only, and `--watch` is refused there rather
+than half-implemented -- Task Scheduler has no supervisor for a process that
+is supposed to stay up, so a registered `cci watch` would stop at its first
+crash and report it nowhere. The refusal names the interval job instead. It
+is the same bargain `_unsupported()` makes for Linux: a printed alternative
+beats a job nobody has run.
 """
 
 from __future__ import annotations
@@ -30,12 +37,22 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 from cc_insights import assets, paths
 
 INTERVAL = "interval"
 WATCH = "watch"
 
+#: The label, in the one place both schedulers read it from. launchd uses it
+#: for the plist name and Task Scheduler for the task name, and the two used
+#: to be spelled differently: `install-task.ps1` registered "CC-Insights
+#: Ingest" while `_status_task` asked `Get-ScheduledTask` about
+#: "com.cc-insights". They could never match, so on Windows a successful
+#: install was followed by `cci doctor` reporting "not installed" and
+#: `active()` returning None forever -- and `scripts/install.sh` ends with
+#: `cci doctor`, so a correct install failed its own final gate.
+#: `tests/test_scripts.py` now compares this constant against the .ps1.
 LABEL = "com.cc-insights"
 WATCH_LABEL = "com.cc-insights.watch"
 
@@ -123,11 +140,49 @@ def _launchd_loaded(label: str) -> bool:
     return any(line.split("\t")[-1] == label for line in proc.stdout.splitlines())
 
 
-def _install_launchd(mode: str, cci: Path, log_dir: Path) -> Path:
-    text = assets.job_template(_TEMPLATES[mode])
-    rendered = text.replace("__CCI__", str(cci)).replace("__LOGDIR__", str(log_dir))
-    if "__CCI__" in rendered or "__LOGDIR__" in rendered:   # pragma: no cover
+def _write_atomically(dst: Path, text: str) -> None:
+    """Write `text` to `dst` through a temporary file in the same directory.
+
+    `write_text` truncates in place, so a crash, a full disk or a kill
+    between the truncate and the write leaves a zero-byte plist where a
+    working job used to be. launchd refuses an empty plist at the next
+    login without saying so anywhere, and capture stops with no error and no
+    log line -- the silent failure this whole module exists to avoid.
+
+    `os.replace` within one directory is atomic, so the job file on disk is
+    either the old definition or the new one and never half of either. Same
+    bargain `account.save` and `config._atomic_write` already make for files
+    that matter less than this one.
+    """
+    tmp = dst.with_name(f".{dst.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text)
+        os.replace(tmp, dst)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _render(mode: str, cci: Path, log_dir: Path, config_dir: Path) -> str:
+    """The job file's text, with every path escaped for XML.
+
+    A path is allowed to contain the three characters XML is not: a home
+    directory called "Tom & Jerry" produced `not well-formed (invalid
+    token): line 16, column 28` out of `cci install` and named nothing the
+    user could act on. Escaping the substituted values -- and only those,
+    the template's own `&amp;&amp;` is already correct -- makes those
+    directories work rather than fail more politely.
+    """
+    rendered = assets.job_template(_TEMPLATES[mode])
+    for placeholder, value in (("__CCI__", cci), ("__LOGDIR__", log_dir),
+                               ("__CONFIGDIR__", config_dir)):
+        rendered = rendered.replace(placeholder, escape(str(value)))
+    if any(p in rendered for p in ("__CCI__", "__LOGDIR__", "__CONFIGDIR__")):
         raise RuntimeError("template substitution left a placeholder behind")
+    return rendered
+
+
+def _install_launchd(mode: str, cci: Path, log_dir: Path, config_dir: Path) -> Path:
+    rendered = _render(mode, cci, log_dir, config_dir)
 
     # Parse before writing: a malformed plist is rejected by launchd with a
     # message that does not name the problem, and the job then simply never
@@ -141,11 +196,18 @@ def _install_launchd(mode: str, cci: Path, log_dir: Path) -> Path:
     try:
         plistlib.loads(rendered.encode())
     except Exception as exc:
-        raise RuntimeError(f"generated plist is invalid: {exc}") from exc
+        # Name the substituted values. What is nearly always wrong is one of
+        # these two paths, and an XML parse error on its own sends the reader
+        # to the template, which is fine.
+        raise RuntimeError(
+            f"generated plist is invalid: {exc}\n"
+            f"    cci:  {cci}\n"
+            f"    logs: {log_dir}"
+        ) from exc
 
     dst = _plist_path(mode)
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(rendered)
+    _write_atomically(dst, rendered)
 
     # The other job goes first. Two writers on one database is the failure
     # this ordering exists to prevent.
@@ -241,17 +303,50 @@ def _unsupported() -> Unsupported:
     )
 
 
-def install(mode: str = INTERVAL, *, log_dir: Path) -> tuple[Path | None, Path]:
-    """Install one job, removing the other. Returns (job file, cci path)."""
+def _watch_is_macos_only() -> Unsupported:
+    """Refuse `--watch` on Windows, and say what to install instead.
+
+    Task Scheduler starts things; it does not supervise them. There is no
+    KeepAlive, so a `cci watch` registered as a task stops for good the
+    first time it exits -- and the symptom of that is the numbers quietly
+    ceasing to move, which is precisely the failure the watch job is
+    supposed to remove. Registering one anyway would be shipping a feature
+    that fails silently on somebody else's machine.
+    """
+    return Unsupported(
+        "`--watch` is macOS-only; Windows has the 15-minute job.\n"
+        "    Task Scheduler cannot keep a process alive -- a watcher that\n"
+        "    exited would never be restarted, and nothing would say so.\n\n"
+        "      cci install            the interval job: same history, up to\n"
+        "                             15 minutes behind instead of seconds\n"
+        "      cci watch              or keep one in a terminal yourself"
+    )
+
+
+def install(mode: str = INTERVAL, *, config_dir: Path,
+            log_dir: Path | None = None) -> tuple[Path | None, Path]:
+    """Install one job, removing the other. Returns (job file, cci path).
+
+    `config_dir` is not optional and is not cosmetic: it is written into the
+    job so the background run fills the same database this CLI reads. It
+    used to be inferred at run time from the job's own environment, which a
+    launchd agent does not have -- see the EnvironmentVariables comment in
+    the plist. `log_dir` defaults to it for the same reason: the two halves
+    were passed separately once, and a split between "where it logs" and
+    "where it writes" is exactly the bug.
+    """
     if mode not in _LABELS:
         raise ValueError(f"unknown job mode {mode!r}")
     cci = cci_executable()
+    log_dir = log_dir if log_dir is not None else config_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     if sys.platform == "darwin":
-        return _install_launchd(mode, cci, log_dir), cci
+        return _install_launchd(mode, cci, log_dir, config_dir), cci
     if paths.LOCAL == paths.WINDOWS:                     # pragma: no cover
-        _run_task_script(*(["-Watch"] if mode == WATCH else []))
+        if mode == WATCH:
+            raise _watch_is_macos_only()
+        _run_task_script("-ConfigDir", str(config_dir))
         return None, cci
     raise _unsupported()
 
@@ -261,8 +356,13 @@ def uninstall() -> list[str]:
     if sys.platform == "darwin":
         return [_LABELS[m] for m in (INTERVAL, WATCH) if _uninstall_launchd(m)]
     if paths.LOCAL == paths.WINDOWS:                     # pragma: no cover
+        # Ask first. Returning [LABEL] unconditionally made `cci install
+        # --uninstall` print "removed com.cc-insights" on a machine that had
+        # no task at all, which is the one answer that stops somebody looking
+        # for the job that is still running.
+        present = _status_task(INTERVAL).installed
         _run_task_script("-Uninstall")
-        return [LABEL]
+        return [LABEL] if present else []
     raise _unsupported()
 
 

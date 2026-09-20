@@ -156,14 +156,44 @@ def _capture(cfg: config_mod.Config, conn: sqlite3.Connection | None) -> list[Ch
     return out
 
 
-def _schema(cfg: config_mod.Config, conn: sqlite3.Connection | None) -> list[Check]:
+def _schema(cfg: config_mod.Config, conn: sqlite3.Connection | None,
+            unreadable: str | None = None) -> list[Check]:
     if conn is None:
+        if unreadable is not None:
+            # "does not exist — run `cci init`" would be false and the advice
+            # wrong: the file is right there, and `cci init` opens it and
+            # fails the same way. Say what SQLite said, and name the one move
+            # that gets the tool running again.
+            return [Check(
+                "database", FAIL,
+                f"{cfg.db_path} exists but SQLite cannot read it: {unreadable}",
+                "move that file aside and run `cci init`  (a corrupt database "
+                "is not recoverable by this tool)",
+            )]
         return [Check("database", FAIL, f"{cfg.db_path} does not exist", "cci init")]
 
-    applied = db.applied_versions(conn)
-    pending = [v for v, _ in db.discover_migrations() if v not in applied]
+    try:
+        applied = db.applied_versions(conn)
+        migrations = db.discover_migrations()
+    except RuntimeError as exc:
+        # `discover_migrations` raises when the installed package shipped no
+        # .sql files. Doctor is the command you run to be *told* about a
+        # packaging bug like that; dying on it left the user with a traceback
+        # from the health check instead of the diagnosis.
+        return [Check("schema", FAIL, str(exc), "reinstall cc-insights")]
+    except sqlite3.Error as exc:
+        return [Check("schema", FAIL, f"the schema could not be read: {exc}",
+                      "cci init")]
+
+    pending = [v for v, _ in migrations if v not in applied]
     if pending:
         return [Check("schema", FAIL, f"pending migrations: {pending}", "cci init")]
+    if not applied:                                      # pragma: no cover
+        # Unreachable while `discover_migrations` refuses to find none -- an
+        # unmigrated database lands in the `pending` branch above. Kept
+        # because `max()` of an empty set raises, and doctor must never be
+        # the command that crashes.
+        return [Check("schema", FAIL, "no migrations have been applied", "cci init")]
     return [Check("schema", OK, f"up to date (through {max(applied)})")]
 
 
@@ -330,20 +360,52 @@ def _auto_push(cfg: config_mod.Config) -> list[Check]:
 
 
 def run(cfg: config_mod.Config) -> list[Check]:
-    """Every check, in the order they matter. Never raises on a bad install."""
+    """Every check, in the order they matter. Never raises on a bad install.
+
+    That promise is the whole contract of this module, and it was not true:
+    `scripts/install.sh` ends with `cci doctor`, so the two installs doctor
+    exists to diagnose -- a package shipped without its migrations, and a
+    first `cci init` that was interrupted -- greeted the user with a
+    traceback out of the health check instead of a report naming the fix.
+
+    The order below is deliberate. The schema is settled first because
+    everything after it queries tables that only exist if the answer was
+    "up to date": on a database file with no tables, `_capture` used to die
+    with `no such table: ingest_file`. When the schema is not usable the
+    connection is withheld from the later checks, which then say what they
+    can (the background job does not need the database) and stay quiet
+    about the rest.
+    """
     conn: sqlite3.Connection | None = None
+    unreadable: str | None = None
     if cfg.db_path.exists():
         try:
             conn = db.connect(cfg.db_path)
-        except sqlite3.Error:                            # pragma: no cover
-            conn = None
+        except sqlite3.Error as exc:
+            # A corrupt file, or one that is not a database at all. Keep the
+            # reason: without it `_schema` reported "does not exist", which
+            # is false and sends the reader to the wrong fix.
+            conn, unreadable = None, str(exc)
+
+    checks: list[Check] = []
     try:
-        checks = _schema(cfg, conn) + _capture(cfg, conn) + _contents(conn)
+        schema = _schema(cfg, conn, unreadable)
+        usable = conn if all(c.level == OK for c in schema) else None
+        checks += schema + _capture(cfg, usable) + _contents(usable)
         checks += _dashboard() + _sync(cfg)
         # Account last: it is the only check that touches the network, so a
         # slow or unreachable server delays the answer to "is it capturing?"
         # by as little as possible -- and that question is the urgent one.
         checks += _account(cfg) + _auto_push(cfg)
+    except Exception as exc:                             # pragma: no cover
+        # The last resort, for the failure nobody predicted. A report that
+        # stops early and says so is still usable from a script; a traceback
+        # out of the command that is supposed to explain a broken install is
+        # not, and it is also what the caller least expects.
+        checks.append(Check(
+            "doctor", FAIL, f"the checks stopped early: {exc!r}",
+            "please report this, with the line above",
+        ))
     finally:
         if conn is not None:
             conn.close()

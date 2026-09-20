@@ -282,15 +282,34 @@ install_with_venv() {
 # The console script carries the venv's interpreter in its shebang, so a plain
 # symlink is enough -- no wrapper that would have to be regenerated whenever
 # the venv moves.
+#
+# What is at $BIN_DIR/cci decides whether it may be removed, and the line is
+# not tidiness: a symlink is a pointer and deleting it costs nothing, while a
+# regular file there is somebody else's console script -- `pip install --user
+# cc-insights` writes exactly that -- and deleting it leaves that install with
+# its package intact and no way to run it. `do_uninstall` already refuses to
+# touch a `cci` it did not create; the install side used to warn and then
+# delete it anyway.
 link_into_bin_dir() {
-    local target="$1" link="$BIN_DIR/cci"
+    local target="$1" link="$BIN_DIR/cci" current
 
     mkdir -p "$BIN_DIR"
-    if [ -e "$link" ] || [ -L "$link" ]; then
-        if [ "$(readlink "$link" 2>/dev/null || true)" != "$target" ]; then
-            warn "replacing $link, which pointed somewhere else"
+    if [ -L "$link" ]; then
+        current="$(readlink "$link" 2>/dev/null || true)"
+        if [ "$current" != "$target" ]; then
+            warn "replacing $link, which pointed at ${current:-somewhere else}"
         fi
         rm -f "$link"
+    elif [ -e "$link" ]; then
+        # Not ours to delete. The install is finished and usable at its own
+        # path, so hand that back: `report_on_path` then says the shell finds
+        # a different cci first, which is the truth and is actionable.
+        warn "left $link alone — it is a file, not a link, so it belongs to
+         another installation (pip install --user, perhaps). Remove it
+         yourself if you want this one on PATH; until then use:
+           $target"
+        printf '%s\n' "$target"
+        return 0
     fi
     ln -s "$target" "$link"
     printf '%s\n' "$link"
@@ -370,6 +389,36 @@ existing_cci() {
     return 1
 }
 
+# The plists `cci install` writes, by the labels scheduler.py uses. Knowing
+# them here is duplication, and the alternative is worse: see
+# remove_launch_agents.
+readonly LAUNCHD_LABELS=(com.cc-insights com.cc-insights.watch)
+
+# The fallback for when `cci install --uninstall` could not run at all.
+#
+# `cci` is a console script with the venv's interpreter in its shebang, so a
+# Homebrew python bump leaves it dying with "bad interpreter" -- and that is
+# the machine most likely to be uninstalling. The warning scrolls past, the
+# venv is deleted a moment later, and the plist stays *loaded*: firing every
+# 15 minutes at a path that no longer exists, into a log nobody opens,
+# surviving every reboot. That is verbatim the failure the ordering above is
+# supposed to prevent, so the ordering alone is not enough.
+#
+# Unloading a job that is not loaded, and removing a file that is not there,
+# are both no-ops -- so this runs unconditionally after the attempt above
+# rather than only when it failed, and needs no way to detect that it did.
+remove_launch_agents() {
+    [ "$(uname -s)" = "Darwin" ] || return 0
+    local label plist
+    for label in "${LAUNCHD_LABELS[@]}"; do
+        plist="$HOME/Library/LaunchAgents/$label.plist"
+        [ -e "$plist" ] || continue
+        launchctl unload "$plist" >/dev/null 2>&1 || true
+        rm -f "$plist"
+        note "removed $plist"
+    done
+}
+
 do_uninstall() {
     local cci link
 
@@ -383,6 +432,7 @@ do_uninstall() {
     else
         note "no cci found — nothing to unload"
     fi
+    remove_launch_agents
 
     step "Removing the install"
     if command -v pipx >/dev/null 2>&1 && pipx list --short 2>/dev/null | grep -q "^$PACKAGE "; then

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -182,6 +183,72 @@ def test_job_template_reads_from_the_package():
 def test_a_missing_template_says_it_is_a_packaging_bug():
     with pytest.raises(FileNotFoundError, match="packaging bug"):
         assets.job_template("com.cc-insights.nonexistent.plist")
+
+
+# ---------------------------------------------------------------- the sdist --
+#
+# Everything above builds a wheel straight out of the checkout, which is the
+# path a release takes and not the path a source build takes. `pip install
+# --no-binary cc-insights`, a resolver with no matching wheel, and every
+# distribution that builds from source on principle all go through the sdist
+# -- and the sdist did not carry `frontend/dist`, while the wheel build
+# force-includes it unconditionally. Hatchling aborts with "Forced include
+# not found" when the source is missing, so those installs did not lose the
+# dashboard, they failed outright. The README uploads the sdist anyway.
+
+
+def _build(what: str, source: Path, outdir: Path) -> Path:
+    proc = subprocess.run(
+        [sys.executable, "-m", "build", what, "--no-isolation",
+         "--outdir", str(outdir), str(source)],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        pytest.fail(f"{what} build of {source} failed:\n{proc.stdout}\n{proc.stderr}")
+    built = sorted(outdir.iterdir())
+    assert len(built) == 1, f"expected one artifact, got {built}"
+    return built[0]
+
+
+@pytest.fixture(scope="module")
+def sdist(tmp_path_factory) -> Path:
+    """The published source distribution, unpacked."""
+    out = tmp_path_factory.mktemp("sdist")
+    archive = _build("--sdist", REPO, out)
+    with tarfile.open(archive) as tar:
+        tar.extractall(out / "src", filter="data")
+    unpacked = next((out / "src").iterdir())
+    return unpacked
+
+
+def test_the_sdist_carries_what_the_wheel_build_demands(sdist):
+    """`frontend/dist` is gitignored, so it reaches the sdist only on purpose."""
+    if not (REPO / "frontend" / "dist" / "index.html").is_file():
+        pytest.skip("frontend/dist is not built in this checkout")
+    assert (sdist / "frontend" / "dist" / "index.html").is_file(), (
+        "the sdist has no dashboard, and the wheel build force-includes one: "
+        "every build from source fails with `Forced include not found`."
+    )
+    assert list((sdist / "migrations").glob("*.sql"))
+
+
+def test_a_wheel_can_be_built_from_the_published_sdist(sdist, tmp_path):
+    """What `pip install --no-binary cc-insights` actually does.
+
+    Reproduced before the fix: FileNotFoundError out of hatchling, so the
+    package could not be installed from source at all -- not by pip with a
+    wheel unavailable, not by a distro, not by anyone auditing what they run.
+    """
+    if not (REPO / "frontend" / "dist" / "index.html").is_file():
+        pytest.skip("frontend/dist is not built in this checkout")
+
+    built = _build("--wheel", sdist, tmp_path / "wheel")
+    with zipfile.ZipFile(built) as whl:
+        entries = whl.namelist()
+
+    assert "cc_insights/web/index.html" in entries, "a source build lost the dashboard"
+    assert any(n.startswith("cc_insights/migrations/") and n.endswith(".sql")
+               for n in entries), "a source build lost the schema"
 
 
 # ------------------------------------------------------------- the basics --

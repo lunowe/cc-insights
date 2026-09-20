@@ -8,6 +8,7 @@ that the script executes. Executing it is a manual step on Windows -- see
 README."""
 
 import plistlib
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -90,6 +91,47 @@ def test_the_windows_task_matches_the_launchd_job():
     # Same two log files, so `cci`'s config directory is the one place to look.
     assert "'ingest.log'" in ps and "'ingest.err'" in ps
     assert "ingest.log" in plist and "ingest.err" in plist
+
+
+def test_the_task_name_is_the_label_scheduler_py_looks_for():
+    """The two spellings have to be one string, and nothing compared them.
+
+    `install-task.ps1` registered `CC-Insights Ingest`; `_status_task` asked
+    `Get-ScheduledTask` about `com.cc-insights`. They could never match, so
+    on Windows a successful `cci install` was followed by `cci doctor`
+    saying "not installed — history is only captured when you run cci
+    ingest by hand" and `scheduler.active()` returning None for good. Worse,
+    `scripts/install.sh` ends with `cci doctor`, so a correct install failed
+    its own final gate and exited non-zero.
+
+    Read as text rather than executed, like everything else here: there is
+    no pwsh on the machines this suite runs on.
+    """
+    from cc_insights import scheduler
+
+    names = re.findall(r"^\$TaskName\s*=\s*'([^']+)'", INSTALL_TASK.read_text(),
+                       re.MULTILINE)
+    assert names == [scheduler.LABEL], (
+        f"install-task.ps1 registers {names}, scheduler.py queries "
+        f"{scheduler.LABEL!r}"
+    )
+
+
+def test_the_windows_task_pins_the_config_dir_into_the_job():
+    """A scheduled task inherits the account's environment, not the shell's.
+
+    So a CC_INSIGHTS_HOME exported in the window where `cci install` ran is
+    gone by the time the task fires, and every step would fall back to
+    %APPDATA%\\cc-insights: one database filled by the task, another read by
+    `cci serve`, and no error in either. The launchd job pins it through
+    EnvironmentVariables; cmd.exe has no such key, so the command line sets
+    it once for the whole session.
+    """
+    ps = INSTALL_TASK.read_text()
+    assert "$ConfigDir = ''" in ps, "cci install must be able to pass it in"
+    assert "set `\"CC_INSIGHTS_HOME=$ConfigDir`\"" in ps
+    assert ps.index("CC_INSIGHTS_HOME=$ConfigDir") < ps.index("$Cci`\" init"), \
+        "the variable has to be set before the first command reads it"
 
 
 def test_the_windows_task_respects_the_config_dir_override():

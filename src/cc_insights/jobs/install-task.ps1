@@ -15,11 +15,23 @@
     read-only. No elevation is required: the task runs as you, which is also
     the only account that can see your logs.
 
+    There is no watch task. `cci install --watch` is refused on Windows and
+    says so: Task Scheduler starts processes but does not supervise them, so
+    a long-running `cci watch` registered here would stay dead after its
+    first exit with nothing to report it. See `_watch_is_macos_only` in
+    scheduler.py. The 15-minute job below captures the same history.
+
 .PARAMETER Uninstall
     Stop and unregister the task instead of installing it.
 
 .PARAMETER IntervalMinutes
     How often to run. Defaults to 15, matching the launchd job.
+
+.PARAMETER ConfigDir
+    The CC-Insights config directory the task should read and write. `cci
+    install` passes the directory it was itself run against, so the task
+    fills the database the CLI reads. Defaults to the same place
+    config.default_config_dir() would pick.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\install-task.ps1
@@ -28,13 +40,19 @@
 [CmdletBinding()]
 param(
     [switch]$Uninstall,
-    [int]$IntervalMinutes = 15
+    [int]$IntervalMinutes = 15,
+    [string]$ConfigDir = ''
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$TaskName = 'CC-Insights Ingest'
+# Exactly `scheduler.LABEL`, and that is a contract, not a coincidence:
+# `_status_task` asks Get-ScheduledTask for this name, so a prettier one here
+# meant every install was followed by `cci doctor` reporting "not installed"
+# and `scheduler.active()` returning None for good. Nothing compared the two
+# spellings until tests/test_scripts.py did.
+$TaskName = 'com.cc-insights'
 
 if ($Uninstall) {
     if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
@@ -48,9 +66,13 @@ if ($Uninstall) {
 
 # %APPDATA%\cc-insights is where config.default_config_dir() puts things on
 # Windows; CC_INSIGHTS_HOME overrides it there and must override it here too,
-# or the task would log somewhere the CLI never looks.
-$ConfigDir = if ($env:CC_INSIGHTS_HOME) { $env:CC_INSIGHTS_HOME }
-             else { Join-Path $env:APPDATA 'cc-insights' }
+# or the task would log somewhere the CLI never looks. -ConfigDir wins over
+# both: `cci install --config-dir X` has already resolved this question, and
+# the answer has to be the same one.
+if (-not $ConfigDir) {
+    $ConfigDir = if ($env:CC_INSIGHTS_HOME) { $env:CC_INSIGHTS_HOME }
+                 else { Join-Path $env:APPDATA 'cc-insights' }
+}
 $LogDir = Join-Path $ConfigDir 'logs'
 
 # Two steps, not `(Get-Command ...).Source`: -ErrorAction covers the lookup but
@@ -67,7 +89,7 @@ if (-not $Cci) {
     exit 1
 }
 
-& $Cci init | Out-Null
+& $Cci --config-dir $ConfigDir init | Out-Null
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 # cmd.exe rather than PowerShell for the payload: `&&` short-circuits the same
@@ -87,7 +109,18 @@ $ErrLog = Join-Path $LogDir 'ingest.err'
 # cost an event. It exits 0 even when it could not connect, so a network
 # failure is never mistaken for a capture failure. With nobody signed in it
 # does nothing.
-$Command = "`"$Cci`" init >> `"$OutLog`" 2>> `"$ErrLog`" && `"$Cci`" ingest >> `"$OutLog`" 2>> `"$ErrLog`" && `"$Cci`" derive >> `"$OutLog`" 2>> `"$ErrLog`" && `"$Cci`" sync auto >> `"$OutLog`" 2>> `"$ErrLog`""
+#
+# The leading `set` is what keeps the task writing the database the CLI
+# reads. A scheduled task inherits the environment of the account, not of
+# the shell that registered it, so CC_INSIGHTS_HOME exported in this
+# session -- or a config dir passed as -ConfigDir -- would otherwise be
+# invisible at run time and every step would fall back to
+# %APPDATA%\cc-insights. The user would then have two databases: one the
+# task fills, one `cci serve` reads, and no error in either. Setting it
+# once in the cmd session covers every step, including steps added later
+# by someone who does not know to repeat a flag. This is the same fix as
+# the plists' EnvironmentVariables key.
+$Command = "set `"CC_INSIGHTS_HOME=$ConfigDir`"&& `"$Cci`" init >> `"$OutLog`" 2>> `"$ErrLog`" && `"$Cci`" ingest >> `"$OutLog`" 2>> `"$ErrLog`" && `"$Cci`" derive >> `"$OutLog`" 2>> `"$ErrLog`" && `"$Cci`" sync auto >> `"$OutLog`" 2>> `"$ErrLog`""
 
 # `/s /c "<everything>"` -- cmd strips exactly one outer quote pair and takes
 # the rest verbatim. Without the outer pair it splits on the first quoted path
@@ -124,5 +157,6 @@ Start-ScheduledTask -TaskName $TaskName
 Write-Host "installed $TaskName"
 Write-Host "  runs    : $Cci init && $Cci ingest && $Cci derive && $Cci sync auto"
 Write-Host "  every   : $IntervalMinutes minutes (and at logon, and once now)"
+Write-Host "  config  : $ConfigDir"
 Write-Host "  logs    : $OutLog"
 Write-Host "  remove  : powershell -ExecutionPolicy Bypass -File $PSCommandPath -Uninstall"

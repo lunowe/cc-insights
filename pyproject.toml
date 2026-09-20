@@ -86,12 +86,29 @@ artifacts = ["src/cc_insights/jobs/*"]
 "migrations" = "cc_insights/migrations"
 
 # The sdist carries the whole repo including `migrations/`, so a build from
-# it works. `frontend/dist` is the exception: it is gitignored, so `pip
-# install` from an sdist yields the JSON API with no dashboard. Acceptable --
-# the wheel is the supported path and that is what PyPI serves.
+# it works.
 [tool.hatch.build.targets.sdist]
 include = ["src", "migrations", "scripts", "frontend", "docs", "tests",
            "README.md", "PROMPT.md", "LICENSE", "pyproject.toml"]
+
+# `frontend/dist` has to be in the sdist as well, and this is not about
+# whether the dashboard is nice to have there.
+#
+# The wheel force-include above is unconditional, and hatchling aborts with
+# `FileNotFoundError: Forced include not found` when its source is absent.
+# `frontend/dist` is gitignored, so it was in the sdist under no
+# circumstances -- and every build that goes through the sdist therefore
+# failed outright: `pip install --no-binary cc-insights`, any resolver that
+# falls back to the source distribution, and every distro or Nix package
+# that builds from source on principle. The old comment here claimed that
+# case "yields the JSON API with no dashboard". It did not install at all.
+#
+# So the sdist ships the built dashboard, which makes the release order the
+# same one the README already documents: build the frontend, then
+# `python -m build`. test_packaging.py builds an sdist and then a wheel out
+# of it, because the only honest check is the one that does what pip does.
+[tool.hatch.build.targets.sdist.force-include]
+"frontend/dist" = "frontend/dist"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

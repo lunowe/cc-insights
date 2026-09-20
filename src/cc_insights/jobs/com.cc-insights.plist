@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Template. scripts/install-launchd.sh substitutes __CCI__ and __LOGDIR__ and
-  writes the result to ~/Library/LaunchAgents/. Do not load this file directly.
+  Template. `cci install` substitutes __CCI__, __LOGDIR__ and __CONFIGDIR__
+  and writes the result to ~/Library/LaunchAgents/ (scripts/install-launchd.sh
+  is a wrapper around that). Do not load this file directly.
 -->
 <plist version="1.0">
 <dict>
@@ -15,6 +16,29 @@
         <string>-c</string>
         <string>__CCI__ init &amp;&amp; __CCI__ ingest &amp;&amp; __CCI__ derive &amp;&amp; __CCI__ sync auto</string>
     </array>
+
+    <!-- The database this job fills must be the one the CLI reads, and
+         without this key it is not. launchd agents do not inherit your
+         shell, so an exported CC_INSIGHTS_HOME is invisible to the job: it
+         would fall back to ~/.config/cc-insights and quietly create a
+         SECOND database there, while `cci doctor` and `cci serve` kept
+         reading the configured one and reporting "last ingest: never"
+         forever. Nothing errors in that state; history simply accumulates
+         where nobody looks.
+
+         So the config directory `cci install` was run against is pinned
+         here. It is an environment variable rather than a config-dir flag
+         repeated on each command because it is then inherited by every
+         step of the pipeline, including any step added in a later release
+         by someone who does not know to repeat the flag.
+
+         (No double hyphens in this comment: XML forbids them inside one,
+         and the plist then fails to parse. See _install_launchd.) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CC_INSIGHTS_HOME</key>
+        <string>__CONFIGDIR__</string>
+    </dict>
 
     <!-- `init` first, and it is not redundant. It applies pending migrations,
          and without it an upgrade that adds one stops this job dead: every

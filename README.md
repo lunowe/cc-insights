@@ -67,11 +67,19 @@ are pruned on a rolling basis, so a gap in capture is a permanent gap in
 history.** That is the point of the project, not a footnote.
 
 It installs a launchd job on macOS and a Task Scheduler job on Windows; on
-anything else it prints the equivalent cron line rather than failing. To
-follow the logs live instead of every 15 minutes, `cci install --watch` — one
-or the other, never both, since two writers on one SQLite database is the one
-way to make this contend with itself. The installer enforces that rather than
-documenting it. `cci install --uninstall` removes either, and keeps your data.
+anything else it prints the equivalent cron line rather than failing. Either
+way the job is pinned to the config directory you installed from, so
+`CC_INSIGHTS_HOME=/data/cci cci install` captures into `/data/cci` and not
+into a second database under `~/.config` that nothing reads.
+
+To follow the logs live instead of every 15 minutes, `cci install --watch` —
+one or the other, never both, since two writers on one SQLite database is the
+one way to make this contend with itself. The installer enforces that rather
+than documenting it. Watch mode is macOS-only: Task Scheduler starts
+processes but does not keep them up, so on Windows `--watch` is refused with
+a pointer to the 15-minute job rather than registering a watcher that would
+stay dead after its first exit. `cci install --uninstall` removes either, and
+keeps your data.
 
 To check it is still working, at any point:
 
@@ -335,6 +343,12 @@ git tag v0.1.0 && git push origin v0.1.0
    be uploaded. `test_packaging.py` *skips* its dashboard assertions when
    `frontend/dist` is absent, which is right on a laptop and would be a hole
    here, so the release job repeats the check in a form that cannot skip.
+   The sdist carries `frontend/dist` too, for the same reason step 1 exists:
+   a wheel built *from the sdist* force-includes it, so an sdist without it
+   is not a dashboard-less install, it is `pip install --no-binary
+   cc-insights` failing with `Forced include not found` — along with every
+   distro that builds from source. `test_packaging.py` builds an sdist and
+   then a wheel out of it, which is what pip does when no wheel matches.
 4. **Publish via trusted publishing.** PyPI mints a short-lived token from the
    workflow's OIDC identity, so there is no API token in repository secrets.
    The publisher is configured on PyPI against this repository, the workflow

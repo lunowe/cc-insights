@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Template for the WATCH job. `install-launchd.sh` with the watch flag
-  substitutes __CCI__ and __LOGDIR__ and writes the result to
+  Template for the WATCH job. `cci install` in watch mode substitutes
+  __CCI__, __LOGDIR__ and __CONFIGDIR__ and writes the result to
   ~/Library/LaunchAgents/. Do not load this file directly.
 
   The difference from the 15-minute job: this one process stays up and follows
@@ -29,6 +29,16 @@
         <string>-c</string>
         <string>__CCI__ init &amp;&amp; exec __CCI__ watch --quiet</string>
     </array>
+
+    <!-- Same reason as the interval job: launchd does not read your shell,
+         so without this an exported CC_INSIGHTS_HOME is invisible here and
+         the watcher follows the logs into a database the CLI never opens.
+         See com.cc-insights.plist for the long version. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CC_INSIGHTS_HOME</key>
+        <string>__CONFIGDIR__</string>
+    </dict>
 
     <!-- A long-running job, restarted if it dies. Throttled so a process that
          fails immediately (an unmigrated database, say) retries every half

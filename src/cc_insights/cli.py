@@ -834,7 +834,11 @@ def cmd_install(args: argparse.Namespace) -> int:
 
     print()
     try:
-        job_file, cci = scheduler.install(mode, log_dir=cfg.config_dir / "logs")
+        # The config dir, not just its logs subdirectory: the job writes it
+        # into its own environment so the background run fills the database
+        # this CLI reads. Passing only `log_dir` is what let `cci install
+        # --config-dir X` log to X while capturing into ~/.config.
+        job_file, cci = scheduler.install(mode, config_dir=cfg.config_dir)
     except (scheduler.Unsupported, RuntimeError) as exc:
         print(exc, file=sys.stderr)
         return 1

@@ -313,3 +313,87 @@ def test_the_cli_exits_nonzero_only_on_failure(cfg, monkeypatch, capsys):
     monkeypatch.setattr(scheduler, "active", lambda: None)
     assert args.fn(args) == 1
     assert "something is wrong" in capsys.readouterr().out
+
+
+# ------------------------------------------- the installs it exists to find --
+#
+# Doctor's docstring promises it never raises on a bad install, and
+# `scripts/install.sh` ends with `cci doctor` -- so a traceback here is the
+# first thing a user sees after a failed first run, from the one command that
+# was supposed to explain it.
+
+
+def test_a_package_with_no_migrations_is_reported_not_raised(cfg, monkeypatch, tmp_path):
+    """`discover_migrations` raises on a wheel that shipped no .sql files.
+
+    That is exactly the packaging bug doctor is for, and doctor used to die
+    on it: the command that reports the broken install was broken by it.
+    """
+    monkeypatch.setattr(db, "MIGRATIONS_DIR", tmp_path / "gone")
+
+    checks = doctor.run(cfg)                       # must not raise
+
+    c = check(checks, "schema")
+    assert c.level == doctor.FAIL
+    assert "packaging bug" in c.detail
+    assert c.fix == "reinstall cc-insights"
+
+
+def test_a_database_with_no_tables_is_diagnosed_not_queried(tmp_path):
+    """What an interrupted first `cci init` leaves behind.
+
+    `db.connect` creates the file before `db.migrate` runs, so a Ctrl-C in
+    between leaves a database with no tables. Doctor kept going after the
+    schema check had already failed and died on `no such table:
+    ingest_file` -- while `install.sh` was waiting on its exit code.
+    """
+    cfg = config_mod.load(tmp_path, create=True)
+    db.connect(cfg.db_path).close()                # the file, and nothing in it
+
+    checks = doctor.run(cfg)                       # must not raise
+
+    assert check(checks, "schema").level == doctor.FAIL
+    assert check(checks, "schema").fix == "cci init"
+    # The job check does not need the database and must still be answered:
+    # "is it capturing?" is the question doctor is asked.
+    assert check(checks, "background job").level in LEVELS
+    # And nothing may be claimed about contents that cannot be read.
+    assert not [c for c in checks if c.name in ("data", "last ingest")]
+
+
+def test_a_corrupt_database_is_not_reported_as_missing(tmp_path):
+    """"does not exist — run `cci init`" is false and the advice is wrong.
+
+    `cci init` opens the same file and fails the same way, so the user is
+    sent in a circle. Name what SQLite said instead.
+    """
+    cfg = config_mod.load(tmp_path, create=True)
+    cfg.db_path.write_bytes(b"not a database, not even slightly\n" * 8)
+
+    checks = doctor.run(cfg)                       # must not raise
+
+    c = check(checks, "database")
+    assert c.level == doctor.FAIL
+    assert "does not exist" not in c.detail
+    assert "cannot read it" in c.detail
+    assert c.fix is not None and "aside" in c.fix
+
+
+def test_an_unexpected_failure_still_produces_a_report(cfg, monkeypatch):
+    """The promise is "never raises", not "never raises on these three".
+
+    A check that blows up in a way nobody predicted has to degrade to a red
+    line in the report, because the caller is a shell script reading an exit
+    code and a user reading a list.
+    """
+    def boom(_cfg):
+        raise ValueError("something nobody thought of")
+
+    monkeypatch.setattr(doctor, "_sync", boom)
+
+    checks = doctor.run(cfg)                       # must not raise
+
+    c = check(checks, "doctor")
+    assert c.level == doctor.FAIL
+    assert "something nobody thought of" in c.detail
+    assert doctor.worst(checks) == doctor.FAIL
