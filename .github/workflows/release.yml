@@ -1,0 +1,151 @@
+name: Release
+
+# Tag-triggered. Pushing `v0.1.0` builds and publishes; nothing else does.
+on:
+  push:
+    tags: ["v*"]
+  # For rehearsing the build half without publishing anything: the `publish`
+  # job below only runs for a tag, so a manual run stops after `build`.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and check the distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---- the dashboard, before anything Python touches the project ----
+      #
+      # `pyproject.toml` force-includes `frontend/dist` into `cc_insights/web`,
+      # and `frontend/dist` is gitignored because it is a build artifact. So
+      # on a fresh checkout it does not exist, and hatchling refuses to build
+      # at all ("Forced include not found"). Before that guard existed the
+      # failure was worse than a broken build: the wheel shipped without the
+      # dashboard, `cci serve` told people who had no repo to run `npm run
+      # build`, and nothing anywhere said the release was incomplete.
+      #
+      # This step is therefore load-bearing, and it is why it is first.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Build the dashboard
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Fail early if the dashboard did not build
+        run: test -f frontend/dist/index.html
+
+      # ---- then the wheel ----
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python -m pip install --upgrade pip && pip install -e '.[dev]'
+
+      # A tag that disagrees with `project.version` publishes the wrong
+      # number: PyPI takes the version from the metadata and ignores the tag,
+      # so `v0.2.0` would quietly re-upload 0.1.0 and be rejected as a
+      # duplicate -- after the release notes already said otherwise.
+      - name: Check the tag matches the version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          declared=$(python -c "import tomllib,pathlib; \
+            print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          if [ "$tagged" != "$declared" ]; then
+            echo "tag $GITHUB_REF_NAME says $tagged, pyproject.toml says $declared" >&2
+            exit 1
+          fi
+
+      # The gate. `test_packaging.py` builds a wheel and inspects it, so a
+      # missing dashboard, a missing migration or a lost entry point fails
+      # here rather than reaching a user.
+      - name: Test
+        run: python -m pytest -q
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      # `test_packaging.py` skips its dashboard assertions when
+      # `frontend/dist` is absent, which is correct on a laptop and would be
+      # a hole here. This checks the artifact that is actually about to be
+      # uploaded, and cannot skip.
+      - name: The wheel must contain the dashboard and the schema
+        run: |
+          python - <<'PY'
+          import pathlib, sys, zipfile
+
+          wheels = list(pathlib.Path("dist").glob("*.whl"))
+          if len(wheels) != 1:
+              sys.exit(f"expected exactly one wheel, got {wheels}")
+          names = zipfile.ZipFile(wheels[0]).namelist()
+
+          missing = [
+              what for what, ok in (
+                  ("the dashboard (cc_insights/web/index.html)",
+                   "cc_insights/web/index.html" in names),
+                  ("the dashboard's JS assets",
+                   any(n.startswith("cc_insights/web/assets/") and n.endswith(".js")
+                       for n in names)),
+                  ("the SQL migrations",
+                   any(n.startswith("cc_insights/migrations/") and n.endswith(".sql")
+                       for n in names)),
+                  ("the scheduler job templates",
+                   any(n.startswith("cc_insights/jobs/") for n in names)),
+              ) if not ok
+          ]
+          if missing:
+              sys.exit("this wheel is incomplete, refusing to publish:\n  "
+                       + "\n  ".join(missing))
+          print(f"{wheels[0].name}: dashboard, schema and job templates all present")
+          PY
+
+      - name: Check the metadata renders on PyPI
+        run: pipx run twine check --strict dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    # Trusted publishing: PyPI mints a short-lived token from this job's OIDC
+    # identity, which is why there is no API token in this repository's
+    # secrets. Configure the publisher at
+    # https://pypi.org/manage/project/cc-insights/settings/publishing/ with
+    # this repository, workflow filename `release.yml` and environment `pypi`.
+    # All three are checked, so renaming this file breaks the upload.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/cc-insights
+    permissions:
+      id-token: write
+      # Nothing here reads the repository; the build job already produced
+      # everything this job uploads.
+      contents: none
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

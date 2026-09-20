@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pytest (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.11", "3.12", "3.13"]
+        include:
+          # One macOS leg, because the launchd half of `scheduler.py` and the
+          # `plutil` check in `test_scripts.py` skip everywhere else -- so a
+          # Linux-only matrix reports green on a broken `cci install` for the
+          # platform most of this tool's users are on.
+          - os: macos-latest
+            python: "3.12"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The frontend comes first and this is not a stylistic choice: the wheel
+      # force-includes `frontend/dist`, so with no build hatchling aborts with
+      # "Forced include not found" and even `pip install -e .` fails. Every
+      # Python step below depends on this one having run.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Build the dashboard
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install
+        run: python -m pip install --upgrade pip && pip install -e '.[dev]'
+
+      # `test_packaging.py` builds a real wheel and looks inside it. It skips
+      # itself when `build` or a built dashboard is absent rather than
+      # failing, which is right for a contributor's laptop and wrong here --
+      # a silent skip in CI is how a wheel with no dashboard ships. Both are
+      # present by this point, so it runs.
+      - name: Test
+        run: python -m pytest -q
+
+  # The installer and the launchd wrapper are the two files a user runs before
+  # they have anything else, one of them from a `curl | bash` they cannot
+  # inspect first. An unquoted expansion there is not a test failure, it is
+  # somebody's home directory.
+  #
+  # There is deliberately no `ruff check` job yet. pyproject configures ruff,
+  # but the existing tree does not pass it -- 143 findings on ruff 0.16's
+  # defaults, 9 on the narrowest set -- so adding the gate here would mean a
+  # CI that is red on the day it is created, which teaches everyone to ignore
+  # it. Fix the tree first, then add the job.
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck scripts/*.sh
