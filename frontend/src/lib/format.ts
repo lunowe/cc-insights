@@ -132,12 +132,12 @@ export const GROUP_ORIGIN_LABEL: Record<GroupOrigin, string> = {
 /**
  * Known worktree path shapes, from the rule-3 ladder in `docs/GROUPING.md`.
  *
- * This is the *shape* of the path, and nothing more. The database has
- * `project.path_exists`, but `/api/projects` does not carry it, so the
- * frontend cannot tell a live checkout from one that was deleted months ago.
- * Label these rows for what they demonstrably are — a scratch worktree, whose
- * time is almost always history — and never as "gone", which would be a claim
- * this page has no evidence for.
+ * This is the *shape* of the path and nothing more — a fact about how the
+ * checkout was made, orthogonal to whether it still exists. Both can be true
+ * of the same row, and often are. Never derive existence from it: on the
+ * author's corpus this matches 14 paths while only 10 are actually gone, and
+ * 5 of the matches are live directories. `pathExists` is the only answer to
+ * that question.
  */
 export function isWorktreePath(rootPath: string): boolean {
   return (

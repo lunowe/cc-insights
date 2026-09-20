@@ -15,6 +15,29 @@ are the normal case, not an edge case.
 `tenant-restricted` (39.8 h) is `atlas-chat/.claude/worktrees/tenant-restricted`.
 `backend` appears twice, under two different repos. Ten paths no longer exist.
 
+## Naming: what the UI calls things vs what the code calls them
+
+**The user's model is the correct one, and the code's is a historical
+accident.** A *project* is atlas-chat. A path like
+`atlas-chat/.claude/worktrees/tenant-restricted` is just where one checkout
+of it happens to live. Stage 0 named the on-disk path `project` because
+`project_id = hash(root_path)` was the first thing that needed a name, and
+everything downstream inherited it.
+
+| concept | UI says | schema / API says |
+| --- | --- | --- |
+| the logical project (atlas-chat) | **Project** | `project_group`, `group` |
+| one on-disk path or worktree | **Path** | `project` |
+
+The UI uses the honest words. The schema keeps its names because
+`project_id` is an immutable content hash embedded in every session row —
+renaming the table would be churn with no gain, and renaming the *concept*
+mid-flight is how half-done renames happen.
+
+**This table is the contract between the two vocabularies.** Anyone reading
+`metrics.py` and then the dashboard needs it; do not let the mapping drift.
+A single UI surface that says "group" is a bug.
+
 ## Identity vs grouping — the load-bearing distinction
 
 `project_id = hash(root_path)` is **immutable identity**. It must never change,

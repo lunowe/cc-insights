@@ -45,6 +45,8 @@ export type ProjectInfo = {
   groupId: string | null
   groupName: string | null
   groupPinned: boolean
+  /** true = on disk · false = gone · null = not probed. Never conflate the last two. */
+  pathExists: boolean | null
 }
 
 export type ProjectIndex = Map<string, ProjectInfo>
@@ -64,6 +66,9 @@ export function buildProjectIndex(meta: Meta, base: Projects): ProjectIndex {
       groupId: null,
       groupName: null,
       groupPinned: false,
+      // `meta` has no existence flag, so a project known only from `meta` is
+      // unprobed, which is exactly what `null` means. Never `false`.
+      pathExists: null,
     })
   }
   for (const p of base.projects) {
@@ -74,6 +79,7 @@ export function buildProjectIndex(meta: Meta, base: Projects): ProjectIndex {
       groupId: p.groupId,
       groupName: p.groupName,
       groupPinned: p.groupPinned,
+      pathExists: p.pathExists,
     })
   }
   return index
@@ -246,6 +252,7 @@ export function deriveProjects(spans: Span[], index: ProjectIndex): Projects {
       groupId: known?.groupId ?? null,
       groupName: known?.groupName ?? null,
       groupPinned: known?.groupPinned ?? false,
+      pathExists: known?.pathExists ?? null,
       activeMs: a.activeMs,
       sessions: a.sessions.size,
       threads: a.threads.size,

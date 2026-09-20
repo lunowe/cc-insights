@@ -3,9 +3,11 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronRight,
+  CircleHelp,
   ExternalLink,
   GitBranch,
   Pin,
+  Unplug,
 } from "lucide-react"
 import { cn } from "cn"
 
@@ -89,6 +91,23 @@ type Bucket = {
   sessions: number
   threads: number
   lastTs: number
+  /** Counted over the member rows in view, from `pathExists` and nothing else. */
+  existence: Existence
+}
+
+/** The tri-state tallied across a bucket's members. Never collapse gone+unknown. */
+type Existence = { live: number; gone: number; unknown: number; goneMs: number }
+
+function tally(rows: ProjectRow[]): Existence {
+  const e: Existence = { live: 0, gone: 0, unknown: 0, goneMs: 0 }
+  for (const r of rows) {
+    if (r.pathExists === true) e.live += 1
+    else if (r.pathExists === false) {
+      e.gone += 1
+      e.goneMs += r.activeMs
+    } else e.unknown += 1
+  }
+  return e
 }
 
 function buildBuckets(groups: Groups, projects: ProjectRow[]): Bucket[] {
@@ -117,6 +136,7 @@ function buildBuckets(groups: Groups, projects: ProjectRow[]): Bucket[] {
       sessions: g.sessions,
       threads: g.threads,
       lastTs: g.lastTs,
+      existence: tally(rows),
     }
   })
 
@@ -135,6 +155,7 @@ function buildBuckets(groups: Groups, projects: ProjectRow[]): Bucket[] {
       sessions: sum(rows, (r) => r.sessions),
       threads: sum(rows, (r) => r.threads),
       lastTs: Math.max(...rows.map((r) => r.lastTs)),
+      existence: tally(rows),
     })
   }
 
@@ -154,6 +175,7 @@ function buildBuckets(groups: Groups, projects: ProjectRow[]): Bucket[] {
       sessions: sum(loose, (r) => r.sessions),
       threads: sum(loose, (r) => r.threads),
       lastTs: loose.length > 0 ? Math.max(...loose.map((r) => r.lastTs)) : 0,
+      existence: tally(loose),
     })
   }
 
@@ -300,6 +322,10 @@ export function ProjectsTable({
                     }
                     className={cn(
                       "h-9 p-0",
+                      // The name column absorbs the slack: every other cell is
+                      // nowrap, so `w-full` here leaves them their content
+                      // width and gives the rest to paths and their badges.
+                      c.key === "name" && "w-full",
                       c.hide,
                       c.align === "right" && "text-right",
                     )}
@@ -444,6 +470,17 @@ function BucketRows({
 
             {pinned > 0 ? <PinnedMarker count={pinned} /> : null}
 
+            {b.existence.gone > 0 ? (
+              <GoneMarker
+                count={b.existence.gone}
+                of={b.members.length}
+                activeMs={b.existence.goneMs}
+              />
+            ) : null}
+            {b.existence.unknown > 0 ? (
+              <UnknownMarker count={b.existence.unknown} />
+            ) : null}
+
             {b.group?.webUrl != null ? (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -526,7 +563,11 @@ function MemberRow({
           <span className="truncate text-[0.8125rem]" title={p.name}>
             {p.name}
           </span>
+          {/* Two independent facts: how the checkout was made, and whether it
+              is still there. A live worktree shows only the first. */}
           {worktree ? <WorktreeMarker /> : null}
+          {p.pathExists === false ? <GoneMarker activeMs={p.activeMs} /> : null}
+          {p.pathExists === null ? <UnknownMarker /> : null}
           {p.groupPinned ? <PinnedMarker /> : null}
         </div>
         <span
@@ -588,10 +629,83 @@ function WorktreeMarker() {
         </span>
       </TooltipTrigger>
       <TooltipContent className="max-w-72">
-        A scratch worktree of this repo, placed by its path shape. Most of these
-        are deleted once the branch lands, so the hours are usually history.
-        The API does not report whether the directory still exists, so this page
-        will not claim either way.
+        A scratch worktree of this repo, placed into the group by its path
+        shape. That says how the checkout was made, not whether it survives —
+        this row is marked <span className="font-medium">gone</span> separately
+        if the directory is no longer on disk.
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * `pathExists === false`: the directory is not on disk any more.
+ *
+ * The hours stay in every total on this page, and that is correct — the work
+ * happened. What the marker adds is that nothing here can be opened or resumed,
+ * so a reader scanning the list knows the time is history rather than a project
+ * they have simply forgotten about.
+ */
+function GoneMarker({
+  count,
+  of,
+  activeMs,
+}: {
+  /** Group level: how many members are gone. Omitted on a single path. */
+  count?: number
+  of?: number
+  activeMs: number
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-destructive/10 px-1.5 py-0.5 text-[0.625rem] text-destructive">
+          <Unplug className="size-2.5" />
+          {count !== undefined ? <span className="num">{count} </span> : null}
+          gone
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-72">
+        {count !== undefined ? (
+          <>
+            {count} of {of ?? count} paths here no longer exist on disk, holding{" "}
+            <span className="num">{formatHours(activeMs)} h</span> between them.
+            The hours are real and still counted; the directories are not there
+            to go back to.
+          </>
+        ) : (
+          <>
+            This directory no longer exists on disk. Its{" "}
+            <span className="num">{formatHours(activeMs)} h</span> are still
+            counted everywhere on this page — the work happened — but the path
+            is history.
+          </>
+        )}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * `pathExists === null`: not probed yet. Emphatically **not** the same as gone,
+ * and rendered in the neutral muted tone rather than the destructive one so the
+ * two can never be read as the same state.
+ */
+function UnknownMarker({ count }: { count?: number }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
+          <CircleHelp className="size-2.5" />
+          {count !== undefined ? <span className="num">{count} </span> : null}
+          unknown
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-72">
+        {count !== undefined ? `${count} of these paths have ` : "This path has "}
+        not been probed yet, so whether {count !== undefined ? "they still exist" : "it still exists"} is
+        unknown — which is not the same as gone. <code>cci group auto</code>{" "}
+        checks on its next run.
       </TooltipContent>
     </Tooltip>
   )

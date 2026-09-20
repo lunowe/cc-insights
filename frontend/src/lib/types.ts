@@ -118,9 +118,19 @@ export type Concurrency = {
  *  project, which is legal, not an error. `groupPinned` means a human placed
  *  this project in that group, so detection must never move it.
  *
- *  NOTE: the wire carries no "does this path still exist on disk" flag. The DB
- *  has `project.path_exists`, but neither `API.md` nor `/api/projects` exposes
- *  it, so the UI cannot honestly mark a path as gone. See `isWorktreePath()`. */
+ *  `pathExists` is deliberately tri-state and the three states are NOT
+ *  interchangeable:
+ *
+ *    true   — the directory is on disk.
+ *    false  — it is gone: a finished worktree, a deleted checkout. Its hours
+ *             were really worked and must still be counted; they are history.
+ *    null   — detection has not probed this path yet. **Not** the same as
+ *             gone, and never to be rendered as such.
+ *
+ *  Path shape is not a substitute for this field: inferring existence from the
+ *  worktree shapes in `docs/GROUPING.md` mislabels 5 live worktrees out of 15
+ *  on the author's corpus. See `isWorktreePath()`, which answers a different
+ *  question and may be true of a live path and a dead one alike. */
 export type Projects = {
   projects: {
     projectId: string
@@ -129,6 +139,8 @@ export type Projects = {
     groupId: string | null
     groupName: string | null
     groupPinned: boolean
+    /** true = on disk · false = gone · null = not probed yet. See above. */
+    pathExists: boolean | null
     activeMs: number
     sessions: number
     threads: number
