@@ -13,10 +13,19 @@
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>__CCI__ ingest &amp;&amp; __CCI__ derive</string>
+        <string>__CCI__ init &amp;&amp; __CCI__ ingest &amp;&amp; __CCI__ derive</string>
     </array>
 
-    <!-- Every 15 minutes. The job is cheap: a warm run reads only files whose
+    <!-- `init` first, and it is not redundant. It applies pending migrations,
+         and without it an upgrade that adds one stops this job dead: every
+         other command refuses to touch a database older than the code, the
+         refusal goes to ingest.err, and nobody reads ingest.err. Capture
+         then stops silently while the agent logs it would have read are
+         pruned on a rolling basis — the exact loss this job exists to
+         prevent. `init` is idempotent and additive, so on every ordinary
+         run it costs one query and changes nothing.
+
+         Every 15 minutes. The job is cheap: a warm run reads only files whose
          size or mtime changed and takes ~0.04s. -->
     <key>StartInterval</key>
     <integer>900</integer>

@@ -45,7 +45,10 @@ def test_substituted_plist_is_valid_and_correct(tmp_path):
     assert d["RunAtLoad"] is True
     assert d["ProgramArguments"][:2] == ["/bin/sh", "-c"]
     # The && must survive as a shell operator, not stay XML-escaped.
-    assert d["ProgramArguments"][2] == "/opt/cci ingest && /opt/cci derive"
+    # `init` leads so an upgrade that adds a migration cannot stop the job.
+    assert d["ProgramArguments"][2] == (
+        "/opt/cci init && /opt/cci ingest && /opt/cci derive"
+    )
     assert d["StandardOutPath"] == "/var/log/cci/ingest.log"
     assert d["StandardErrorPath"] == "/var/log/cci/ingest.err"
     assert "__CCI__" not in str(d) and "__LOGDIR__" not in str(d)
@@ -124,7 +127,9 @@ def test_the_substituted_watch_plist_keeps_one_process_alive(tmp_path):
     assert d["KeepAlive"] is True
     assert "StartInterval" not in d
     assert d["ThrottleInterval"] == 30
-    assert d["ProgramArguments"] == ["/opt/cci", "watch", "--quiet"]
+    assert d["ProgramArguments"][:2] == ["/bin/sh", "-c"]
+    # `exec` so KeepAlive supervises watch itself rather than the shell.
+    assert d["ProgramArguments"][2] == "/opt/cci init && exec /opt/cci watch --quiet"
     assert d["StandardOutPath"] == "/var/log/cci/watch.log"
     assert "__CCI__" not in str(d) and "__LOGDIR__" not in str(d)
 

@@ -24,6 +24,7 @@ first; that rule is enforced here rather than documented.
 from __future__ import annotations
 
 import os
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -128,18 +129,23 @@ def _install_launchd(mode: str, cci: Path, log_dir: Path) -> Path:
     if "__CCI__" in rendered or "__LOGDIR__" in rendered:   # pragma: no cover
         raise RuntimeError("template substitution left a placeholder behind")
 
+    # Parse before writing: a malformed plist is rejected by launchd with a
+    # message that does not name the problem, and the job then simply never
+    # runs. Checking here turns that into an error at install time.
+    #
+    # plistlib rather than plutil, and that is not interchangeable. `--` is
+    # illegal inside an XML comment; plutil accepts a template containing one
+    # and plistlib does not, so a comment written with an em-dash-as-two-
+    # hyphens passed the lint and produced a plist launchd could not read.
+    # plistlib is also always available, where plutil is macOS-only.
+    try:
+        plistlib.loads(rendered.encode())
+    except Exception as exc:
+        raise RuntimeError(f"generated plist is invalid: {exc}") from exc
+
     dst = _plist_path(mode)
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(rendered)
-
-    # plutil before launchctl: a malformed plist is rejected by launchd with a
-    # message that does not name the problem, and the job then simply never
-    # runs. Checking here turns that into an error at install time.
-    if shutil.which("plutil"):
-        proc = subprocess.run(["plutil", "-lint", str(dst)], capture_output=True, text=True)
-        if proc.returncode != 0:
-            dst.unlink(missing_ok=True)
-            raise RuntimeError(f"generated plist is invalid:\n{proc.stdout}{proc.stderr}")
 
     # The other job goes first. Two writers on one database is the failure
     # this ordering exists to prevent.

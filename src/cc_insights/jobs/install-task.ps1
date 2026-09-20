@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     The Windows counterpart of scripts/install-launchd.sh, and it keeps the
-    same contract: run `cci ingest && cci derive` every 15 minutes, once at
+    same contract: run `cci init && cci ingest && cci derive` every 15 minutes, once at
     logon, logging to the config directory. That cadence is the whole point of
     the project -- agent log directories are pruned on a rolling basis, so
     history that is not captured is lost permanently.
@@ -75,7 +75,12 @@ New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 # macOS job produces.
 $OutLog = Join-Path $LogDir 'ingest.log'
 $ErrLog = Join-Path $LogDir 'ingest.err'
-$Command = "`"$Cci`" ingest >> `"$OutLog`" 2>> `"$ErrLog`" && `"$Cci`" derive >> `"$OutLog`" 2>> `"$ErrLog`""
+# `init` leads, matching the launchd job. It applies pending migrations, and
+# without it an upgrade that adds one stops this task dead: every other
+# command refuses a database older than the code, the refusal lands in
+# ingest.err, and nobody reads ingest.err. Capture then stops silently while
+# the agent logs it would have read are pruned. init is idempotent.
+$Command = "`"$Cci`" init >> `"$OutLog`" 2>> `"$ErrLog`" && `"$Cci`" ingest >> `"$OutLog`" 2>> `"$ErrLog`" && `"$Cci`" derive >> `"$OutLog`" 2>> `"$ErrLog`""
 
 # `/s /c "<everything>"` -- cmd strips exactly one outer quote pair and takes
 # the rest verbatim. Without the outer pair it splits on the first quoted path
@@ -110,7 +115,7 @@ Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger `
 Start-ScheduledTask -TaskName $TaskName
 
 Write-Host "installed $TaskName"
-Write-Host "  runs    : $Cci ingest && $Cci derive"
+Write-Host "  runs    : $Cci init && $Cci ingest && $Cci derive"
 Write-Host "  every   : $IntervalMinutes minutes (and at logon, and once now)"
 Write-Host "  logs    : $OutLog"
 Write-Host "  remove  : powershell -ExecutionPolicy Bypass -File $PSCommandPath -Uninstall"

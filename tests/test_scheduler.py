@@ -115,7 +115,9 @@ def test_install_writes_a_valid_plist_naming_the_real_cci(agents, fake_cci, tmp_
     d = plistlib.loads(job.read_bytes())
     assert d["Label"] == scheduler.LABEL
     assert d["StartInterval"] == 900
-    assert d["ProgramArguments"][2] == f"{fake_cci} ingest && {fake_cci} derive"
+    assert d["ProgramArguments"][2] == (
+        f"{fake_cci} init && {fake_cci} ingest && {fake_cci} derive"
+    )
     assert d["StandardOutPath"] == str(tmp_path / "logs" / "ingest.log")
 
 
@@ -161,7 +163,7 @@ def test_the_watch_job_keeps_one_process_alive(agents, fake_cci, tmp_path):
     d = plistlib.loads(job.read_bytes())
     assert d["KeepAlive"] is True
     assert "StartInterval" not in d
-    assert d["ProgramArguments"] == [str(cci), "watch", "--quiet"]
+    assert d["ProgramArguments"][2] == f"{cci} init && exec {cci} watch --quiet"
 
 
 @darwin_only
@@ -285,3 +287,39 @@ def test_plutil_accepts_what_install_writes(agents, fake_cci, tmp_path):
     job, _ = scheduler.install(scheduler.INTERVAL, log_dir=tmp_path / "logs")
     assert subprocess.run(["plutil", "-lint", str(job)],
                           capture_output=True).returncode == 0
+
+
+# ------------------------------------------------ surviving an upgrade --
+
+
+@darwin_only
+@pytest.mark.parametrize("mode", [scheduler.INTERVAL, scheduler.WATCH])
+def test_every_job_migrates_before_it_reads(agents, fake_cci, tmp_path, mode):
+    """A migration in a new release must not silently stop capture.
+
+    This happened for real. Adding migration 006 put the repo at schema 6
+    while the installed database was on 5; every command refuses a database
+    older than the code, so the 15-minute job failed every run. The refusal
+    went to ingest.err, which nobody reads, and capture was dead for as long
+    as it took someone to notice -- while the agent logs that would have
+    filled the gap were pruned on a rolling basis.
+
+    `cci init` is idempotent and additive, so leading with it costs one query
+    per run and makes the job self-healing across upgrades.
+    """
+    job, cci = scheduler.install(mode, log_dir=tmp_path / "logs")
+    d = plistlib.loads(job.read_bytes())
+    command = d["ProgramArguments"][2]
+
+    assert command.startswith(f"{cci} init &&"), command
+    verb = "watch" if mode == scheduler.WATCH else "ingest"
+    assert command.index("init") < command.index(verb)
+
+
+@darwin_only
+def test_the_watch_job_execs_so_keepalive_supervises_watch(agents, fake_cci, tmp_path):
+    """Without `exec`, launchd watches a /bin/sh that has already forked, so
+    KeepAlive would restart the shell and lose track of the real process."""
+    job, cci = scheduler.install(scheduler.WATCH, log_dir=tmp_path / "logs")
+    d = plistlib.loads(job.read_bytes())
+    assert f"exec {cci} watch" in d["ProgramArguments"][2]

@@ -836,8 +836,11 @@ def cmd_install(args: argparse.Namespace) -> int:
 
     label = scheduler.WATCH_LABEL if mode == scheduler.WATCH else scheduler.LABEL
     print(f"installed {label}")
-    runs = f"{cci} watch --quiet" if mode == scheduler.WATCH \
-        else f"{cci} ingest && {cci} derive"
+    # `init` leads in both job templates so an upgrade that adds a migration
+    # cannot stop capture; print what is actually scheduled, not a tidier
+    # version of it. See the comment in the plists.
+    runs = f"{cci} init && {cci} watch --quiet" if mode == scheduler.WATCH \
+        else f"{cci} init && {cci} ingest && {cci} derive"
     print(f"  runs     {runs}")
     print("  cadence  " + ("follows the logs, ~2s behind" if mode == scheduler.WATCH
                            else "every 15 minutes, and once now"))

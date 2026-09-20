@@ -119,10 +119,60 @@ def test_an_unsupported_platform_warns_rather_than_fails(cfg, monkeypatch):
 # ------------------------------------------------------------- freshness --
 
 
-def test_never_ingested_is_a_failure(cfg):
+def test_never_ingested_with_logs_waiting_is_a_failure(cfg, monkeypatch):
+    """Logs are on disk and none have been read: something is actually wrong.
+
+    The count is stubbed rather than measured, because the real globs point
+    at ~/.claude and this suite runs on a machine that has one. A test whose
+    verdict depends on the developer's home directory proves nothing.
+    """
+    monkeypatch.setattr(doctor, "source_files", lambda cfg: 744)
     c = check(doctor.run(cfg), "last ingest")
     assert c.level == doctor.FAIL
-    assert c.detail == "never — no logs have been read"
+    assert "never" in c.detail and "744" in c.detail
+    assert c.fix == "cci ingest"
+
+
+def test_nothing_to_read_is_not_a_broken_install(cfg, monkeypatch):
+    """The first-run case, and it must not be red.
+
+    A fresh machine whose agents have not written anything yet ran ingest
+    successfully and found zero files. `ingest_file` gets no row either way,
+    so freshness alone reports "never" and the very first `cci doctor` after
+    `curl | sh` says the install FAILED when nothing is wrong. Found by
+    running the installer in a sandboxed HOME with no agent logs in it.
+    """
+    monkeypatch.setattr(doctor, "source_files", lambda cfg: 0)
+    checks = doctor.run(cfg)
+
+    assert not any(c.name == "last ingest" for c in checks)
+    c = check(checks, "agent logs")
+    assert c.level == doctor.WARN
+    assert "nothing to capture yet" in c.detail
+    # And the whole report must not be a failure on that account.
+    assert doctor.worst([x for x in checks if x.name != "background job"]) == doctor.WARN
+
+
+def test_an_unanswerable_glob_does_not_crash_or_invent_a_count(cfg, monkeypatch):
+    monkeypatch.setattr(doctor, "source_files", lambda cfg: -1)
+    c = check(doctor.run(cfg), "last ingest")
+    assert c.level == doctor.FAIL
+    assert c.detail == "never"          # no fabricated "-1 log files are waiting"
+
+
+def test_source_files_counts_what_the_globs_actually_match(tmp_path, monkeypatch):
+    """The real function, against a directory this test controls."""
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    for i in range(3):
+        (logs / f"s{i}.jsonl").write_text("")
+
+    c = config_mod.load(tmp_path / "cfg", create=True)
+    c.source_globs = {"claude_code": [str(logs / "*.jsonl")]}
+    assert doctor.source_files(c) == 3
+
+    c.source_globs = {"claude_code": [str(tmp_path / "nowhere" / "*.jsonl")]}
+    assert doctor.source_files(c) == 0
 
 
 def test_a_recent_ingest_is_ok(cfg):
@@ -147,6 +197,7 @@ def test_a_day_without_an_ingest_fails(cfg):
 
 
 def test_freshness_measures_the_last_look_not_the_last_event(cfg):
+    # (an ingest_file row exists below, so the source_files branch is not taken)
     """A quiet week and a broken install look identical if you measure the
     newest event. They are not the same thing, and only one is urgent."""
     set_last_ingest(cfg, int(time.time() * 1000))

@@ -15,13 +15,19 @@
     <key>Label</key>
     <string>com.cc-insights.watch</string>
 
-    <!-- Quiet, because launchd's log would otherwise grow a line per cycle
+    <!-- `init` first so an upgrade that adds a migration does not turn this
+         into a crashloop: `watch` refuses a database older than the code, and
+         KeepAlive would restart it against ThrottleInterval forever while
+         capturing nothing. `exec` hands the process back to watch afterwards,
+         so KeepAlive still supervises watch itself rather than a shell.
+
+         Quiet, because launchd's log would otherwise grow a line per cycle
          forever and nobody reads it. Errors still go to the .err file. -->
     <key>ProgramArguments</key>
     <array>
-        <string>__CCI__</string>
-        <string>watch</string>
-        <string>--quiet</string>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>__CCI__ init &amp;&amp; exec __CCI__ watch --quiet</string>
     </array>
 
     <!-- A long-running job, restarted if it dies. Throttled so a process that

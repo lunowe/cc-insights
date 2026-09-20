@@ -56,7 +56,28 @@ def _ago(seconds: float) -> str:
     return f"{seconds / 86_400:.1f}d ago"
 
 
-def _capture(conn: sqlite3.Connection | None) -> list[Check]:
+def source_files(cfg: config_mod.Config) -> int:
+    """How many agent log files the configured globs match right now, or -1.
+
+    This is what separates "the tool has never run" from "the tool ran and
+    there was nothing to read", which `ingest_file` cannot distinguish: it
+    only ever gets a row for a file that was found. Without the difference,
+    a brand-new machine whose agents have not written anything yet -- or
+    whose logs are somewhere the globs do not look -- is told its install
+    has FAILED on the first run after `curl | sh`, which is both wrong and
+    the worst possible first impression.
+
+    -1 means the question could not be answered (a broken glob, an adapter
+    that raised). Doctor must never be the command that crashes.
+    """
+    try:
+        from cc_insights import ingest
+        return sum(1 for adapter in ingest.build_adapters(cfg) for _ in adapter.discover())
+    except Exception:                                    # pragma: no cover
+        return -1
+
+
+def _capture(cfg: config_mod.Config, conn: sqlite3.Connection | None) -> list[Check]:
     """The job, and whether it has run recently. The two halves of one answer.
 
     Both are needed: a job can be loaded and still failing every time (a
@@ -101,8 +122,19 @@ def _capture(conn: sqlite3.Connection | None) -> list[Check]:
     row = conn.execute("SELECT max(last_ingest) FROM ingest_file").fetchone()
     last = row[0] if row else None
     if last is None:
-        out.append(Check("last ingest", FAIL, "never — no logs have been read",
-                         "cci ingest"))
+        found = source_files(cfg)
+        if found == 0:
+            # Nothing to read is not a broken install. Say where it looked,
+            # because the actionable case -- logs in a non-default location --
+            # is indistinguishable from the innocent one without that.
+            out.append(Check(
+                "agent logs", WARN,
+                "none found in the configured locations — nothing to capture yet",
+                "cci config  (check source_globs if your agents keep logs elsewhere)",
+            ))
+        else:
+            waiting = "" if found < 0 else f" — {found:,} log files are waiting"
+            out.append(Check("last ingest", FAIL, f"never{waiting}", "cci ingest"))
     else:
         age = max(0.0, time.time() - last / 1000)
         level = OK if age < STALE_WARN_S else (WARN if age < STALE_FAIL_S else FAIL)
@@ -185,7 +217,7 @@ def run(cfg: config_mod.Config) -> list[Check]:
         except sqlite3.Error:                            # pragma: no cover
             conn = None
     try:
-        checks = _schema(cfg, conn) + _capture(conn) + _contents(conn)
+        checks = _schema(cfg, conn) + _capture(cfg, conn) + _contents(conn)
         checks += _dashboard() + _sync(cfg)
     finally:
         if conn is not None:
