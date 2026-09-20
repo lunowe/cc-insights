@@ -42,7 +42,12 @@ each file's byte offset and only the sessions that moved are re-derived:
 ```bash
 .venv/bin/cci watch                  # follow the logs, print a line per change
 .venv/bin/cci watch --serve          # ...and a dashboard that refreshes itself
+./scripts/install-launchd.sh --watch # ...or leave it running in the background
 ```
+
+Install one background job or the other, not both: two writers on one database
+is the one way to make this contend with itself. The installer unloads the
+other before it loads either, and `--uninstall` removes both.
 
 ## What it costs
 
@@ -138,7 +143,8 @@ src/cc_insights/
 frontend/       Vite + React dashboard, built into frontend/dist
 migrations/     numbered SQL, applied in order
 docs/           FINDINGS.md (ground truth), API.md (frozen contract), ROADMAP.md
-scripts/        launchd job + installer, fixture and price sync
+scripts/        launchd jobs (interval and watch) + installer,
+                fixture and price sync
 ```
 
 ## Roadmap
