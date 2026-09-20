@@ -117,7 +117,9 @@ def test_a_missing_catalog_is_not_an_error(tmp_path, monkeypatch):
     pricing.catalog.cache_clear()
     try:
         assert pricing.resolve("claude-test") is None
-        assert pricing.catalog_source() == {}
+        # Provenance still reports the shipped corrections, which are a
+        # separate file and unaffected by a missing catalog.
+        assert pricing.catalog_source().keys() == {"overrides"}
     finally:
         pricing.catalog.cache_clear()
 
@@ -268,3 +270,131 @@ def test_the_shipped_catalog_is_readable_and_dated():
     assert doc["source"]["repo"] == "pydantic/genai-prices"
     assert len(doc["models"]) > 100
     assert all(m["clauses"] and m["match"] for m in doc["models"])
+
+
+# --- the shipped corrections -------------------------------------------
+#
+# A rate correction that lives in one laptop's database is lost on the next
+# machine and on the next rebuild. `price_overrides.json` is the layer that
+# makes one durable, and these tests pin the two properties that make it safe:
+# it beats the catalog, and a human still beats it.
+#
+# Several of these deliberately do NOT take the `catalog` fixture: they are
+# assertions about the files this repo ships, and running them against the
+# miniature test catalog would prove nothing about what a user gets.
+
+FABLE_51 = "claude-fable-5-1"
+FABLE_5 = "claude-fable-5"
+
+
+def test_the_shipped_corrections_parse_and_carry_their_provenance():
+    doc = json.loads(pricing.OVERRIDES_PATH.read_text())
+    assert doc["models"], "no corrections shipped"
+    for entry in doc["models"]:
+        assert entry["match"] and entry["clauses"]
+        # Every one of these is a claim about someone else's price list. It
+        # is only defensible with a source and a date beside it.
+        assert entry["source"].startswith("https://")
+        assert entry["checked"] and entry["why"]
+
+
+def test_fable_5_1_and_fable_5_are_priced_differently():
+    """The whole reason this layer exists. They differ ONLY in cache reads,
+    and on a cache-read-dominated corpus that is a fifth of the total."""
+    five = {r.cache_read_mtok for r in pricing.rates_from_catalog(FABLE_5)}
+    five_one = {r.cache_read_mtok for r in pricing.rates_from_catalog(FABLE_51)}
+    assert five_one == {0.25}
+    assert five == {1.0}
+
+    # ...and nothing else about them differs, which is what makes a
+    # too-broad matcher so easy to write and so quiet when it is wrong.
+    for field in ("input_mtok", "output_mtok", "cache_write_mtok"):
+        a = {getattr(r, field) for r in pricing.rates_from_catalog(FABLE_5)}
+        b = {getattr(r, field) for r in pricing.rates_from_catalog(FABLE_51)}
+        assert a == b, field
+
+
+def test_no_correction_matches_a_model_it_does_not_name():
+    """A matcher broader than its own model reintroduces the bug it fixes."""
+    doc = json.loads(pricing.OVERRIDES_PATH.read_text())
+    ids = [e["id"] for e in doc["models"]]
+    for entry in doc["models"]:
+        for other in ids:
+            if other == entry["id"] or other.startswith(entry["id"]):
+                continue
+            assert not pricing._matches(entry["match"], other), (
+                f"{entry['id']}'s matcher also catches {other}")
+
+
+def test_a_correction_beats_the_catalog(conn):
+    add_event(conn, FABLE_51)
+    pricing.sync(conn)
+    row = conn.execute(
+        "SELECT cache_read_mtok, origin, note FROM model_price WHERE model = ?",
+        (FABLE_51,)).fetchone()
+    assert row["cache_read_mtok"] == 0.25
+    assert row["origin"] == pricing.OVERRIDE
+    assert row["note"], "a correction must carry its reason into the table"
+
+
+def test_a_human_still_beats_a_correction(conn):
+    add_event(conn, FABLE_51)
+    pricing.set_price(conn, FABLE_51, cache_read_mtok=0.11)
+    pricing.sync(conn)
+    row = conn.execute(
+        "SELECT cache_read_mtok, origin FROM model_price WHERE model = ?",
+        (FABLE_51,)).fetchone()
+    assert row["cache_read_mtok"] == 0.11 and row["origin"] == pricing.MANUAL
+
+
+def test_a_corrected_model_is_not_reported_as_an_approximation(conn):
+    """It is no longer priced as a relative -- it has a rate of its own."""
+    add_event(conn, FABLE_51)
+    pricing.sync(conn)
+    assert pricing.approximations(conn) == []
+
+
+def test_sync_reports_which_models_a_correction_priced(conn, catalog):
+    add_event(conn, FABLE_51)
+    add_event(conn, "claude-test")
+    r = pricing.sync(conn)
+    assert r.overridden == [FABLE_51]
+    assert set(r.priced) == {FABLE_51, "claude-test"}
+
+
+def test_sync_flags_a_correction_upstream_has_caught_up_with(conn, catalog, monkeypatch):
+    """An override the catalog now agrees with is not a correction any more,
+    only a way to go stale."""
+    caught_up = dict(CATALOG)
+    caught_up["models"] = CATALOG["models"] + [{
+        "provider": "anthropic", "id": FABLE_51,
+        "match": {"equals": FABLE_51},
+        "clauses": [{"start_date": None, "input_mtok": 10.0, "output_mtok": 50.0,
+                     "cache_read_mtok": 0.25, "cache_write_mtok": 12.5}],
+    }]
+    (catalog).write_text(json.dumps(caught_up))
+    pricing.catalog.cache_clear()
+
+    add_event(conn, FABLE_51)
+    r = pricing.sync(conn)
+    assert r.redundant == [FABLE_51]
+    # Still applied -- flagging is not the same as silently standing down.
+    assert r.overridden == [FABLE_51]
+
+
+def test_the_corrections_match_the_vendors_published_rates():
+    """These four numbers were read off the vendor's pricing page on the date
+    each entry records. If one changes, the entry is stale, not the test."""
+    expected = {
+        "claude-fable-5-1": (10, 50, 0.25, 12.5),
+        "claude-mythos-5-1": (10, 50, 0.25, 12.5),
+        "claude-mythos-5": (10, 50, 1, 12.5),
+        "claude-sonnet-5": (2, 10, 0.2, 2.5),
+    }
+    doc = json.loads(pricing.OVERRIDES_PATH.read_text())
+    got = {
+        e["id"]: (c["input_mtok"], c["output_mtok"],
+                  c["cache_read_mtok"], c["cache_write_mtok"])
+        for e in doc["models"] for c in e["clauses"]
+    }
+    assert got == expected

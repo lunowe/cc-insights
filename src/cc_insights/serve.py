@@ -96,6 +96,13 @@ class InsightsServer(ThreadingHTTPServer):
     connection behind a lock would serialize the dashboard's nine parallel
     fetches into a queue. One connection per worker thread costs a few file
     handles and keeps the page loading in one round of requests.
+
+    `ThreadingHTTPServer` runs one thread per TCP *connection*, so each
+    thread's handle is closed when that thread finishes rather than held
+    until shutdown. That distinction did not matter while `cci serve` was
+    something you ran for a few minutes; `cci watch --serve` stays up for
+    days, and a browser that reconnects its event stream would otherwise
+    leave a dead sqlite handle behind on every reconnect.
     """
 
     daemon_threads = True          # a hung request must never block shutdown
@@ -145,6 +152,28 @@ class InsightsServer(ThreadingHTTPServer):
         with self._lock:
             self._conns.append(conn)
         return conn
+
+    def close_thread_conn(self) -> None:
+        """Close and forget this thread's handle. Called as its thread ends."""
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            return
+        self._local.conn = None
+        with self._lock:
+            try:
+                self._conns.remove(conn)
+            except ValueError:
+                pass
+        try:
+            conn.close()
+        except Exception:           # a connection whose query was interrupted
+            pass
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.close_thread_conn()
 
     def server_close(self) -> None:
         super().server_close()
@@ -245,10 +274,12 @@ class _Handler(BaseHTTPRequestHandler):
     def _live(self, query: str, *, body: bool) -> None:
         """Hold the connection open and write one line per pipeline cycle.
 
-        Chunked rather than length-delimited, because the length is not known
-        until the watcher stops. A `HEAD` gets the headers and nothing else --
-        streaming a body to a request that asked for none would desynchronise
-        the connection.
+        The response carries no `Content-Length`, because the length is not
+        known until the watcher stops; it is delimited by closing the
+        connection, which is why `Connection: close` is sent and
+        `close_connection` is set. A `HEAD` gets the headers and nothing
+        else -- streaming a body to a request that asked for none would
+        desynchronise the connection.
 
         The loop exits when the client goes away (the write raises), when the
         server is shutting down, or when `?once=1` asks for a single frame,

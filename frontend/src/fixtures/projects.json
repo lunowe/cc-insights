@@ -13,7 +13,7 @@
    "threads": 220,
    "firstTs": 1771509392842,
    "lastTs": 1789862003583,
-   "cost": 3926.284235
+   "cost": 3086.989709
   },
   {
    "projectId": "2cc665728dc737965416c0355e85453a",
@@ -28,7 +28,7 @@
    "threads": 122,
    "firstTs": 1788291806192,
    "lastTs": 1789648032624,
-   "cost": 3601.201862
+   "cost": 2438.424393
   },
   {
    "projectId": "cd93b31db46aeeaec1173987b66bf117",
@@ -43,7 +43,7 @@
    "threads": 79,
    "firstTs": 1770565158571,
    "lastTs": 1789591765312,
-   "cost": 618.297637
+   "cost": 566.181714
   },
   {
    "projectId": "148f6478127fd369399e329d4263efd0",
@@ -58,7 +58,7 @@
    "threads": 41,
    "firstTs": 1788297400749,
    "lastTs": 1789845294986,
-   "cost": 615.787517
+   "cost": 468.783356
   },
   {
    "projectId": "03c14aa31eaabeec88ba83b08922d11f",
@@ -103,7 +103,7 @@
    "threads": 18,
    "firstTs": 1787341774299,
    "lastTs": 1789734957805,
-   "cost": 528.984962
+   "cost": 506.441854
   },
   {
    "projectId": "fdddb9845a6dd3bb1562d4babcac5ae1",
@@ -128,12 +128,12 @@
    "groupName": "CC-Insights",
    "groupPinned": false,
    "pathExists": true,
-   "activeMs": 15443708,
+   "activeMs": 18367052,
    "sessions": 3,
-   "threads": 14,
+   "threads": 17,
    "firstTs": 1789840454632,
-   "lastTs": 1789912822815,
-   "cost": 255.874682
+   "lastTs": 1789914631012,
+   "cost": 349.976199
   },
   {
    "projectId": "5ca2fdad5c27154f62653b067d8cb747",
@@ -148,7 +148,7 @@
    "threads": 17,
    "firstTs": 1788125998580,
    "lastTs": 1789592485088,
-   "cost": 314.418576
+   "cost": 289.480252
   },
   {
    "projectId": "d4611906d9b616828da419e65122ced6",
@@ -163,7 +163,7 @@
    "threads": 12,
    "firstTs": 1789551779496,
    "lastTs": 1789561521288,
-   "cost": 249.897299
+   "cost": 169.62475
   },
   {
    "projectId": "4b0269c48a882a65ce3b4e605acd6ebd",
@@ -178,7 +178,7 @@
    "threads": 11,
    "firstTs": 1787083539961,
    "lastTs": 1789648281605,
-   "cost": 359.360744
+   "cost": 244.992503
   },
   {
    "projectId": "ff041bda397db10a6eed9062ac4a9386",
@@ -193,7 +193,7 @@
    "threads": 13,
    "firstTs": 1781523435999,
    "lastTs": 1788862136533,
-   "cost": 129.695023
+   "cost": 106.27275
   },
   {
    "projectId": "dd30cd7a5feecbaf313b0abcf0ac9371",
@@ -208,7 +208,7 @@
    "threads": 13,
    "firstTs": 1788339798913,
    "lastTs": 1788347715306,
-   "cost": 312.266472
+   "cost": 215.552592
   },
   {
    "projectId": "35cb72a79700c3d2044ae6089f54d2db",
@@ -223,7 +223,7 @@
    "threads": 7,
    "firstTs": 1788951030094,
    "lastTs": 1788962541387,
-   "cost": 207.802312
+   "cost": 148.610641
   },
   {
    "projectId": "fc8cdd3f6a94dbe9be23a60b44312a08",
@@ -238,7 +238,7 @@
    "threads": 10,
    "firstTs": 1789037525950,
    "lastTs": 1789647898170,
-   "cost": 214.165392
+   "cost": 174.390383
   },
   {
    "projectId": "49034d51d6da20f6d44b2f126e3c6971",
@@ -298,7 +298,7 @@
    "threads": 1,
    "firstTs": 1788436299647,
    "lastTs": 1788440465504,
-   "cost": 105.019431
+   "cost": 59.124673
   },
   {
    "projectId": "293356e36a51e46517f9179d07fb0249",
@@ -314,6 +314,21 @@
    "firstTs": 1775765741168,
    "lastTs": 1775768794848,
    "cost": 9.23228
+  },
+  {
+   "projectId": "11bfb04b60bea55b7329bf2b288e9fda",
+   "name": "v2-windows-paths",
+   "rootPath": "/Users/dev/Coding/CC-Insights/.claude/worktrees/v2-windows-paths",
+   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
+   "groupName": "CC-Insights",
+   "groupPinned": false,
+   "pathExists": true,
+   "activeMs": 2344416,
+   "sessions": 2,
+   "threads": 3,
+   "firstTs": 1789912341788,
+   "lastTs": 1789914489371,
+   "cost": 63.890617
   },
   {
    "projectId": "885643d322f6939e542f7ec9811979a3",
@@ -493,22 +508,7 @@
    "threads": 1,
    "firstTs": 1789121136591,
    "lastTs": 1789548491181,
-   "cost": 34.931586
-  },
-  {
-   "projectId": "11bfb04b60bea55b7329bf2b288e9fda",
-   "name": "v2-windows-paths",
-   "rootPath": "/Users/dev/Coding/CC-Insights/.claude/worktrees/v2-windows-paths",
-   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
-   "groupName": "CC-Insights",
-   "groupPinned": false,
-   "pathExists": true,
-   "activeMs": 491283,
-   "sessions": 1,
-   "threads": 1,
-   "firstTs": 1789912341788,
-   "lastTs": 1789912833071,
-   "cost": 8.742457
+   "cost": 27.440653
   },
   {
    "projectId": "2e5ebde31e4e86293b2fb643b1bd356d",
@@ -568,7 +568,7 @@
    "threads": 1,
    "firstTs": 1789755525728,
    "lastTs": 1789759410915,
-   "cost": 3.950393
+   "cost": 2.691984
   },
   {
    "projectId": "5976e720862dd44071720808e0aa3b7f",

@@ -56,8 +56,8 @@ other before it loads either, and `--uninstall` removes both.
 .venv/bin/cci cost         # the breakdown
 ```
 
-**$13,272 at published API rates** on this corpus, and the shape of it is the
-finding: **cache reads are 58%** of the total, cache writes 26%, output 14%,
+**$10,674 at published API rates** on this corpus, and the shape of it is the
+finding: **cache reads are 48%** of the total, cache writes 32%, output 18%,
 fresh input 2%. The cheapest component per token is most of the bill.
 
 That figure is a *list-price equivalent*, not a bill — a subscription charges a
@@ -65,9 +65,17 @@ flat monthly fee no matter how many tokens run through it. Rates come from a
 committed snapshot of [pydantic/genai-prices](https://github.com/pydantic/genai-prices),
 keyed by model **and date**, so a vendor's next price change does not rewrite
 last month. Anything it cannot price is reported rather than counted as zero
-(138 M tokens here), and a model priced as a near relative is named, because
-`claude-fable-5-1` priced as `claude-fable-5` is thousands of dollars of
-difference that must not be invisible. `cci price set` overrides any of it.
+(138 M tokens here).
+
+Three layers, most specific first: the catalog, then
+`src/cc_insights/price_overrides.json` — corrections checked against the
+vendor's own pricing page and shipped with the code — then `cci price set`,
+which a human owns and no sync touches. The middle layer exists because the
+catalog's errors are not small and a fix kept in one laptop's database is
+lost on the next machine: it priced **Claude Fable 5.1 as Fable 5**, whose
+cache reads cost four times as much ($1.00 against $0.25 per MTok), which was
+**$2,752 — 21% of the total** — and it carried a Sonnet 5 price rise that
+never happened.
 
 ## What it found on this machine
 

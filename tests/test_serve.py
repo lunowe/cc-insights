@@ -648,3 +648,24 @@ def test_a_head_on_live_gets_headers_and_no_stream(live_server):
     status, headers, body = request(srv, "/api/live?once=1", method="HEAD")
     assert status == 200 and body == b""
     assert headers.get("Content-Type") == "text/event-stream; charset=utf-8"
+
+
+def test_a_finished_connection_does_not_leak_its_database_handle(server):
+    """`cci watch --serve` stays up for days and a browser reconnects its
+    event stream; a handle per dead thread accumulates until the process
+    runs out of them."""
+    for _ in range(12):
+        status, _, _ = request(server, "/api/summary",
+                               headers={"Connection": "close"})
+        assert status == 200
+    deadline = time.monotonic() + TIMEOUT
+    while server._conns and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert server._conns == [], f"{len(server._conns)} handle(s) left behind"
+
+
+def test_a_live_connection_keeps_its_handle_for_reuse(server):
+    """Closing per request instead of per connection would reopen the
+    database for every one of the dashboard's ten parallel fetches."""
+    conn = server.conn()          # this test's own thread
+    assert server.conn() is conn

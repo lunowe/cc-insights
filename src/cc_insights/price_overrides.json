@@ -1,0 +1,89 @@
+{
+ "why": "Corrections to the genai-prices catalog, checked against the vendor's own pricing page. An override beats the catalog and loses to a human's `cci price set`. Each entry says what the catalog gets wrong, where the right number came from, and when someone last looked; delete an entry once upstream agrees. Same matcher language as model_prices.json, first match wins, and a matcher must not be broader than the model it corrects -- `claude-fable-5-1` and `claude-fable-5` differ only in cache reads, and a rule that caught both would reintroduce the error it exists to fix.",
+ "models": [
+  {
+   "provider": "anthropic",
+   "id": "claude-fable-5-1",
+   "why": "The catalog has no entry of its own for Fable 5.1 and matches it to `claude-fable-5`, whose cache reads cost four times as much ($1 against $0.25 per MTok). Fable 5.1 prices cache hits at 0.025x base input where every other model uses 0.1x. On a corpus where cache reads are 59% of the bill that single substitution was worth $2,752, or 21% of the total.",
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "checked": "2026-09-20",
+   "match": {
+    "or": [
+     {"starts_with": "claude-fable-5-1"},
+     {"starts_with": "claude-fable-5.1"},
+     {"starts_with": "claude-5-1-fable"}
+    ]
+   },
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 10,
+     "output_mtok": 50,
+     "cache_read_mtok": 0.25,
+     "cache_write_mtok": 12.5
+    }
+   ]
+  },
+  {
+   "provider": "anthropic",
+   "id": "claude-mythos-5-1",
+   "why": "Limited availability, so the catalog does not carry it at all and its traffic would be reported unpriced. The vendor lists it at Fable 5.1's rates, cheap cache hits included.",
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "checked": "2026-09-20",
+   "match": {
+    "or": [
+     {"starts_with": "claude-mythos-5-1"},
+     {"starts_with": "claude-mythos-5.1"}
+    ]
+   },
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 10,
+     "output_mtok": 50,
+     "cache_read_mtok": 0.25,
+     "cache_write_mtok": 12.5
+    }
+   ]
+  },
+  {
+   "provider": "anthropic",
+   "id": "claude-mythos-5",
+   "why": "As above, at Claude Fable 5's rates -- standard 0.1x cache hits, not Fable 5.1's 0.025x.",
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "checked": "2026-09-20",
+   "match": {"starts_with": "claude-mythos-5"},
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 10,
+     "output_mtok": 50,
+     "cache_read_mtok": 1,
+     "cache_write_mtok": 12.5
+    }
+   ]
+  },
+  {
+   "provider": "anthropic",
+   "id": "claude-sonnet-5",
+   "why": "The catalog carries a price rise on 2026-09-01 to $3/$15 that did not happen: those are Claude Sonnet 4.6's rates. The vendor still lists Sonnet 5 at $2/$10 with $0.20 cache hits. Worth $4.73 here, and wrong in a way that grows with every Sonnet 5 hour.",
+   "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "checked": "2026-09-20",
+   "match": {
+    "or": [
+     {"starts_with": "claude-sonnet-5"},
+     {"starts_with": "claude-5-sonnet"}
+    ]
+   },
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 2,
+     "output_mtok": 10,
+     "cache_read_mtok": 0.2,
+     "cache_write_mtok": 2.5
+    }
+   ]
+  }
+ ]
+}

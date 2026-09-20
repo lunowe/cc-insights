@@ -22,10 +22,18 @@ derivation engine, static HTML dashboard, CSV export.
     more above a threshold; the logs record tokens per request, not context
     length, so the tier cannot be chosen honestly. This under-states long-context
     traffic on tiered models.
-  - **The catalog prices some models as a near relative** (`claude-fable-5-1` as
-    `claude-fable-5`). Reported, never hidden, and overridable with
-    `cci price set` — but a per-model override list maintained upstream would
-    be better than one maintained per laptop.
+  - **The catalog prices some models as a near relative** (`claude-fable-5-1`
+    as `claude-fable-5`, whose cache reads cost 4x). ✅ Resolved with a third
+    layer: `price_overrides.json`, checked against the vendor's own pricing
+    page and shipped with the code, beating the catalog and losing to
+    `cci price set`. It corrected two models and moved the corpus total by
+    $2,744. Anything still priced as a relative is reported, never hidden.
+  - **1-hour cache writes are priced as 5-minute ones.** 41% of cache-write
+    tokens on this corpus are 1-hour writes, charged at 2x base input rather
+    than 1.25x; the logs carry the split and the adapter does not read it.
+    Understates the total by ~$1,085. Needs a column on `event`, an adapter
+    change and a re-ingest — and a re-ingest cannot recover the split for
+    sessions whose logs have aged out. See FINDINGS §6b.
 - **Watch mode.** ✅ `watch.py` + `cci watch [--serve]` + `/api/live`.
   **It polls rather than using FSEvents, deliberately** — 50 ms to stat the
   whole corpus against a dependency or 150 lines of untestable `ctypes`, and

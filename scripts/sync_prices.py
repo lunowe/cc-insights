@@ -25,8 +25,10 @@ What is thrown away, and why it is safe:
   chosen honestly; the base rate is taken and the row is annotated. This
   UNDER-states cost for long-context traffic on tiered models, which is
   recorded in the note rather than hidden.
-* **Non-date constraints** (`time_of_date` for Deepseek's off-peak pricing).
-  Same reason: a clause we cannot evaluate is a clause we must not guess at.
+* **Any constraint other than a start date** -- `end_date`, and
+  `time_of_date` for Deepseek's off-peak pricing. Same reason: a clause we
+  cannot evaluate is a clause we must not guess at, and an end date we
+  accepted but could not enforce would keep a withdrawn rate alive forever.
 
 Usage:
     python3 scripts/sync_prices.py            # fetch, rewrite the snapshot
@@ -131,9 +133,15 @@ def clauses_for(model: dict[str, Any]) -> list[dict[str, Any]]:
         constraint = group.get("constraint") or {}
         if not isinstance(constraint, dict):
             continue
-        unusable = set(constraint) - {"start_date", "end_date"}
+        # `end_date` is listed here deliberately: nothing downstream knows
+        # how to expire a rate, so a clause carrying one would be applied
+        # forever after it stopped being true. Dropping it is the same rule
+        # as the rest -- a constraint we cannot evaluate is a constraint we
+        # must not pretend away. Honouring it needs an `effective_to` column
+        # and a change to `pricing.rates_at`.
+        unusable = set(constraint) - {"start_date"}
         if unusable:
-            continue  # time-of-day pricing and friends: cannot be evaluated here
+            continue  # end dates, time-of-day pricing: cannot be evaluated here
         start = constraint.get("start_date")
         clause: dict[str, Any] = {"start_date": start if isinstance(start, str) else None}
         tiered = False

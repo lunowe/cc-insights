@@ -1,27 +1,27 @@
 {
- "total": 13272.751105,
+ "total": 10704.939548,
  "currency": "USD",
  "byComponent": {
-  "input": 216.056925,
-  "output": 1858.307251,
-  "cacheRead": 7762.318031,
-  "cacheWrite": 3436.068897
+  "input": 216.094743,
+  "output": 1883.211031,
+  "cacheRead": 5143.22496,
+  "cacheWrite": 3462.408814
  },
- "pricedEvents": 65846,
+ "pricedEvents": 66719,
  "attributedEvents": 11097,
- "unpricedTokens": 138131650,
+ "unpricedTokens": 138684694,
  "byModel": [
   {
-   "model": "claude-fable-5-1",
-   "events": 14233,
+   "model": "claude-opus-5",
+   "events": 32557,
    "attributed": 0,
-   "cost": 6414.307182
+   "cost": 3788.041762
   },
   {
-   "model": "claude-opus-5",
-   "events": 31791,
+   "model": "claude-fable-5-1",
+   "events": 14337,
    "attributed": 0,
-   "cost": 3643.825157
+   "cost": 3703.700269
   },
   {
    "model": "claude-fable-5",
@@ -61,9 +61,9 @@
   },
   {
    "model": "claude-sonnet-5",
-   "events": 369,
+   "events": 372,
    "attributed": 0,
-   "cost": 18.63052
+   "cost": 17.209272
   },
   {
    "model": "gpt-5.6-luna",
@@ -75,7 +75,7 @@
  "bySource": [
   {
    "source": "claude_code",
-   "cost": 12501.606311
+   "cost": 9933.794754
   },
   {
    "source": "codex",
@@ -365,79 +365,79 @@
   },
   {
    "date": "2026-09-01",
-   "cost": 178.322843
+   "cost": 169.568519
   },
   {
    "date": "2026-09-02",
-   "cost": 1661.538197
+   "cost": 1142.285585
   },
   {
    "date": "2026-09-03",
-   "cost": 1223.01741
+   "cost": 695.569991
   },
   {
    "date": "2026-09-04",
-   "cost": 209.395237
+   "cost": 209.263748
   },
   {
    "date": "2026-09-05",
-   "cost": 46.320142
+   "cost": 34.320924
   },
   {
    "date": "2026-09-06",
-   "cost": 963.421145
+   "cost": 653.676847
   },
   {
    "date": "2026-09-07",
-   "cost": 441.76186
+   "cost": 350.510148
   },
   {
    "date": "2026-09-08",
-   "cost": 284.359171
+   "cost": 180.54294
   },
   {
    "date": "2026-09-09",
-   "cost": 561.745819
+   "cost": 459.735303
   },
   {
    "date": "2026-09-10",
-   "cost": 151.141634
+   "cost": 130.364785
   },
   {
    "date": "2026-09-11",
-   "cost": 544.99111
+   "cost": 409.564751
   },
   {
    "date": "2026-09-15",
-   "cost": 9.768581
+   "cost": 9.751356
   },
   {
    "date": "2026-09-16",
-   "cost": 1160.485234
+   "cost": 822.377175
   },
   {
    "date": "2026-09-17",
-   "cost": 804.510385
+   "cost": 554.943814
   },
   {
    "date": "2026-09-18",
-   "cost": 351.376179
+   "cost": 203.049129
   },
   {
    "date": "2026-09-19",
-   "cost": 476.304998
+   "cost": 321.11262
   },
   {
    "date": "2026-09-20",
-   "cost": 161.135701
+   "cost": 315.146451
   }
  ],
  "unpriced": [
   {
    "model": "gpt-6-astra",
    "reason": "no_rate",
-   "tokens": 113064890,
-   "events": 1207
+   "tokens": 113617934,
+   "events": 1221
   },
   {
    "model": "x-preview-f-free",
@@ -460,10 +460,6 @@
  ],
  "approximations": [
   {
-   "model": "claude-fable-5-1",
-   "pricedAs": "anthropic/claude-fable-5"
-  },
-  {
    "model": "gpt-5.6",
    "pricedAs": "openai/gpt-5.6-sol"
   }
@@ -473,6 +469,7 @@
   "url": "https://raw.githubusercontent.com/pydantic/genai-prices/main/prices/data.json",
   "commit": "5e24d157561198f6fff38a31a9761e70a384e811",
   "license": "MIT",
-  "fetched_at": "2026-09-20T14:04:15Z"
+  "fetched_at": "2026-09-20T14:04:15Z",
+  "overrides": 4
  }
 }

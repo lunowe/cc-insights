@@ -46,7 +46,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol, Sequence
 
-from cc_insights import cost as cost_mod, db, derive, ingest
+from cc_insights import cost as cost_mod, db, derive, ingest, pricing
 from cc_insights.config import Config
 from cc_insights.live import HEARTBEAT_S, LiveState
 
@@ -221,10 +221,7 @@ def totals(conn: sqlite3.Connection) -> tuple[int, int, float, str]:
         "SELECT coalesce(sum(input_nano + output_nano + cache_read_nano"
         " + cache_write_nano), 0) FROM event_cost"
     ).fetchone()[0] or 0
-    currencies = [r[0] for r in conn.execute(
-        """SELECT DISTINCT p.currency FROM model_price p
-           WHERE EXISTS (SELECT 1 FROM event_cost c WHERE c.model = p.model)""")]
-    currency = currencies[0] if len(currencies) == 1 else ("mixed" if currencies else "USD")
+    currency = pricing.currency_in_use(conn)
     return spans, active, nano / cost_mod.NANO, currency
 
 

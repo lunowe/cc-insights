@@ -601,10 +601,15 @@ def daily(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
     if not acc:
         return {"days": [], "currency": _currency(conn)}
     wall = {k: _union_ms(v) for k, v in pieces.items()}
-    lo = datetime.strptime(min(acc), "%Y-%m-%d").date()
-    hi = datetime.strptime(max(acc), "%Y-%m-%d").date()
-
     per_day_cost = _cost_by_local_day(conn, f)
+    # A span is split at midnight with `while cur < b`, so one ending exactly
+    # on a local midnight registers no piece in the following day -- while an
+    # event at that same instant is inside the span and buckets into it. The
+    # range therefore has to cover both, or `sum(daily[].cost)` quietly loses
+    # a day that `/api/cost` still reports.
+    keys = set(acc) | set(per_day_cost)
+    lo = datetime.strptime(min(keys), "%Y-%m-%d").date()
+    hi = datetime.strptime(max(keys), "%Y-%m-%d").date()
 
     days, d = [], lo
     while d <= hi:

@@ -27,12 +27,27 @@ wins. The provider and catalog id that won are stored on the row, so a rate
 that looks wrong can be traced to a specific upstream entry rather than argued
 about.
 
-**A human always wins.** `cci price set` writes `origin = 'manual'` and
-`sync()` will not overwrite it. That is the same rule `project_group.origin`
-follows, and it is the escape hatch for everything the catalog cannot know:
-an enterprise discount, a model it has never heard of, or a rate it has lumped
-in with a neighbour (it prices `claude-fable-5-1` as `claude-fable-5`, whose
-cache reads are four times as expensive).
+**Three layers, and the more specific one wins.**
+
+1. `model_prices.json` -- the catalog snapshot. Broad, maintained upstream,
+   and matched by pattern, which is exactly why it is sometimes wrong about a
+   model it has no entry for.
+2. `price_overrides.json` -- corrections checked against the vendor's own
+   pricing page, shipped with the code. This layer exists because a rate
+   correction that lives in one laptop's database is lost on the next machine
+   and on the next rebuild, and because the errors are not small: the catalog
+   priced `claude-fable-5-1` as `claude-fable-5`, whose cache reads cost four
+   times as much, which on the measured corpus was 21% of the total.
+3. `origin = 'manual'` -- `cci price set`. A human beats both and `sync()`
+   never touches it, the same rule `project_group.origin` follows. That is
+   the escape hatch for what neither file can know: an enterprise discount,
+   or a model that exists only inside one company.
+
+An override is a full replacement, not a patch: reading one row tells you all
+four rates a model was charged at, rather than sending you to a second file to
+find out which of them came from where. The cost is that an override freezes
+the rates it does not correct, so each one records `checked` and `source`, and
+`sync()` says when upstream has caught up and the override can go.
 """
 
 from __future__ import annotations
@@ -40,7 +55,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -51,7 +66,12 @@ from cc_insights import db
 #: The committed catalog snapshot. Rebuilt by `scripts/sync_prices.py`.
 CATALOG_PATH = Path(__file__).resolve().parent / "model_prices.json"
 
+#: Hand-checked corrections to it. Edited by a human, never by a script.
+OVERRIDES_PATH = Path(__file__).resolve().parent / "price_overrides.json"
+
 GENAI = "genai-prices"
+#: Shipped correction to the catalog. Beats it; loses to MANUAL.
+OVERRIDE = "override"
 MANUAL = "manual"
 
 #: Rate columns, in the order every report prints them.
@@ -148,9 +168,22 @@ def catalog(path: str | None = None) -> dict[str, Any]:
     return doc
 
 
+@lru_cache(maxsize=1)
+def override_catalog(path: str | None = None) -> dict[str, Any]:
+    """The shipped corrections, parsed once. Missing is legal and means none."""
+    target = Path(path) if path else OVERRIDES_PATH
+    try:
+        doc = json.loads(target.read_text())
+    except (OSError, ValueError):
+        return {"models": []}
+    return doc
+
+
 def catalog_source() -> dict[str, Any]:
     """Provenance of the snapshot, for `cci price list` and `/api/meta`."""
-    return dict(catalog().get("source") or {})
+    source = dict(catalog().get("source") or {})
+    source["overrides"] = len(override_catalog().get("models", []))
+    return source
 
 
 def resolve(model: str) -> dict[str, Any] | None:
@@ -165,12 +198,17 @@ def resolve(model: str) -> dict[str, Any] | None:
     return None
 
 
-def rates_from_catalog(model: str) -> list[Rates]:
-    """Every dated rate the catalog knows for a model, oldest first."""
-    entry = resolve(model)
-    if entry is None:
-        return []
+def resolve_override(model: str) -> dict[str, Any] | None:
+    """The shipped correction for a model string, or None. First match wins."""
+    for entry in override_catalog().get("models", []):
+        if _matches(entry.get("match"), model):
+            return entry
+    return None
+
+
+def _clauses_to_rates(entry: dict[str, Any], origin: str) -> list[Rates]:
     matched = f"{entry['provider']}/{entry['id']}"
+    note = entry.get("why") if origin == OVERRIDE else None
     out = []
     for clause in entry.get("clauses", []):
         out.append(Rates(
@@ -179,11 +217,28 @@ def rates_from_catalog(model: str) -> list[Rates]:
             output_mtok=clause.get("output_mtok"),
             cache_read_mtok=clause.get("cache_read_mtok"),
             cache_write_mtok=clause.get("cache_write_mtok"),
+            origin=origin,
             matched_id=matched,
-            note=_TIERED_NOTE if clause.get("tiered") else None,
+            note=_TIERED_NOTE if clause.get("tiered") else note,
         ))
     out.sort(key=lambda r: r.effective_from)
     return out
+
+
+def rates_from_catalog(model: str) -> list[Rates]:
+    """Every dated rate known for a model, oldest first.
+
+    A shipped override replaces the catalog outright for that model -- see the
+    layering in the module docstring. The returned `Rates` carry the origin
+    they came from, so the row written to `model_price` says which.
+    """
+    entry = resolve_override(model)
+    if entry is not None:
+        return _clauses_to_rates(entry, OVERRIDE)
+    entry = resolve(model)
+    if entry is None:
+        return []
+    return _clauses_to_rates(entry, GENAI)
 
 
 # --------------------------------------------------------------------------
@@ -197,6 +252,11 @@ class SyncResult:
     unpriced: list[str]
     rows_written: int
     rows_kept_manual: int
+    #: Models a shipped override priced instead of the catalog.
+    overridden: list[str] = field(default_factory=list)
+    #: Overrides upstream has caught up with -- the catalog now has an entry
+    #: of that model's own, so the correction has become a way to go stale.
+    redundant: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -204,6 +264,8 @@ class SyncResult:
             "unpriced": sorted(self.unpriced),
             "rowsWritten": self.rows_written,
             "rowsKeptManual": self.rows_kept_manual,
+            "overridden": sorted(self.overridden),
+            "redundant": sorted(self.redundant),
         }
 
 
@@ -249,6 +311,15 @@ def sync(conn: sqlite3.Connection, models: Sequence[str] | None = None) -> SyncR
                 result.priced.append(model)
             continue
 
+        if rates[0].origin == OVERRIDE:
+            result.overridden.append(model)
+            # An override that upstream has caught up with is no longer a
+            # correction, only a way to go stale. Say so rather than letting
+            # it sit there outranking a maintained entry forever.
+            upstream = resolve(model)
+            if upstream is not None and upstream["id"] == model:
+                result.redundant.append(model)
+
         conn.execute(
             "DELETE FROM model_price WHERE model = ? AND origin <> ?", (model, MANUAL)
         )
@@ -262,7 +333,7 @@ def sync(conn: sqlite3.Connection, models: Sequence[str] | None = None) -> SyncR
                       cache_write_mtok, currency, origin, matched_id, note, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (model, r.effective_from, r.input_mtok, r.output_mtok, r.cache_read_mtok,
-                 r.cache_write_mtok, r.currency, GENAI, r.matched_id, r.note, now),
+                 r.cache_write_mtok, r.currency, r.origin, r.matched_id, r.note, now),
             )
             wrote += 1
         result.rows_written += wrote
@@ -368,6 +439,26 @@ def approximations(conn: sqlite3.Connection) -> list[tuple[str, str]]:
     ]
 
 
+def currency_in_use(conn: sqlite3.Connection) -> str:
+    """The currency of the rates that actually priced something, or "mixed".
+
+    Joined on `(model, price_from)` -- the rate each event was priced at --
+    not merely on the model. Asking "which currencies does any rate for these
+    models use" reports "mixed" for a table holding a USD rate and a EUR one
+    dated next year that has never priced a single event, which is exactly
+    the kind of alarm that teaches people to ignore alarms.
+
+    Defined once here because three callers had their own copy of the wrong
+    version and could disagree with each other about the same database.
+    """
+    rows = [r[0] for r in conn.execute(
+        """SELECT DISTINCT p.currency
+           FROM event_cost c
+           JOIN model_price p ON p.model = c.model AND p.effective_from = c.price_from"""
+    )]
+    return rows[0] if len(rows) == 1 else ("mixed" if rows else "USD")
+
+
 def rates_at(rates: Iterable[Rates], ts: int) -> Rates | None:
     """The newest rate not later than `ts`.
 
@@ -386,18 +477,23 @@ __all__ = [
     "COMPONENTS",
     "GENAI",
     "MANUAL",
+    "OVERRIDE",
+    "OVERRIDES_PATH",
     "Rates",
     "SyncResult",
     "approximations",
     "catalog",
     "catalog_source",
+    "override_catalog",
     "clear_price",
+    "currency_in_use",
     "day_to_ms",
     "load_rates",
     "models_in_use",
     "rates_at",
     "rates_from_catalog",
     "resolve",
+    "resolve_override",
     "set_price",
     "sync",
 ]

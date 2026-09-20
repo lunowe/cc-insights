@@ -249,14 +249,36 @@ Three further facts a total has to disclose, all of them measured here:
 
 1. **138 M tokens could not be priced at all** — `gpt-6-astra` (113 M) and
    opencode's free-tier routes. Reported, never counted as zero.
-2. **12,304 Codex events record usage without naming a model.** The model is
-   carried forward from earlier in the same thread; 46 have nothing to inherit
-   and stay unpriced.
-3. **The price catalog prices `claude-fable-5-1` as `claude-fable-5`**, whose
-   cache reads cost four times as much. On this corpus that single
-   substitution is **$2,752** — 21% of the total. A near relative is a
-   defensible default and an indefensible secret, which is why
-   `pricing.approximations()` exists and every surface prints it.
+2. **12,412 Codex events record usage without naming a model.** The model is
+   carried forward from earlier in the same thread. Getting a model and
+   getting a price are different things: 11,097 were priced this way, 1,221
+   inherited `gpt-6-astra`, which has no rate, and 46 have nothing to inherit
+   at all.
+3. **The price catalog was wrong about two models, both in the same
+   direction: too expensive.**
+   - It priced `claude-fable-5-1` as `claude-fable-5`. Fable 5.1 charges
+     0.025x base input for a cache hit where every other model charges 0.1x
+     — $0.25 against $1.00 per MTok — and on a corpus that is 59% cache
+     reads that one substitution was **$2,752, or 21% of the total**.
+   - It carried a price rise for `claude-sonnet-5` on 2026-09-01 to $3/$15
+     that never happened; those are Sonnet 4.6's rates.
+
+   Both are corrected in `src/cc_insights/price_overrides.json`, checked
+   against the vendor's own pricing page. The corpus total fell from $13,418
+   to **$10,674**. A near relative is a defensible default and an
+   indefensible secret, which is why `pricing.approximations()` exists and
+   every surface prints it.
+
+4. **41% of cache-write tokens are 1-hour writes, and we price them as
+   5-minute ones.** 144.7M of 351.2M. Anthropic charges 2x base input for a
+   1-hour write against 1.25x for a 5-minute one, so on Fable-tier models
+   that is $20/MTok against $12.50. The logs *do* carry the split
+   (`usage.cache_creation.ephemeral_1h_input_tokens`), but the adapter reads
+   only the combined `cache_creation_input_tokens`, so the database cannot
+   tell them apart and the total is understated by roughly **$1,085**.
+   Fixing it needs a column on `event`, an adapter change, and a re-ingest —
+   and a re-ingest cannot recover the split for sessions whose logs have
+   already aged out. Recorded here rather than quietly rounded away.
 
 ## 7. Scale
 

@@ -1,7 +1,7 @@
 {
  "hostname": "demo-laptop.local",
  "firstTs": 1770565158571,
- "lastTs": 1789912833071,
+ "lastTs": 1789914631012,
  "sources": [
   "claude_code",
   "codex",
@@ -60,7 +60,7 @@
    "projectId": "72d7ccef2e626422ec1bf7083ce5b5b5",
    "name": "CC-Insights",
    "rootPath": "/Users/dev/Coding/CC-Insights",
-   "activeMs": 15443708
+   "activeMs": 18367052
   },
   {
    "projectId": "5ca2fdad5c27154f62653b067d8cb747",
@@ -135,6 +135,12 @@
    "activeMs": 3053680
   },
   {
+   "projectId": "11bfb04b60bea55b7329bf2b288e9fda",
+   "name": "v2-windows-paths",
+   "rootPath": "/Users/dev/Coding/CC-Insights/.claude/worktrees/v2-windows-paths",
+   "activeMs": 2344416
+  },
+  {
    "projectId": "885643d322f6939e542f7ec9811979a3",
    "name": "chec",
    "rootPath": "/Users/dev/Documents/Codex/2026-08-09/chec",
@@ -205,12 +211,6 @@
    "name": "t3code-cf618c76",
    "rootPath": "/Users/dev/.t3/worktrees/atlas-chat/t3code-cf618c76",
    "activeMs": 566663
-  },
-  {
-   "projectId": "11bfb04b60bea55b7329bf2b288e9fda",
-   "name": "v2-windows-paths",
-   "rootPath": "/Users/dev/Coding/CC-Insights/.claude/worktrees/v2-windows-paths",
-   "activeMs": 491283
   },
   {
    "projectId": "2e5ebde31e4e86293b2fb643b1bd356d",
@@ -307,6 +307,12 @@
    "name": ".claude",
    "rootPath": "/Users/dev/.claude",
    "activeMs": 1
+  },
+  {
+   "projectId": "abd384d29a514396a1a7e71dd651b31e",
+   "name": "frontend",
+   "rootPath": "/Users/dev/Coding/CC-Insights/frontend",
+   "activeMs": 0
   }
  ],
  "groups": [
@@ -336,14 +342,14 @@
    "activeMs": 30466974
   },
   {
+   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
+   "name": "CC-Insights",
+   "activeMs": 20711468
+  },
+  {
    "groupId": "cc284b3a28236726919da7227fd4e02e",
    "name": "millipede",
    "activeMs": 20346430
-  },
-  {
-   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
-   "name": "CC-Insights",
-   "activeMs": 15934991
   },
   {
    "groupId": "3f111c19e1bc7c2eef9a754d64369c2a",
@@ -550,14 +556,11 @@
    "url": "https://raw.githubusercontent.com/pydantic/genai-prices/main/prices/data.json",
    "commit": "5e24d157561198f6fff38a31a9761e70a384e811",
    "license": "MIT",
-   "fetched_at": "2026-09-20T14:04:15Z"
+   "fetched_at": "2026-09-20T14:04:15Z",
+   "overrides": 4
   },
   "currency": "USD",
   "approximations": [
-   {
-    "model": "claude-fable-5-1",
-    "pricedAs": "anthropic/claude-fable-5"
-   },
    {
     "model": "gpt-5.6",
     "pricedAs": "openai/gpt-5.6-sol"
@@ -570,5 +573,5 @@
    "x-preview-f-free"
   ]
  },
- "generatedAt": 1789913321258
+ "generatedAt": 1789914740643
 }

@@ -3,8 +3,8 @@
   {
    "agentName": "general-purpose",
    "source": "claude_code",
-   "threads": 206,
-   "activeMs": 210928531
+   "threads": 209,
+   "activeMs": 212043678
   },
   {
    "agentName": "claude",
@@ -33,8 +33,8 @@
   {
    "agentName": "codex:codex-rescue",
    "source": "claude_code",
-   "threads": 54,
-   "activeMs": 2312140
+   "threads": 55,
+   "activeMs": 2424971
   },
   {
    "agentName": "Confucius",

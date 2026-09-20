@@ -13,6 +13,8 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field
 
+from cc_insights import pricing
+
 
 @dataclass(slots=True)
 class Summary:
@@ -132,19 +134,12 @@ def summarize(conn: sqlite3.Connection) -> Summary:
         """SELECT coalesce(sum(input_nano + output_nano + cache_read_nano
                             + cache_write_nano), 0) FROM event_cost""",
     )
-    # Tokens on events that were never priced. The anti-join is the whole
-    # point: a total is only quotable next to what it could not see.
+    # Read from the table that records what went unpriced, not from an
+    # anti-join against what did. An event can be in BOTH tables -- a model
+    # priced for input and output but not for cache writes -- and the
+    # anti-join scored that event's unpriced portion as zero, printing an
+    # authoritative "excludes 0 tokens" over real missing money.
     s.unpriced_tokens = _scalar(
-        conn,
-        """SELECT coalesce(sum(coalesce(e.input_tokens, 0) + coalesce(e.output_tokens, 0)
-                            + coalesce(e.cache_read_tokens, 0)
-                            + coalesce(e.cache_write_tokens, 0)), 0)
-           FROM event e
-           WHERE NOT EXISTS (SELECT 1 FROM event_cost c WHERE c.event_id = e.id)""",
-    )
-    currencies = [r[0] for r in conn.execute(
-        """SELECT DISTINCT p.currency FROM model_price p
-           WHERE EXISTS (SELECT 1 FROM event_cost c WHERE c.model = p.model)"""
-    )]
-    s.cost_currency = currencies[0] if len(currencies) == 1 else "mixed"
+        conn, "SELECT coalesce(sum(tokens), 0) FROM event_unpriced")
+    s.cost_currency = pricing.currency_in_use(conn)
     return s

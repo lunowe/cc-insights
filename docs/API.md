@@ -25,6 +25,13 @@ either change has changed name, type or meaning:
   bill** — a subscription charges a flat fee however many tokens run through
   it. A renderer must label it as such, and must show `unpricedTokens`
   alongside it: tokens no rate covered are unknown, not free.
+- **Every per-event number here is measured inside the surviving spans**, and
+  a thread with a single event yields no span at all. So `summary.events`,
+  `summary.tokens` and every `cost` exclude such a thread — the same rule
+  that already governs `sessions`/`threads`/`spans`, applied consistently.
+  `cci cost` on the command line counts every event instead and can
+  therefore read very slightly higher. Zero such threads exist on the
+  author's corpus; the rule is stated so the first one is not a surprise.
 
 ## Filters (query string, all optional)
 

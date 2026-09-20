@@ -81,6 +81,22 @@
    "lastTs": 1785779297964
   },
   {
+   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
+   "name": "CC-Insights",
+   "origin": "git_common_dir",
+   "forge": null,
+   "owner": null,
+   "repo": null,
+   "webUrl": null,
+   "activeMs": 20711468,
+   "sessions": 5,
+   "threads": 20,
+   "projects": 2,
+   "pinnedProjects": 0,
+   "firstTs": 1789840454632,
+   "lastTs": 1789914631012
+  },
+  {
    "groupId": "cc284b3a28236726919da7227fd4e02e",
    "name": "millipede",
    "origin": "git_remote",
@@ -95,22 +111,6 @@
    "pinnedProjects": 0,
    "firstTs": 1788016708369,
    "lastTs": 1788122318675
-  },
-  {
-   "groupId": "67f2bd88aa30a257a84b44d62c5afff1",
-   "name": "CC-Insights",
-   "origin": "git_common_dir",
-   "forge": null,
-   "owner": null,
-   "repo": null,
-   "webUrl": null,
-   "activeMs": 15934991,
-   "sessions": 4,
-   "threads": 15,
-   "projects": 2,
-   "pinnedProjects": 0,
-   "firstTs": 1789840454632,
-   "lastTs": 1789912833071
   },
   {
    "groupId": "3f111c19e1bc7c2eef9a754d64369c2a",

@@ -29,13 +29,18 @@ number. An event can land in both tables: a model priced for input and output
 but not for cache writes is charged for what is known and recorded for what
 is not.
 
-**Codex records usage on events that name no model.** 12,398 token-bearing
-Codex events carry `model IS NULL`; the model lives on other events in the
-same thread. Each thread is therefore walked in time order carrying the last
-model seen forward, and events priced that way are flagged `attributed = 1`
-so a reader can ask how much of a total rests on the inference. It covers
-12,304 of them; the remaining 46 (3.0M tokens) have no model anywhere before
-them in their thread and stay unpriced.
+**Codex records usage on events that name no model.** Measured 2026-09-20:
+12,412 token-bearing Codex events carry `model IS NULL`, and the model lives
+on other events in the same thread. Each thread is therefore walked in time
+order carrying the last model seen forward, and events priced that way are
+flagged `attributed = 1` so a reader can ask how much of a total rests on
+the inference.
+
+Getting a model and getting a price are different things, and the split
+matters: 11,097 of those events were priced this way, 1,221 got a model that
+has no rate on file (`gpt-6-astra`) and 46 have no model anywhere earlier in
+their thread. The last two land in `event_unpriced` under `no_rate` and
+`no_model` respectively.
 """
 
 from __future__ import annotations
@@ -153,7 +158,7 @@ _TOKEN_EVENT_SQL = """
     WHERE e.model IS NOT NULL
        OR e.input_tokens IS NOT NULL OR e.output_tokens IS NOT NULL
        OR e.cache_read_tokens IS NOT NULL OR e.cache_write_tokens IS NOT NULL
-    ORDER BY e.thread_id, e.ts, e.ordinal
+    ORDER BY e.thread_id, e.ts, e.ordinal, e.id
 """
 
 
@@ -233,6 +238,13 @@ def derive_costs(
                 row["id"], row["session_id"], row["thread_id"], row["ts"],
                 model, attributed, tokens, reason,
             ))
+            # Flushed here rather than beside the priced flush below, which
+            # sits after a `continue` and so never ran on a corpus where
+            # nothing could be priced -- exactly the corpus whose unpriced
+            # batch grows without bound.
+            if len(unpriced_batch) >= _CHUNK:
+                _write_unpriced(conn, unpriced_batch)
+                unpriced_batch.clear()
 
         for row in _token_events(conn, scope):
             if row["thread_id"] != last_thread:
@@ -288,9 +300,6 @@ def derive_costs(
             if len(priced_batch) >= _CHUNK:
                 _write_priced(conn, priced_batch)
                 priced_batch = []
-            if len(unpriced_batch) >= _CHUNK:
-                _write_unpriced(conn, unpriced_batch)
-                unpriced_batch = []
         _write_priced(conn, priced_batch)
         _write_unpriced(conn, unpriced_batch)
         conn.execute("COMMIT")

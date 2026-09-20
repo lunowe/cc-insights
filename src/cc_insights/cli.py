@@ -201,7 +201,7 @@ def _print_price_caveats(conn) -> None:
         print("\n  priced as a near relative, which the catalog has not split yet:")
         for model, matched in approx:
             print(f"    {model:<28} priced as {matched}")
-        print("    fix one with: cci price set <model> --input ... --output ...")
+        print("    correct one with: cci price set <model> --input ... --output ...")
 
 
 def cmd_cost(args: argparse.Namespace) -> int:
@@ -282,10 +282,17 @@ def cmd_price_list(args: argparse.Namespace) -> int:
         if missing:
             print(f"\n  no rate on file: {', '.join(missing)}")
         _print_price_caveats(conn)
+        overridden = [r for r in rows if r["origin"] == pricing.OVERRIDE]
+        if overridden:
+            print("\n  corrected against the vendor's own pricing page "
+                  "(src/cc_insights/price_overrides.json):")
+            for r in overridden:
+                print(f"    {r['model']}")
         src = pricing.catalog_source()
         if src:
             print(f"\n  catalog {src.get('repo')}@{(src.get('commit') or '?')[:7]} "
-                  f"fetched {src.get('fetched_at')}")
+                  f"fetched {src.get('fetched_at')}, plus {src.get('overrides', 0)} "
+                  "shipped correction(s)")
             print("  refresh it with: python3 scripts/sync_prices.py")
         print()
     finally:
@@ -300,6 +307,12 @@ def cmd_price_sync(args: argparse.Namespace) -> int:
     finally:
         conn.close()
     print(f"priced {len(r.priced)} model(s) from the catalog, {r.rows_written} rate row(s)")
+    if r.overridden:
+        print(f"  {len(r.overridden)} priced from the shipped corrections instead: "
+              f"{', '.join(sorted(r.overridden))}")
+    if r.redundant:
+        print(f"  the catalog now has entries of its own for {', '.join(sorted(r.redundant))}"
+              " \u2014 those overrides can be deleted from price_overrides.json")
     if r.rows_kept_manual:
         print(f"  kept {r.rows_kept_manual} manual rate(s) untouched")
     if r.unpriced:
