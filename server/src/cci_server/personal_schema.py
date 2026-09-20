@@ -45,10 +45,16 @@ class Table:
     can reject a push that claims a host the account does not own.
 
     `optional` are columns that exist in this store and in the client's schema
-    but are NOT in `sync.TABLES`. There is exactly one today --
-    `event.cache_write_1h_tokens`, which migration 005 added and the sync list
-    was never extended for -- and the category exists so that the drift test
-    can report it rather than either side silently deciding.
+    but are NOT in `sync.TABLES`. There are none today, and the category
+    exists so that the drift test can report one rather than either side
+    silently deciding.
+
+    `omittable` are columns that ARE in `sync.TABLES` but that a client on an
+    older release does not send yet. They are required of nobody and
+    overwritten by nobody: a push that leaves one out is accepted and the
+    stored value is left alone. The distinction from `optional` is which side
+    is behind -- `optional` is the server waiting for the client's sync list,
+    `omittable` is the server waiting for the client's *installed version*.
 
     `set_clause` overrides the default "overwrite every non-key column sent"
     for the columns where a blind overwrite would lose something.
@@ -60,11 +66,22 @@ class Table:
     host_scoped: bool = False
     set_clause: str | None = None
     optional: tuple[str, ...] = ()
+    omittable: tuple[str, ...] = ()
     parent: str | None = None
 
     @property
     def all_columns(self) -> tuple[str, ...]:
         return self.columns + self.optional
+
+    @property
+    def required(self) -> tuple[str, ...]:
+        """The columns a push must carry. Everything a current client sends.
+
+        A column the client has only just started sending is not required,
+        because the account's other machine may still be on the previous
+        release and its push must not be refused outright.
+        """
+        return tuple(c for c in self.columns if c not in self.omittable)
 
     @property
     def conflict_target(self) -> tuple[str, ...]:
@@ -135,17 +152,22 @@ TABLES: tuple[Table, ...] = (
         "event",
         ("id", "session_id", "thread_id", "native_event_id", "ts", "ordinal", "kind",
          "model", "tool_name", "tool_use_id", "input_tokens", "output_tokens",
-         "cache_read_tokens", "cache_write_tokens"),
+         "cache_read_tokens", "cache_write_tokens", "cache_write_1h_tokens"),
         ("id",),
         host_scoped=True,
         # Migration 005 split cache writes by TTL -- 41% of the author's
         # cache-write tokens bought an hour and cost 2x base input rather than
-        # 1.25x. `sync.TABLES` has never listed the column, so a client on the
-        # current release does not send it. Accepting it as optional means the
-        # store is ready the day sync is fixed, and means a client that already
-        # sends it is not rejected. Omitting it leaves whatever is stored
-        # alone, rather than writing NULL over a value a newer client sent.
-        optional=("cache_write_1h_tokens",),
+        # 1.25x. `sync.TABLES` now lists the column, so it is a real column of
+        # the transfer and not server-side drift.
+        #
+        # It stays OMITTABLE because an account's other machine is the whole
+        # point of this store and that machine may still be on the release
+        # before the sync list was fixed. Refusing its push would strand it;
+        # accepting the push and defaulting the column to NULL would be worse
+        # still -- it would quietly re-price 41% of the cache-write tokens
+        # already in the store at the five-minute rate, and the wrong number
+        # is indistinguishable from the right one once it is stored.
+        omittable=("cache_write_1h_tokens",),
     ),
     Table(
         "span",
@@ -157,6 +179,33 @@ TABLES: tuple[Table, ...] = (
 )
 
 BY_NAME: dict[str, Table] = {t.name: t for t in TABLES}
+
+
+#: Columns `sync.TABLES` carries that this store derives itself, keyed
+#: (table, column), with the reason. Accepted in a push body -- refusing them
+#: would 400 every `host` batch a current client sends -- checked against the
+#: token, and then dropped before the INSERT.
+#:
+#: This is the one place the mirror in this module's docstring is allowed to
+#: diverge, and it is declared rather than implicit so `test_mirrors_sync_tables`
+#: can still compare everything else column by column. An undeclared
+#: divergence is exactly the failure that test exists to catch.
+SERVER_OWNED: dict[tuple[str, str], str] = {
+    ("host", "account_id"): (
+        "which account claimed this machine. On the client that is a column, "
+        "because the client's database holds one account. Here it is the "
+        "OWNER of every row and it comes from the bearer token, which is the "
+        "single point where a row is bound to an account -- see migration "
+        "002, where it is the first half of every primary key. Taking it from "
+        "the body instead would be a route by which one account writes a host "
+        "row owned by another, which is the one thing this store's key shape "
+        "exists to make unrepresentable."
+    ),
+}
+
+
+def server_owned(table: str) -> tuple[str, ...]:
+    return tuple(c for (t, c) in SERVER_OWNED if t == table)
 
 
 #: Tables deliberately NOT transferred, and why. Verbatim from
@@ -187,10 +236,12 @@ EXCLUDED: dict[str, str] = {
 def upsert_sql(table: Table, columns: list[str]) -> str:
     """The INSERT for one batch, over exactly the columns the client sent.
 
-    Built from `columns` rather than from `table.all_columns` so that an
-    omitted optional column is left alone instead of being overwritten with
-    NULL. A client on an older release must be able to push without erasing a
-    value a newer one wrote.
+    Built from `columns` rather than from `table.all_columns` so that a
+    column the client left out is left alone instead of being overwritten
+    with NULL. A client on an older release must be able to push without
+    erasing a value a newer one wrote -- `event.cache_write_1h_tokens` is the
+    live case, where a NULL would re-price 41% of the cache-write tokens on
+    this corpus at the five-minute rate.
 
     `account_id` is prepended here and is never accepted from the request
     body. That is the single point where a row is bound to its owner, and it

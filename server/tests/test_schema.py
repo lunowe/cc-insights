@@ -8,6 +8,8 @@ to know the rule survived the last migration.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from cci_server import personal_schema
@@ -73,7 +75,16 @@ def test_team_store_holds_no_free_text_beyond_the_branch_name(migrated_db):
         "published_span": {"span_id", "session_id", "repo_id", "account_id",
                            "thread_role"},
         "published_withheld": {"account_id", "host_id"},
-        "repo_publisher": {"repo_id", "account_id"},
+        # Migration 004: what each publisher ASSERTED about the repo, kept
+        # per publisher so that a caller who reaches a repo only by having
+        # published into it is shown what they sent rather than what a
+        # stranger stored -- otherwise the difference answers "does anybody
+        # here work on acme/skunkworks". Every one of these is a copy of a
+        # column already allowed on `published_repo`: a remote URL and its
+        # parsed parts, public on the far side of the boundary by
+        # docs/REDACTION.md §1, and not one of them a path or free prose.
+        "repo_publisher": {"repo_id", "account_id", "remote_url", "forge",
+                           "owner", "repo", "web_url", "name"},
         "team_repo": {"team_id", "repo_id", "added_by"},
     }
     with migrated_db.connection() as conn:
@@ -214,21 +225,46 @@ def test_mirrors_sync_tables(client_source):
     assert list(theirs) == list(mine), "table set or push order differs"
     for name, t in theirs.items():
         m = mine[name]
-        assert tuple(t.columns) == tuple(m.columns), f"{name}: columns differ"
+        owned = personal_schema.server_owned(name)
+        expected = tuple(c for c in t.columns if c not in owned)
+        assert expected == tuple(m.columns), f"{name}: columns differ"
         assert tuple(t.key) == tuple(m.key), f"{name}: key differs"
         assert (t.owner_filter is not None) == m.host_scoped, f"{name}: ownership differs"
-        assert (t.set_clause or "") == (m.set_clause or ""), f"{name}: conflict clause differs"
+        _assert_same_conflict_clause(name, t.set_clause, m.set_clause, owned)
         assert (t.parent or None) == (m.parent or None), f"{name}: self-reference differs"
     assert sync.EXCLUDED == personal_schema.EXCLUDED
+
+
+def _assert_same_conflict_clause(name, theirs, mine, owned):
+    """The server's clause is the client's, minus the server-owned assignments.
+
+    `host.account_id` is the only case: the client updates it from the pushed
+    row, and here it is the owner of the row and comes from the token. Checked
+    as "a prefix plus assignments to declared server-owned columns" rather
+    than skipped, so that any OTHER difference in the clause still fails --
+    the conflict clauses are where `first_seen` stops moving forward and a
+    pin stops being undone, and a silent divergence there is data loss.
+    """
+    theirs, mine = theirs or "", mine or ""
+    if theirs == mine:
+        return
+    assert owned, f"{name}: conflict clause differs and nothing is server-owned"
+    assert theirs.startswith(mine), f"{name}: conflict clause differs\n{theirs}\n{mine}"
+    # Assignment targets only: a bare `column =` at the start of a
+    # comma-separated chunk. `coalesce(excluded.account_id, host.account_id)`
+    # contains a comma and must not read as a second assignment.
+    extra = {m for m in re.findall(r"(?:^|,\s*)([a-z_]+)\s*=", theirs[len(mine):])}
+    assert extra, f"{name}: conflict clause differs but assigns nothing new"
+    assert extra <= set(owned), f"{name}: {sorted(extra - set(owned))} is not server-owned"
 
 
 def test_optional_columns_are_exactly_the_clients_drift(client_source):
     """An `optional` column means the client's schema has it and sync does not.
 
-    There is one today: migration 005 added `event.cache_write_1h_tokens` and
-    `sync.TABLES` was never extended. If this fails, either sync caught up --
-    in which case the column moves to `columns` -- or somebody invented an
-    optional column to avoid a conversation.
+    There are none today. `event.cache_write_1h_tokens` was the one, and
+    commit 4485f28 added it to `sync.TABLES`, so it moved to `columns`. If
+    this fails, somebody invented an optional column to avoid a conversation
+    -- or sync caught up with another one and it needs the same move.
     """
     from cc_insights import redact, sync
 
@@ -240,6 +276,32 @@ def test_optional_columns_are_exactly_the_clients_drift(client_source):
             assert (t.name, col) in classified, (
                 f"{t.name}.{col} is not classified in redact.FIELDS"
             )
+
+
+def test_omittable_columns_are_real_columns_the_client_may_not_send_yet(client_source):
+    """`omittable` is the other direction of drift, and it must stay honest.
+
+    An omittable column is part of the transfer -- `sync.TABLES` lists it --
+    but an older installed client does not send it, so a push that leaves it
+    out is accepted and the stored value is left alone. That leniency is
+    exactly what would hide a genuine mistake: a column dropped from
+    `sync.TABLES`, or a required column quietly demoted so a failing push
+    would go green. So an omittable column must still BE in `sync.TABLES`,
+    and it must never be missing from `columns`.
+    """
+    from cc_insights import sync
+
+    synced = {(t.name, c) for t in sync.TABLES for c in t.columns}
+    for t in personal_schema.TABLES:
+        for col in t.omittable:
+            assert col in t.columns, f"{t.name}.{col} is omittable but not a column"
+            assert (t.name, col) in synced, (
+                f"{t.name}.{col} is omittable but no longer in sync.TABLES; "
+                "it is either `optional` again or it was removed"
+            )
+        # Nothing may be both: the two categories say opposite things about
+        # whether `sync.TABLES` lists the column.
+        assert not (set(t.optional) & set(t.omittable)), t.name
 
 
 @pytest.fixture

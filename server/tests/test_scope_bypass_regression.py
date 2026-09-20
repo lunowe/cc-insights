@@ -141,3 +141,214 @@ def test_the_stranger_test_now_covers_having_published(client, alice, bob):
     visible = client.get("/v1/team/repos", headers=bob.auth).text
     assert bob_repo in visible, "Bob cannot see his own repo"
     assert alice_repo not in visible, "publishing one repo revealed another"
+
+
+def _publish_span(client, who, session_id: str, span_id: str) -> None:
+    resp = client.post(
+        "/v1/team/publish",
+        headers=who.auth,
+        json={"kind": "spans", "rows": [{
+            "spanId": span_id, "sessionId": session_id, "threadRole": "human",
+            "startedAt": 1_700_000_000_000, "endedAt": 1_700_000_060_000,
+            "eventCount": 10,
+        }]},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_publishing_then_rostering_still_reaches_nobody_elses_rows(client, alice, bob):
+    """The same attack, one step further along, and this is the step that bites.
+
+    Making publication a row-level grant is not enough on its own. A roster
+    is scope-checked against "can the admin see this repo", and a publisher
+    CAN now see the repo -- their own rows in it. So the two-call bypass
+    becomes a four-call one: publish a guessed id, publish a row under it,
+    create a team of one, roster the repo. If a roster conferred full sight
+    of the repo, that would read everything, and the scope check in
+    `teams.add_repo` could not tell this apart from a legitimate first
+    publisher rostering their own repo -- because at that moment the two are
+    identical.
+
+    So a roster hands the team what the ADMIN HAD, not what the repo holds.
+    Bob shared his own rows with his own team, which is exactly what he was
+    entitled to share and no more.
+    """
+    rid = _publish_repo(client, alice, SECRET_REMOTE)
+    _publish_session(client, alice, rid, "sess-alice-3", "feat/unreleased-thing")
+    _publish_span(client, alice, "sess-alice-3", "sp-alice-3")
+
+    _publish_repo(client, bob, SECRET_REMOTE)
+    _publish_session(client, bob, rid, "sess-bob-2", "main")
+    _publish_span(client, bob, "sess-bob-2", "sp-bob-2")
+
+    team = client.post("/v1/teams", json={"name": "Team of one"},
+                       headers=bob.auth).json()["teamId"]
+    rostered = client.post(f"/v1/teams/{team}/repos", json={"repoId": rid},
+                           headers=bob.auth)
+    assert rostered.status_code == 201, "a publisher may still roster their own repo"
+
+    body = client.get("/v1/team/sessions", headers=bob.auth).text
+    assert "sess-bob-2" in body, "Bob cannot see the row he published"
+    assert "sess-alice-3" not in body, "rostering a guessed repo read Alice's session"
+    assert "feat/unreleased-thing" not in body
+    assert alice.actor not in body
+
+    summary = client.get("/v1/team/summary", headers=bob.auth).json()
+    assert summary["activeMs"] == 60_000, "Alice's time reached Bob's aggregate"
+    actors = client.get("/v1/team/actors", headers=bob.auth).json()["actors"]
+    assert [a["actor"] for a in actors] == [bob.actor]
+
+
+def test_a_teammate_of_the_rostering_admin_gets_the_admins_access_and_no_more(
+    client, alice, bob, make_account
+):
+    """The other half of the same rule: delegation works, and it is bounded.
+
+    A roster has to keep working on an instance with no GitHub app
+    configured -- docs/SERVER_API.md §4.6 says so -- so an admin who can see
+    only their own rows must still be able to share those. What they must
+    not be able to share is somebody else's.
+    """
+    rid = _publish_repo(client, alice, SECRET_REMOTE)
+    _publish_session(client, alice, rid, "sess-alice-4", "main")
+    _publish_span(client, alice, "sess-alice-4", "sp-alice-4")
+
+    _publish_repo(client, bob, SECRET_REMOTE)
+    _publish_session(client, bob, rid, "sess-bob-3", "main")
+    _publish_span(client, bob, "sess-bob-3", "sp-bob-3")
+
+    carol = make_account("carol")
+    team = client.post("/v1/teams", json={"name": "Bob's"},
+                       headers=bob.auth).json()["teamId"]
+    client.post(f"/v1/teams/{team}/members", json={"accountId": carol.account_id},
+                headers=bob.auth)
+    client.post(f"/v1/teams/{team}/repos", json={"repoId": rid}, headers=bob.auth)
+
+    body = client.get("/v1/team/sessions", headers=carol.auth).text
+    assert "sess-bob-3" in body, "the roster shared nothing at all"
+    assert "sess-alice-4" not in body, "the roster shared somebody the admin could not see"
+
+
+def test_publishing_a_session_is_not_an_existence_oracle(client, alice, bob):
+    """A 200-vs-409 answered "does anybody here work on acme/skunkworks".
+
+    The order check asked `published_repo` GLOBALLY, so publishing a session
+    under a guessed `repo_id` succeeded exactly when somebody else had
+    already registered that repo -- and the 409 echoed the ids back to make
+    reading the answer easy. docs/REDACTION.md §0's defence is that the
+    remote is public on the far side of the boundary; that is true of a
+    public repo and simply false of a private one.
+
+    A real-but-unregistered id and an invented one must now be
+    indistinguishable, because the answer depends only on what the caller
+    themselves has published.
+    """
+    real = _publish_repo(client, alice, SECRET_REMOTE)
+    invented = "0" * 32
+
+    probe = client.post("/v1/team/publish", headers=bob.auth, json={
+        "kind": "sessions", "rows": [{
+            "sessionId": "sess-probe", "repoId": real, "actor": bob.actor,
+            "source": "claude_code", "startedAt": 1, "endedAt": 2,
+            "activeMs": 1, "eventCount": 0}]})
+    control = client.post("/v1/team/publish", headers=bob.auth, json={
+        "kind": "sessions", "rows": [{
+            "sessionId": "sess-control", "repoId": invented, "actor": bob.actor,
+            "source": "claude_code", "startedAt": 1, "endedAt": 2,
+            "activeMs": 1, "eventCount": 0}]})
+
+    assert probe.status_code == control.status_code == 409
+    assert probe.json()["error"] == control.json()["error"]
+    # The message names the id the caller sent, which they already know, and
+    # says the same thing in both cases.
+    assert probe.json()["message"].replace(real, "X") == \
+        control.json()["message"].replace(invented, "X")
+
+
+def test_a_verified_admin_re_adding_the_repo_upgrades_the_team(
+    client, alice, bob, make_account, migrated_db
+):
+    """Delegation under-shares by design, and this is how it is corrected.
+
+    Bob rostered the repo with only publisher-level access, so his team saw
+    his rows alone. An admin who GitHub says can reach the repo adding it
+    again replaces `added_by`, and the team's view becomes the full one --
+    which is the same authority `teams.add_repo` already requires, arriving
+    through the documented route rather than through a special case.
+    """
+    rid = _publish_repo(client, alice, SECRET_REMOTE)
+    _publish_session(client, alice, rid, "sess-alice-5", "main")
+    _publish_span(client, alice, "sess-alice-5", "sp-alice-5")
+
+    _publish_repo(client, bob, SECRET_REMOTE)
+    _publish_session(client, bob, rid, "sess-bob-4", "main")
+    _publish_span(client, bob, "sess-bob-4", "sp-bob-4")
+
+    carol = make_account("carol")
+    team = client.post("/v1/teams", json={"name": "Platform"},
+                       headers=bob.auth).json()["teamId"]
+    for member in (alice, carol):
+        client.post(f"/v1/teams/{team}/members", json={"accountId": member.account_id,
+                                                       "role": "admin"},
+                    headers=bob.auth)
+    client.post(f"/v1/teams/{team}/repos", json={"repoId": rid}, headers=bob.auth)
+
+    assert "sess-alice-5" not in client.get("/v1/team/sessions", headers=carol.auth).text
+
+    # Alice signs in and GitHub confirms she can reach the repo.
+    with migrated_db.connection() as conn:
+        conn.execute(
+            """INSERT INTO account_repo_access
+                   (account_id, repo_id, provider, verified_at)
+               VALUES (%s, %s, 'github', 1)""",
+            (alice.account_id, rid),
+        )
+    client.post(f"/v1/teams/{team}/repos", json={"repoId": rid}, headers=alice.auth)
+
+    body = client.get("/v1/team/sessions", headers=carol.auth).text
+    assert "sess-alice-5" in body and "sess-bob-4" in body
+
+
+def test_the_repo_listing_does_not_confirm_a_guessed_remote(client, alice, bob):
+    """The last place the existence oracle could still be read.
+
+    Scoping the publish check is not enough on its own: `GET /v1/team/repos`
+    serves the SHARED registry row, so a guesser who publishes a
+    deliberately wrong `name`, publishes one row, and reads the listing sees
+    their own name back if the repo was new and somebody else's if it was
+    not. That difference is the same answer the 409 used to give.
+
+    So a caller who reaches a repo only as its publisher is served what they
+    themselves sent. The two responses below must be identical apart from
+    the ids, whether or not Alice got there first.
+    """
+    taken = _publish_repo(client, alice, SECRET_REMOTE)
+    _publish_session(client, alice, taken, "sess-alice-6", "main")
+    _publish_span(client, alice, "sess-alice-6", "sp-alice-6")
+
+    def probe(remote, rid, session_id):
+        client.post("/v1/team/publish", headers=bob.auth, json={
+            "kind": "repos", "rows": [{
+                "repoId": rid, "remoteUrl": remote, "forge": "bobforge",
+                "owner": "bob-says", "repo": "bob-says",
+                "webUrl": "https://bob.example/x", "name": "BOB'S OWN LABEL"}]})
+        _publish_session(client, bob, rid, session_id, "main")
+        _publish_span(client, bob, session_id, f"sp-{session_id}")
+        return next(r for r in
+                    client.get("/v1/team/repos", headers=bob.auth).json()["repos"]
+                    if r["repoId"] == rid)
+
+    contested = probe(SECRET_REMOTE, taken, "sess-probe-1")
+    fresh = probe("https://github.com/acme/never-seen", 
+                  repo_id("https://github.com/acme/never-seen"), "sess-probe-2")
+
+    for field in ("forge", "owner", "repo", "webUrl", "name"):
+        assert contested[field] == fresh[field], (
+            f"{field} differed, which answers 'does anybody here work on this repo'"
+        )
+    assert contested["name"] == "BOB'S OWN LABEL"
+
+    # And Alice, who published it first, is unaffected by anything Bob said.
+    hers = next(r for r in client.get("/v1/team/repos", headers=alice.auth).json()["repos"]
+                if r["repoId"] == taken)
+    assert hers["name"] == "payments" and hers["forge"] == "github"

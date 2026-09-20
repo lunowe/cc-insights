@@ -390,6 +390,79 @@ def test_a_suppressed_branch_is_still_readable_by_its_author(client, alice, bob,
         "feat/restricted-org-dbs"
 
 
+def test_the_switch_covers_a_caller_who_reaches_the_repo_through_the_forge(
+    client, alice, make_account, world, migrated_db
+):
+    """OFF has to win on every path to the repo, not just the team one.
+
+    `branch_suppressed` was populated from `team_repo` joined through
+    `team_member`, so it only ever described callers who reach the repo
+    through a team. The other two paths ignored the switch completely: an org
+    contractor with GitHub read access and no cci team saw the branch name
+    the admin had turned off, and `GET /v1/team/repos` told them
+    `branchNamesPublished: true` while doing it -- actively misstating the
+    setting rather than merely failing to apply it.
+
+    docs/ACCOUNTS.md §5 says "default on, one switch per repo". A switch that
+    covers one of three ways in is not that.
+    """
+    client.patch(f"/v1/teams/{world}/repos/{PUBLIC}",
+                 json={"branchNamesPublished": False}, headers=alice.auth)
+
+    contractor = make_account("contractor")
+    with migrated_db.connection() as conn:
+        conn.execute(
+            """INSERT INTO account_repo_access
+                   (account_id, repo_id, provider, verified_at)
+               VALUES (%s, %s, 'github', 1)""",
+            (contractor.account_id, PUBLIC),
+        )
+
+    sessions = client.get("/v1/team/sessions", headers=contractor.auth).json()["sessions"]
+    pub = next(s for s in sessions if s["sessionId"] == "s-pub")
+    assert pub["gitBranch"] is None, "a forge-only viewer read a suppressed branch name"
+    assert "feat/ui" not in body_text(sessions)
+
+    repos = {r["repoId"]: r for r in
+             client.get("/v1/team/repos", headers=contractor.auth).json()["repos"]}
+    assert repos[PUBLIC]["branchNamesPublished"] is False, "the API misreported the switch"
+
+
+def test_the_switch_covers_the_publisher_path_too(client, alice, make_account, world):
+    """Same rule, third path: somebody who reaches the repo only by publishing.
+
+    Dana works on the same repo and is on no team, so no team of hers can
+    speak for her -- and before the fix that meant no switch applied to her
+    at all. She is the author of her own row, which is the case the switch is
+    least obviously about, and it is still the right answer: the name being
+    shown is the thing an admin turned off, and "some other path in" is not a
+    reason to show it.
+
+    A repo NO team has rostered stays unaffected. There is no switch to
+    honour there, and defaulting to off would hide names nobody asked to
+    hide -- which is the assertion at the end.
+    """
+    dana = make_account("dana")
+    publish_repo(client, dana, PUBLIC, "public")
+    publish_session(client, dana, "s-dana", PUBLIC, branch="feat/dana")
+    publish_span(client, dana, "sp-dana", "s-dana")
+    publish_repo(client, dana, BOBS, "side-project", owner="bob")
+    publish_session(client, dana, "s-dana-2", BOBS, branch="feat/elsewhere")
+    publish_span(client, dana, "sp-dana-2", "s-dana-2")
+
+    seen = client.get("/v1/team/sessions", headers=dana.auth).json()["sessions"]
+    assert next(s for s in seen if s["sessionId"] == "s-dana")["gitBranch"] == "feat/dana"
+
+    client.patch(f"/v1/teams/{world}/repos/{PUBLIC}",
+                 json={"branchNamesPublished": False}, headers=alice.auth)
+
+    seen = client.get("/v1/team/sessions", headers=dana.auth).json()["sessions"]
+    by_id = {s["sessionId"]: s for s in seen}
+    assert by_id["s-dana"]["gitBranch"] is None, "a publisher bypassed the switch"
+    # BOBS is on no roster, so nothing was ever switched off for it.
+    assert by_id["s-dana-2"]["gitBranch"] == "feat/elsewhere"
+
+
 # --------------------------------------------------------------------------
 # rule 3: withheld time stays counted
 # --------------------------------------------------------------------------
@@ -520,6 +593,66 @@ def test_every_team_read_endpoint_is_scoped(client, bob, world):
         assert r.status_code == 200, (path, r.text)
         for needle in invisible:
             assert needle not in r.text, f"{path} disclosed {needle!r}"
+
+
+def test_daily_carries_the_withheld_block(client, alice, bob, world):
+    """`/daily` returned `{"days": [...]}` and nothing else, and it is the worst
+    endpoint to omit it from.
+
+    This module's own docstring and docs/SERVER_API.md §4.4 both say every
+    aggregate carries one. A "hours this week" chart is built from exactly
+    this endpoint, sums `days`, and shows a week with the unpublishable part
+    silently missing -- docs/ACCOUNTS.md §5 rule 3's exact failure, and the
+    reader cannot tell a quiet week from a week spent in a repo with no
+    remote.
+    """
+    client.post("/v1/team/publish", json={
+        "kind": "withheld", "actor": alice.actor,
+        "rows": [{"hostId": "h-alice", "withheldMs": 52_920_000,
+                  "withheldProjects": 21, "publishedMs": 642_960_000}],
+    }, headers=alice.auth)
+
+    body = client.get("/v1/team/daily", headers=bob.auth).json()
+    assert "withheld" in body, "a renderer summing `days` has no way to know"
+    assert body["withheld"]["totalMs"] == 52_920_000
+    assert body["withheld"]["scope"] == "corpus"
+    assert body["withheld"]["rangeFiltered"] is False
+    # Same block as every other aggregate, including what it withholds:
+    # publishedMs is its author's alone.
+    entry = next(e for e in body["withheld"]["byActor"] if e["actor"] == "alice")
+    assert "publishedMs" not in entry
+
+    # And it survives a range filter, for the same reason it does on /summary.
+    narrow = client.get(f"/v1/team/daily?from={T0 + 10 * DAY}", headers=bob.auth).json()
+    assert narrow["days"] == []
+    assert narrow["withheld"]["totalMs"] == 52_920_000
+
+
+def test_withheld_projects_are_not_summed_across_machines(client, alice, bob, world):
+    """A project on two laptops is one project, and `sum` counted it twice.
+
+    `project_id = sha256(root_path)`, so the same checkout path on two
+    machines is the same project -- docs/ACCOUNTS.md §4 raises exactly that
+    collision for `/home/ci/work`. There is no exact answer available and
+    there must not be: de-duplicating needs the project ids, and a
+    `project_id` IS a path, which is the one thing this store never receives.
+    The maximum any single machine reported never claims more distinct
+    projects than somebody demonstrably has; the sum reliably claims more.
+    """
+    for host in ("laptop", "desktop"):
+        client.post("/v1/team/publish", json={
+            "kind": "withheld", "actor": alice.actor,
+            "rows": [{"hostId": host, "withheldMs": 1_000, "withheldProjects": 21,
+                      "publishedMs": 0}],
+        }, headers=alice.auth)
+
+    entry = next(e for e in
+                 client.get("/v1/team/summary", headers=bob.auth).json()["withheld"]["byActor"]
+                 if e["actor"] == "alice")
+    assert entry["withheldProjects"] == 21, "the same project was counted once per machine"
+    # Time is the other kind of quantity: two machines are two disjoint
+    # stretches of somebody's week and they do add up.
+    assert entry["withheldMs"] == 2_000
 
 
 def body_text(obj) -> str:

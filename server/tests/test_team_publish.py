@@ -114,6 +114,12 @@ def test_a_session_already_published_by_someone_else_is_refused_not_merged(
     client.post("/v1/team/publish", json=repos(alice.actor), headers=alice.auth)
     client.post("/v1/team/publish", json=sessions(alice.actor), headers=alice.auth)
 
+    # Bob registers the repo under his own account first. The order check in
+    # `_publish_sessions` is per-caller now -- asking `published_repo`
+    # globally made a 200-vs-409 answer "does anybody here work on this
+    # repo" for a guessed id -- so Bob reaching a repo Alice created is the
+    # publish this test is about, not an accident of shared registry state.
+    client.post("/v1/team/publish", json=repos(bob.actor), headers=bob.auth)
     r = client.post("/v1/team/publish", json=sessions(bob.actor, sid="s1"),
                     headers=bob.auth)
     assert r.json()["rejected"] == 1
@@ -226,3 +232,82 @@ def test_a_publish_above_the_cap_is_refused(client, alice):
 def test_publishing_requires_a_token(client, alice):
     """The whole endpoint, not merely its contents."""
     assert client.post("/v1/team/publish", json=repos("alice")).status_code == 401
+
+
+R2 = repo_id(github_remote("github.com", "acme/private"))
+
+
+def test_a_session_that_moves_repos_takes_its_spans_with_it(client, alice, migrated_db):
+    """Migration 003 claimed these "cannot disagree with the session". They could.
+
+    `_publish_sessions` upserts `repo_id = excluded.repo_id`, so a session
+    moves repos whenever a checkout's remote is corrected -- and `redact.py`
+    re-normalizes every remote on every run BY DESIGN, so one fix to
+    `normalize_remote` moves them in bulk. Nothing propagated that to the
+    spans already stored: no trigger, no cascade, no test.
+
+    Since every scope predicate in `team_data.py` sits on `sp.repo_id`, a
+    stale span means a viewer scoped to the OLD repo reads a session that now
+    belongs to the NEW one -- and the response body carries the new, private
+    `repo_id` with it.
+    """
+    client.post("/v1/team/publish", json=repos(alice.actor), headers=alice.auth)
+    client.post("/v1/team/publish", json=repos(alice.actor, rid=R2, name="private"),
+                headers=alice.auth)
+    client.post("/v1/team/publish", json=sessions(alice.actor), headers=alice.auth)
+    client.post("/v1/team/publish", json=spans(alice.actor), headers=alice.auth)
+
+    with migrated_db.connection() as conn:
+        assert conn.execute(
+            "SELECT repo_id FROM published_span WHERE span_id = 's1p1' OR span_id = 'sp1'"
+        ).fetchone()["repo_id"] == R1
+
+    # The remote was corrected; the same session is now under a different id.
+    moved = client.post("/v1/team/publish", json=sessions(alice.actor, rid=R2),
+                        headers=alice.auth)
+    assert moved.status_code == 200, moved.text
+
+    with migrated_db.connection() as conn:
+        rows = conn.execute(
+            """SELECT sp.span_id, sp.repo_id AS span_repo, s.repo_id AS session_repo
+               FROM published_span sp
+               JOIN published_session s ON s.session_id = sp.session_id"""
+        ).fetchall()
+        assert rows, "the span vanished instead of moving"
+        for r in rows:
+            assert r["span_repo"] == r["session_repo"] == R2, r["span_id"]
+        branch = conn.execute(
+            "SELECT repo_id FROM published_session_branch"
+        ).fetchone()
+        assert branch["repo_id"] == R2, "the branch row kept the old repo"
+
+
+def test_a_viewer_scoped_to_the_old_repo_stops_seeing_a_moved_session(
+    client, alice, bob, migrated_db
+):
+    """The disclosure the divergence actually caused, as a request.
+
+    Bob has verified access to the public repo and none to the private one.
+    A span left behind under the public id kept him reading a session that
+    had moved, private `repoId` included.
+    """
+    client.post("/v1/team/publish", json=repos(alice.actor), headers=alice.auth)
+    client.post("/v1/team/publish", json=repos(alice.actor, rid=R2, name="private"),
+                headers=alice.auth)
+    client.post("/v1/team/publish", json=sessions(alice.actor), headers=alice.auth)
+    client.post("/v1/team/publish", json=spans(alice.actor), headers=alice.auth)
+
+    with migrated_db.connection() as conn:
+        conn.execute(
+            """INSERT INTO account_repo_access (account_id, repo_id, provider, verified_at)
+               VALUES (%s, %s, 'github', 1)""",
+            (bob.account_id, R1),
+        )
+    assert client.get("/v1/team/sessions", headers=bob.auth).json()["sessions"]
+
+    client.post("/v1/team/publish", json=sessions(alice.actor, rid=R2),
+                headers=alice.auth)
+
+    body = client.get("/v1/team/sessions", headers=bob.auth)
+    assert body.json()["sessions"] == []
+    assert R2 not in body.text, "the private repo_id reached a viewer without access"

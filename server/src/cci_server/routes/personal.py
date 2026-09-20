@@ -65,16 +65,19 @@ def _check_columns(table: personal_schema.Table, columns: list[str]) -> None:
     seen = set(columns)
     if len(seen) != len(columns):
         raise bad_request("duplicate_column", "A column is named twice.")
-    missing = [c for c in table.columns if c not in seen]
+    missing = [c for c in table.required if c not in seen]
     if missing:
         # A subset is refused rather than accepted, because the upsert would
         # write NULL over whatever is already stored in the omitted columns.
-        # Optional columns are the exception and are not in `table.columns`.
+        # `table.optional` and `table.omittable` are the exceptions: the
+        # upsert is built from the columns actually sent, so leaving one out
+        # leaves the stored value alone instead of nulling it.
         raise bad_request(
             "missing_column",
             f"{table.name} needs every one of its columns; missing {missing}.",
         )
-    unknown = [c for c in columns if c not in table.all_columns]
+    known = table.all_columns + personal_schema.server_owned(table.name)
+    unknown = [c for c in columns if c not in known]
     if unknown:
         raise bad_request(
             "unknown_column",
@@ -125,7 +128,13 @@ def tables(who: tokens.Principal = Depends(principal)):
                 "table": t.name,
                 "key": list(t.key),
                 "columns": list(t.columns),
-                "optionalColumns": list(t.optional),
+                # Every column a push may leave out, whichever side is
+                # behind: one the client's sync list has not reached yet
+                # (`optional`) and one an older installed client does not
+                # send yet (`omittable`). A client only needs the union --
+                # "you will not be refused for omitting these" -- so the two
+                # are not distinguished on the wire.
+                "optionalColumns": list(t.optional) + list(t.omittable),
                 "hostScoped": t.host_scoped,
             }
             for t in personal_schema.TABLES
@@ -161,13 +170,15 @@ def push(body: PushBody, who: tokens.Principal = Depends(principal), conn=Depend
 
     _require_host(conn, who.account_id, body.hostId, table, body.columns, body.rows)
 
-    rows = [
-        [_clean(v, c) for v, c in zip(row, body.columns)]
-        for row in body.rows
-    ]
-    rows = personal_schema.order_by_parent(table, rows, body.columns)
+    columns, body_rows = _drop_server_owned(table, who, body.columns, body.rows)
 
-    sql = personal_schema.upsert_sql(table, body.columns)
+    rows = [
+        [_clean(v, c) for v, c in zip(row, columns)]
+        for row in body_rows
+    ]
+    rows = personal_schema.order_by_parent(table, rows, columns)
+
+    sql = personal_schema.upsert_sql(table, columns)
     params = [[who.account_id] + row for row in rows]
 
     try:
@@ -201,6 +212,44 @@ def push(body: PushBody, who: tokens.Principal = Depends(principal), conn=Depend
         # where ids are global, can genuinely populate it.
         "conflicts": [],
     }
+
+
+def _drop_server_owned(table: personal_schema.Table, who: tokens.Principal,
+                       columns: list[str], rows: list[list]) -> tuple[list[str], list[list]]:
+    """Check a server-owned column against the token, then remove it.
+
+    `host.account_id` travels in `sync.TABLES` because on a laptop it is an
+    ordinary column. Here it is the owner of the row and it comes from the
+    bearer token -- `personal_schema.SERVER_OWNED` says why at length.
+
+    CHECKED, not silently dropped, and the distinction is the same one
+    `team_data.publish` draws about `actor`: a client whose push said one
+    thing while the store recorded another has stopped describing what it
+    sent. A value that disagrees with the token is a 403 rather than a quiet
+    correction. NULL agrees with anything -- a machine that has never run
+    `cci login` pushes NULL, and the client's own conflict clause coalesces
+    it away for exactly that reason.
+    """
+    owned = [c for c in columns if (table.name, c) in personal_schema.SERVER_OWNED]
+    if not owned:
+        return list(columns), rows
+
+    from cci_server.errors import forbidden
+
+    for col in owned:
+        at = columns.index(col)
+        for row in rows:
+            value = row[at]
+            if value is not None and value != who.account_id:
+                raise forbidden(
+                    "account_mismatch",
+                    f"A {table.name} row names {col}={value!r}; this token "
+                    f"belongs to {who.account_id!r}. Rows are bound to an "
+                    "account by the token and by nothing in the body.",
+                )
+
+    keep = [i for i, c in enumerate(columns) if c not in owned]
+    return [columns[i] for i in keep], [[row[i] for i in keep] for row in rows]
 
 
 def _brief(exc: Exception) -> str:

@@ -279,13 +279,14 @@ def test_limit_above_the_cap_is_clamped_and_reported(client, alice):
     assert body["limit"] == MAX_PAGE
 
 
-def test_the_optional_column_may_be_omitted_and_is_not_overwritten(client, alice):
-    """`sync.TABLES` has not caught up with migration 005's TTL split.
+def test_a_column_an_older_client_omits_is_not_overwritten(client, alice):
+    """`sync.TABLES` only reached migration 005's TTL split in commit 4485f28.
 
-    A client on the current release omits `cache_write_1h_tokens`. Its push
-    must not write NULL over a value a newer client already sent, or 41% of
-    the cache-write tokens on this corpus silently revert to being priced as
-    five-minute writes.
+    A client on the release before that omits `cache_write_1h_tokens`, and
+    the account's other machine is exactly who this store exists for. Its
+    push must be accepted, and it must not write NULL over a value a newer
+    client already sent, or 41% of the cache-write tokens on this corpus
+    silently revert to being priced as five-minute writes.
     """
     _seed(client, alice)
     client.post("/v1/personal/push", json=_threads("h1", "s1", [
@@ -320,3 +321,55 @@ def test_the_tables_endpoint_describes_the_contract(client, alice):
     assert names.index("thread") < names.index("event")
     assert {e["table"] for e in body["excluded"]} >= {"ingest_file", "event_cost"}
     assert body["maxBatchRows"] > 0
+
+
+def _host_with_account(host_id: str, account_id):
+    """A `host` batch shaped like the current client's, which sends account_id."""
+    return {
+        "hostId": host_id,
+        "table": "host",
+        "columns": ["host_id", "hostname", "os", "first_seen", "last_seen",
+                    "account_id"],
+        "rows": [[host_id, "studio", "darwin", 1_700_000_000_000,
+                  1_700_000_100_000, account_id]],
+    }
+
+
+def test_the_current_clients_host_batch_is_accepted(client, alice):
+    """`sync.TABLES` carries `host.account_id`; this store derives it instead.
+
+    Migration 006 added the column on the client and commit 4485f28 put it on
+    the wire. If the server treats it as an unknown column, every `host`
+    push from a current client is a 400 -- and `host` is the first table in
+    the push order, so nothing else is transferred either. Declared in
+    `personal_schema.SERVER_OWNED` rather than tolerated by accident.
+    """
+    r = client.post("/v1/personal/push", json=_host_with_account("h9", alice.account_id),
+                    headers=alice.auth)
+    assert r.status_code == 200, r.text
+    assert r.json()["applied"] == 1
+
+    # A machine that has never run `cci login` pushes NULL, and that must not
+    # be read as a claim about anybody.
+    r = client.post("/v1/personal/push", json=_host_with_account("h9", None),
+                    headers=alice.auth)
+    assert r.status_code == 200, r.text
+
+
+def test_a_host_row_cannot_name_a_different_account(client, alice, bob):
+    """The owner of a row comes from the token and from nothing in the body.
+
+    Checked rather than silently corrected, for the reason `team_data`
+    checks `actor`: a client whose push said one thing while the store
+    recorded another has stopped describing what it sent.
+    """
+    r = client.post("/v1/personal/push",
+                    json=_host_with_account("h9", bob.account_id), headers=alice.auth)
+    assert r.status_code == 403, r.text
+    assert r.json()["error"] == "account_mismatch"
+
+    # And nothing was written under either account.
+    assert client.get("/v1/personal/pull?table=host",
+                      headers=bob.auth).json()["rows"] == []
+    assert client.get("/v1/personal/pull?table=host",
+                      headers=alice.auth).json()["rows"] == []

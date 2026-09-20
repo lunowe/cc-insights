@@ -22,6 +22,22 @@ So an admin may only add a repo that is ALREADY IN THEIR OWN SCOPE. A roster
 can widen who sees a repo; it can never widen which repos the person doing the
 widening can see. That keeps every path into the team store rooted in the rule
 from docs/REDACTION.md §1 -- only to people who can already see that repo.
+
+AND THAT CHECK IS NOT SUFFICIENT ON ITS OWN, which is the part that was
+missing. Publishing gives an account sight of its OWN rows in a repo, so a
+publisher passes the check above -- and must, because a first publisher
+rostering their own repo is how a team gets a repo at all on an instance with
+no GitHub app (docs/SERVER_API.md §4.6 requires that to keep working). At the
+moment of the call, a legitimate first publisher and somebody who guessed the
+remote and published one row under it are indistinguishable. Nothing here can
+tell them apart, and no check placed here ever will.
+
+So the grant is DELEGATED rather than absolute, and `scope.resolve` is where
+that happens: a roster hands the team what the adder had. Forge-verified for
+the repo, and the team sees every row in it; otherwise the team sees the
+adder's own rows and nobody else's. Both people above then get exactly what
+they were entitled to share, and neither of them gets more. `added_by` is
+what carries it, which is why this handler keeps it current.
 """
 
 from __future__ import annotations
@@ -213,10 +229,14 @@ def add_repo(team_id: str, body: AddRepoBody,
              who: tokens.Principal = Depends(principal), conn=Depends(get_conn)):
     _require_admin(conn, team_id, who.account_id)
 
-    # The rule from this module's docstring. An admin may widen who sees a
-    # repo; they may never widen which repos they themselves can see, or a
-    # guessed `repo_id` becomes a way to read somebody's work on a repo the
-    # guesser has no access to at all.
+    # The rule from this module's docstring, first half. An admin may widen
+    # who sees a repo; they may never widen which repos they themselves can
+    # see, or a guessed `repo_id` becomes a way to read somebody's work on a
+    # repo the guesser has no access to at all.
+    #
+    # The second half is not here and cannot be: what this grant is WORTH is
+    # decided in `scope.resolve` from `added_by`, because only there is the
+    # adder's access re-checked at read time against how things stand now.
     caller_scope = scope_mod.resolve(conn, who.account_id)
     if body.repoId not in caller_scope:
         raise not_found(
@@ -224,12 +244,18 @@ def add_repo(team_id: str, body: AddRepoBody,
             "added to a roster by somebody who already has access to it."
         )
 
+    # `added_by` is refreshed on a re-add, and that is the documented way to
+    # UPGRADE a roster entry: an admin with verified repo access adding a
+    # repo somebody else rostered from publisher-level access turns the
+    # team's partial view into a full one. It can downgrade too, which is
+    # the safe direction and is undone the same way.
     conn.execute(
         """INSERT INTO team_repo
                (team_id, repo_id, branch_names_published, added_at, added_by)
            VALUES (%s, %s, %s, %s, %s)
            ON CONFLICT (team_id, repo_id) DO UPDATE
-               SET branch_names_published = excluded.branch_names_published""",
+               SET branch_names_published = excluded.branch_names_published,
+                   added_by = excluded.added_by""",
         (team_id, body.repoId, body.branchNamesPublished, now_ms(), who.account_id),
     )
     return {"teamId": team_id, "repoId": body.repoId,

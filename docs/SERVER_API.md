@@ -4,6 +4,17 @@ The HTTP surface between `cci` on a laptop and the account server. Client and
 server are built in parallel against this document; **it is frozen** — if it
 needs to change, say so rather than diverging.
 
+> **Amended 2026-09-20, saying so rather than diverging.** A security review
+> found that the scope rule in §4 was not the rule the server should have
+> been enforcing: it treated a self-asserted `repo_id` as evidence of repo
+> access, so two HTTP calls read any repo's data. §4, §4.1, §4.2, §4.5 and
+> §4.6 now describe the rule that is actually enforced, and the change is a
+> narrowing — nothing that was refused before is permitted now. Separately,
+> §4.4 and §4.8 were **wrong rather than changed**: the contract said every
+> aggregate carries a `withheld` block and `/daily`'s own example showed it
+> without one. The example was corrected to match the stated rule, and the
+> server was corrected to match both.
+
 `docs/API.md` is the other frozen contract in this repo and describes a
 different thing: `cci serve`, read-only, localhost, no auth. This one is the
 opposite on all three counts, so nothing here is shared with it except the
@@ -397,13 +408,37 @@ into.
 > A row may be published only if it belongs to a repo, and only to people who
 > can already see that repo.
 
-Concretely, an account's **scope** is a set of `repo_id`s, and it is the union
-of three things:
+Concretely, an account's **scope** has two halves, because "which repos can I
+see" and "whose rows can I see in them" are not the same question.
 
-1. Repos on the roster of any team the account belongs to.
-2. Repos the account has published to itself.
-3. Repos the account's GitHub identity was verified to have access to at its
-   last sign-in (§4.6).
+**Repos where every row is readable.** Access to the repository, in the sense
+the rule above uses. Two sources, and both were *checked* somewhere:
+
+1. Repos the account's GitHub identity was verified to reach at its last
+   sign-in (§4.6).
+2. Repos on the roster of a team the account belongs to — **to the extent the
+   admin who added the repo had access to it.** A roster hands a team what
+   that admin had: everything, if they were forge-verified for the repo;
+   otherwise their own rows and nobody else's. See §4.5.
+
+**Repos where only some rows are readable.** Rows the account published
+itself. You can always read back what you sent, and a first publisher must be
+able to check their own data before anybody else looks at any of it — but that
+is a grant on the *rows*, not on the repository.
+
+> **Publishing is not a grant.** A `repo_id` is
+> `sha256("repo" + normalized_remote)`, and `docs/REDACTION.md` §0 establishes
+> that publishing it is safe *because* the remote is already public on the far
+> side. The flip side is that anyone who can guess the remote can compute the
+> id. So a self-asserted `repo_id` is evidence of nothing, and registering one
+> puts nobody in scope for anybody else's rows. This was wrong in the first
+> implementation and it was a critical disclosure: two HTTP calls returned a
+> stranger's sessions, actors, branch names and totals.
+
+The consequence worth stating plainly: on an instance with **no GitHub app
+configured**, no account ever gains full sight of a repo it did not publish
+to. Rosters still work and still share — each admin shares their own rows —
+but the system fails closed rather than trusting what a client claimed.
 
 Every team endpoint computes that set first and intersects everything it
 touches with it. There is exactly one function in the server that produces it,
@@ -441,7 +476,13 @@ push so a client has one batching loop rather than two.
 - Max 5000 rows; `413 batch_too_large` above it.
 - Idempotent, for the same reason the personal push is.
 - Order: `repos` before `sessions` before `spans`. Out of order is
-  `409 foreign_key_violation`.
+  `409 foreign_key_violation`. **The check is per-caller**: a `sessions` batch
+  needs a `repos` batch *from this account*, not merely a repo somebody else
+  registered. Asking globally made this endpoint an existence oracle — a 200
+  rather than a 409 for a guessed `repo_id` answered "does anybody here work
+  on `acme/skunkworks`", with the missing ids echoed back in the message.
+  §0's "the remote is public on the far side" holds for a public repo and is
+  untrue for a private one.
 - `threadRole` must be one of `human` | `autonomous` | `unattended_root`.
   Anything else is `400 invalid_thread_role`. The three-bucket partition is the
   point of the field, and a fourth value silently entering the store would make
@@ -482,7 +523,15 @@ on would defeat that.
 
 A repo outside the caller's scope is not in this list and is not addressable
 anywhere else in the API. There is no endpoint that takes a `repoId` and tells
-you it exists.
+you it exists. **A repo the caller merely registered is not in scope** — only
+one they have verified access to, or have actually published rows into.
+
+For a repo the caller reaches only as its publisher, the metadata is *what
+that caller sent*, not the shared registry row. Otherwise the response would
+differ depending on whether somebody else's row was already there, and that
+difference is an answer to "does anybody here work on this repo". The shared
+row is refreshed only by a caller with verified access to the repo; anyone may
+create it, because creating a row that did not exist overwrites nothing.
 
 ### 4.3 `GET /v1/team/summary`
 
@@ -571,6 +620,15 @@ because a boolean saying "there is more" is still an answer to "does a repo I
 cannot see exist". A renderer must label `activeMs` as *in repos you can see*
 rather than as a total.
 
+`withheldMs` is **summed** across an actor's machines and `withheldProjects`
+is the **maximum**, because they are not the same kind of quantity. Time on
+two laptops is two disjoint stretches of somebody's week and adds up. Projects
+are not disjoint: `project_id = sha256(root_path)`, so the same checkout path
+on two machines is one project counted twice. There is no exact answer
+available and there must not be — de-duplicating would need the project ids,
+and a `project_id` *is* a path, which is the one thing this store never
+receives. The maximum is a figure no machine's own report contradicts.
+
 That `withheldMs` itself is disclosed is a deliberate trade, sanctioned by rule
 3: it names no repo and cannot, since the whole definition of withheld work is
 that it belongs to no repo. What it discloses is that a person has some
@@ -613,6 +671,18 @@ see is `404 not_found`, identical to one that does not exist.
 A roster may widen **who** sees a repo. It may never widen **which** repos the
 person doing the widening can see.
 
+**And a roster grants only what the admin who added the repo had.** The scope
+check above cannot carry this on its own, because a legitimate first publisher
+rostering their own repo and an attacker rostering a guessed id are
+indistinguishable at the moment they do it — both can "see" the repo, in the
+row-level sense of §4. So the grant is delegated rather than absolute: if the
+adder was forge-verified for the repo, the team sees every row in it; if not,
+the team sees the adder's own rows. Delegation does not chain — a roster
+passes on the adder's *verified* access only, because following a graph of
+rosters to decide a disclosure is a traversal nobody can check by reading it.
+The under-sharing that results is fixed by one admin with repo access adding
+the repo again.
+
 `DELETE` on a roster entry is idempotent and never 404s. Removing access is
 not made harder than granting it.
 
@@ -653,6 +723,17 @@ The consequences are worth stating because they are visible to a user:
   revoke the view of it until the next `cci login`. `docs/REDACTION.md` §5
   already says revocation is not retroactive; this makes the lag explicit
   rather than instantaneous-in-theory.
+- **A sign-in that enumerates zero repos revokes.** GitHub answering "none" is
+  an answer, and the offboarded contractor running `cci login` is precisely
+  the moment it should land — tokens here do not expire, so a sign-in that
+  does not revoke means nothing ever will.
+- **A sign-in that could not enumerate changes nothing.** An outage, a rate
+  limit, a token whose scopes do not cover repositories, or a failure part-way
+  through pagination: the stored list is kept, `verifiedAt` is not restamped,
+  and whatever *was* successfully listed is added. An empty list and a failed
+  enumeration are the same value and opposite facts, and treating them alike
+  meant either wiping a scope for the length of an incident or — the direction
+  it actually failed in — never revoking at all.
 - If the token's scopes cover only public repositories, only those are
   verified. Everything else still works through team rosters, which is why the
   roster is not optional.
@@ -693,11 +774,20 @@ business holding. `redact.FIELDS` classifies every one of those columns
   "withheld": { … §4.4 … } }
 
 // GET /v1/team/daily — UTC calendar days, no gap filling
-{ "days": [ { "date": "2026-09-20", "activeMs": … } ] }
+{ "days": [ { "date": "2026-09-20", "activeMs": … } ],
+  "withheld": { … §4.4 … } }
 ```
 
 Both take the §4.3 filters and both are computed inside the caller's scope at
-request time, with no precomputation anywhere.
+request time, with no precomputation anywhere. **Both carry the `withheld`
+block**, as §4.4 says every aggregate does. `/daily` shipped without one, and
+it is the endpoint that most needs it: a "hours this week" chart is built by
+summing `days`, and without the block it shows a person's week with the
+unpublishable part silently missing — `docs/ACCOUNTS.md` §5 rule 3's exact
+failure, where the reader cannot tell a quiet week from a week spent in a repo
+with no remote. The block is the same corpus figure with the same
+`rangeFiltered: false` beside it, so a renderer drawing a daily axis can label
+it "all time" without needing to know why there is no day to hang it on.
 
 `/v1/team/daily` buckets by **UTC**, unlike `docs/API.md`'s `/api/daily`, which
 buckets by the local calendar day. A team spans timezones and there is no local

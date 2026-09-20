@@ -302,26 +302,49 @@ def _refresh_repo_access(conn, provider: github.Provider, account_id: str,
     rosters are the primary mechanism and this is additive
     (docs/SERVER_API.md §4.6).
 
-    An EMPTY result does not clear what is already stored. An instance
-    configured with `read:user` only would otherwise wipe a previously
-    verified list on every sign-in, silently narrowing somebody's scope to
-    nothing -- and "the dashboard went empty after I logged in again" is a
-    bug nobody would connect to an OAuth scope.
+    THE TWO CASES THIS USED TO CONFLATE, and why it mattered in the dangerous
+    direction. The old code did `except UpstreamError: return` and
+    `if not repo_ids: return`, so it skipped the DELETE for both an outage and
+    a genuine revocation. An empty list and a failed enumeration are the same
+    value; they are opposite facts.
+
+      * COULD NOT ENUMERATE -- keep everything, and do not restamp
+        `verified_at`. The stored list is still the last thing GitHub actually
+        said, and an incident must not narrow somebody's scope to nothing.
+        "The dashboard went empty after I logged in again" is a bug nobody
+        would connect to an OAuth scope.
+
+      * VERIFIED EMPTY -- GitHub answered, and the answer is that this
+        identity reaches no repositories. That is a revocation and it has to
+        land. An offboarded contractor running `cci login` is the exact
+        moment it should, and tokens here never expire, so if this sign-in
+        does not revoke, nothing ever will.
+
+    A PARTIAL enumeration is the first case, not the second: see
+    `github.RepoAccess`. What it did find is still inserted -- those repos
+    were verified, and adding is safe where deleting is not -- but nothing is
+    removed on the strength of a list that is known to be short.
     """
     try:
-        repo_ids = provider.accessible_repo_ids(access_token)
+        access = provider.accessible_repos(access_token)
     except github.UpstreamError:
-        return
-    if not repo_ids:
-        return
+        # A provider that raises rather than reporting: same case, and the
+        # null provider on an instance with no GitHub app configured takes
+        # this path on every sign-in.
+        access = github.RepoAccess((), complete=False)
+
     now = now_ms()
     with conn.transaction():
-        conn.execute(
-            "DELETE FROM account_repo_access WHERE account_id = %s AND provider = %s",
-            (account_id, github.GITHUB),
-        )
-        conn.cursor().executemany(
-            """INSERT INTO account_repo_access (account_id, repo_id, provider, verified_at)
-               VALUES (%s, %s, %s, %s) ON CONFLICT (account_id, repo_id) DO NOTHING""",
-            [(account_id, r, github.GITHUB, now) for r in repo_ids],
-        )
+        if access.complete:
+            conn.execute(
+                "DELETE FROM account_repo_access WHERE account_id = %s AND provider = %s",
+                (account_id, github.GITHUB),
+            )
+        if access.repo_ids:
+            conn.cursor().executemany(
+                """INSERT INTO account_repo_access
+                       (account_id, repo_id, provider, verified_at)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (account_id, repo_id) DO NOTHING""",
+                [(account_id, r, github.GITHUB, now) for r in access.repo_ids],
+            )

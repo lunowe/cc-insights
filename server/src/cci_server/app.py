@@ -151,4 +151,4 @@ class _Unconfigured:
             "(CCI_SERVER_GITHUB_CLIENT_ID / _SECRET)."
         )
 
-    start_device = poll_token = identify = accessible_repo_ids = _fail
+    start_device = poll_token = identify = accessible_repos = _fail

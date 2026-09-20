@@ -250,28 +250,129 @@ def test_verified_repo_access_is_recorded_and_the_token_is_dropped(
     assert got == {"repo_aaa", "repo_bbb"}
 
 
-def test_an_empty_access_list_does_not_wipe_what_was_verified_before(
+def _sign_in(client, provider, device, *, token, subject="7") -> dict[str, str]:
+    """One whole device flow. Returns the bearer headers it issued."""
+    start = client.post("/v1/auth/device/start", json={}).json()
+    _grant(provider, device, token=token, subject=subject)
+    r = client.post("/v1/auth/device/token", json={"deviceCode": start["deviceCode"]})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['accessToken']}"}
+
+
+def _verified(db) -> set[str]:
+    with db.connection() as conn:
+        return {r["repo_id"] for r in conn.execute(
+            "SELECT repo_id FROM account_repo_access")}
+
+
+def test_an_enumeration_that_failed_does_not_wipe_what_was_verified_before(
     client, provider, migrated_db
 ):
     """An instance configured with `read:user` only must not narrow a scope to nothing.
 
     "The dashboard went empty after I logged in again" is a bug nobody would
-    connect to an OAuth scope.
+    connect to an OAuth scope. Same for a GitHub having a bad minute, or a
+    rate limit, or a timeout on page 3 of 5 -- none of those are news about
+    anybody's access, and none of them may be written down as though they
+    were.
+
+    This used to be asserted of an EMPTY list, which was the right worry
+    attached to the wrong signal: an empty list is also what a genuine
+    revocation looks like, so honouring the worry meant never revoking
+    anybody. The signal is now whether GitHub finished answering, and the
+    worry is asserted against that.
     """
-    first = client.post("/v1/auth/device/start", json={}).json()
-    _grant(provider, "gh-device-1", token="t1", subject="7")
     provider.repos["t1"] = ["repo_keep"]
-    client.post("/v1/auth/device/token", json={"deviceCode": first["deviceCode"]})
+    _sign_in(client, provider, "gh-device-1", token="t1")
+    assert _verified(migrated_db) == {"repo_keep"}
 
-    second = client.post("/v1/auth/device/start", json={}).json()
-    _grant(provider, "gh-device-2", token="t2", subject="7")
+    # Second sign-in: GitHub could not be asked. Nothing is learned, so
+    # nothing changes.
     provider.repos["t2"] = []
-    client.post("/v1/auth/device/token", json={"deviceCode": second["deviceCode"]})
+    provider.incomplete.add("t2")
+    _sign_in(client, provider, "gh-device-2", token="t2")
+    assert _verified(migrated_db) == {"repo_keep"}
 
-    with migrated_db.connection() as conn:
-        got = {r["repo_id"] for r in conn.execute(
-            "SELECT repo_id FROM account_repo_access")}
-    assert got == {"repo_keep"}
+
+def test_a_partial_enumeration_adds_but_never_removes(client, provider, migrated_db):
+    """A prefix of the list is not the list, and must not be committed as one.
+
+    `accessible_repos` walks pages and used to `break` out on the first
+    failure, handing the caller a short list that was then written down as
+    authoritative -- so a page-3 timeout revoked every real grant after it.
+    What it did find was genuinely verified, so that is kept; what it did not
+    reach is not evidence of anything.
+    """
+    provider.repos["t1"] = ["repo_a", "repo_b"]
+    _sign_in(client, provider, "gh-device-1", token="t1")
+
+    provider.repos["t2"] = ["repo_a", "repo_c"]
+    provider.incomplete.add("t2")
+    _sign_in(client, provider, "gh-device-2", token="t2")
+    assert _verified(migrated_db) == {"repo_a", "repo_b", "repo_c"}
+
+
+def test_a_verified_empty_list_revokes(client, provider, migrated_db):
+    """GitHub answering "none" is a revocation, and it has to land.
+
+    The offboarded contractor running `cci login` is the exact moment access
+    should be taken away, and it was the moment it was most reliably kept:
+    both `except UpstreamError: return` and `if not repo_ids: return` skipped
+    the DELETE, and the tokens in this store never expire. If this sign-in
+    does not revoke, nothing ever does.
+    """
+    provider.repos["t1"] = ["repo_gone"]
+    _sign_in(client, provider, "gh-device-1", token="t1")
+    assert _verified(migrated_db) == {"repo_gone"}
+
+    provider.repos["t2"] = []
+    _sign_in(client, provider, "gh-device-2", token="t2")
+    assert _verified(migrated_db) == set()
+
+
+def test_a_revoked_repo_disappears_from_the_scope_it_granted(
+    client, provider, migrated_db, alice
+):
+    """The revocation has to reach the data, not just the access table.
+
+    Verified forge access is the only thing in this system that grants sight
+    of somebody ELSE's rows without a roster, so a stale row here is a live
+    disclosure rather than a stale cache.
+    """
+    from cci_server.repoid import github_remote, repo_id
+
+    rid = repo_id(github_remote("github.test", "acme/payments"))
+    client.post("/v1/team/publish", json={
+        "kind": "repos", "actor": alice.actor,
+        "rows": [{"repoId": rid, "remoteUrl": "https://github.test/acme/payments",
+                  "forge": "github", "owner": "acme", "repo": "payments",
+                  "webUrl": "https://github.test/acme/payments", "name": "payments"}],
+    }, headers=alice.auth)
+    client.post("/v1/team/publish", json={
+        "kind": "sessions", "actor": alice.actor,
+        "rows": [{"sessionId": "s-alice", "repoId": rid, "actor": alice.actor,
+                  "source": "codex", "gitBranch": "main", "startedAt": 1,
+                  "endedAt": 61_000, "activeMs": 60_000, "eventCount": 1}],
+    }, headers=alice.auth)
+
+    client.post("/v1/team/publish", json={
+        "kind": "spans", "actor": alice.actor,
+        "rows": [{"spanId": "sp-alice", "sessionId": "s-alice",
+                  "threadRole": "human", "startedAt": 1, "endedAt": 61_000,
+                  "eventCount": 1}],
+    }, headers=alice.auth)
+
+    provider.repos["t1"] = [rid]
+    contractor = _sign_in(client, provider, "gh-device-1", token="t1",
+                          subject="contractor")
+    seen = client.get("/v1/team/sessions", headers=contractor).json()["sessions"]
+    assert [s["sessionId"] for s in seen] == ["s-alice"]
+
+    provider.repos["t2"] = []
+    _sign_in(client, provider, "gh-device-2", token="t2", subject="contractor")
+    seen = client.get("/v1/team/sessions", headers=contractor).json()["sessions"]
+    assert seen == [], "a revoked forge grant still returned somebody else's session"
+
 
 
 def _expire_throttle(db) -> None:

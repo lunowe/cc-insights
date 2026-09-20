@@ -58,6 +58,28 @@ class TokenResult:
 
 
 @dataclass(frozen=True)
+class RepoAccess:
+    """The answer to "which repos can this token reach", and whether it is whole.
+
+    `complete` is the load-bearing field and it exists because an EMPTY list
+    and a FAILED enumeration are the same value and opposite facts. GitHub
+    saying "this person can reach nothing" is a revocation and must take
+    effect. GitHub saying nothing at all -- an outage, a rate limit, a token
+    whose scopes do not cover repositories -- is not news about anybody's
+    access, and acting on it would either wipe a scope for the length of an
+    incident or, in the direction that actually matters, pretend a revocation
+    happened when it did not.
+
+    A TRUNCATED enumeration is incomplete too. Ten pages is a thousand repos;
+    past that the list is a prefix, and committing a prefix as the
+    authoritative set silently revokes everything after it.
+    """
+
+    repo_ids: tuple[str, ...]
+    complete: bool
+
+
+@dataclass(frozen=True)
 class ForgeIdentity:
     #: GitHub's NUMERIC id. Never the login: logins are renameable and
     #: reusable, so keying an account on one hands it to whoever claims the
@@ -72,7 +94,7 @@ class Provider(Protocol):
     def start_device(self, scope: str) -> DeviceStart: ...
     def poll_token(self, device_code: str) -> TokenResult: ...
     def identify(self, access_token: str) -> ForgeIdentity: ...
-    def accessible_repo_ids(self, access_token: str) -> list[str]: ...
+    def accessible_repos(self, access_token: str) -> RepoAccess: ...
 
 
 class UpstreamError(RuntimeError):
@@ -151,8 +173,8 @@ class GitHubProvider:
         body = self._get("/user", access_token).json()
         return ForgeIdentity(subject=str(body["id"]), login=body["login"])
 
-    def accessible_repo_ids(self, access_token: str) -> list[str]:
-        """Every repo this token can reach, as `repo_id`s.
+    def accessible_repos(self, access_token: str) -> RepoAccess:
+        """Every repo this token can reach, as `repo_id`s, and whether that is all.
 
         docs/SERVER_API.md §4.6: this runs once, at sign-in, and the token is
         discarded in the same request. Access is therefore only as fresh as the
@@ -163,10 +185,24 @@ class GitHubProvider:
         Failure is not fatal. A token whose scopes do not cover repositories,
         or a GitHub that is having a bad minute, must not stop somebody signing
         in: team rosters are the primary mechanism and this layer is additive.
+
+        WHAT `complete` IS FOR. This used to `break` out of the loop on a
+        failed page and return what it had, and the caller then wrote that
+        down as the authoritative list. A page-3 timeout on a five-page
+        account therefore revoked two pages of real grants, silently, at the
+        exact moment the person was signing in and least likely to look. So a
+        failed page ends the walk with `complete=False` and the caller leaves
+        the stored list alone. The rows already gathered are still returned:
+        they were verified, and adding them is safe in a way that deleting is
+        not.
+
+        Running out of pages is the same case. Ten full pages means there is
+        an eleventh, and a prefix presented as a complete list revokes the
+        tail.
         """
         out: list[str] = []
-        page = 1
-        while page <= 10:  # 1000 repos. Past that, rosters are the answer.
+        pages = 10  # 1000 repos. Past that, rosters are the answer.
+        for page in range(1, pages + 1):
             try:
                 r = self._get(
                     "/user/repos",
@@ -175,18 +211,15 @@ class GitHubProvider:
                      "owner,collaborator,organization_member"},
                 )
             except UpstreamError:
-                break
+                return RepoAccess(tuple(out), complete=False)
             rows = r.json()
-            if not rows:
-                break
             for row in rows:
                 full = row.get("full_name")
                 if full:
                     out.append(repo_id(github_remote(self.host, full)))
             if len(rows) < 100:
-                break
-            page += 1
-        return out
+                return RepoAccess(tuple(out), complete=True)
+        return RepoAccess(tuple(out), complete=False)
 
 
 @dataclass
@@ -205,6 +238,11 @@ class FakeProvider:
     script: dict[str, list[TokenResult]] = field(default_factory=dict)
     identities: dict[str, ForgeIdentity] = field(default_factory=dict)
     repos: dict[str, list[str]] = field(default_factory=dict)
+    #: Tokens whose repo enumeration could not be finished -- an outage, a
+    #: rate limit, or scopes that do not cover repositories. The distinction
+    #: a fake has to be able to express, because it is the one that decides
+    #: whether a sign-in revokes anything.
+    incomplete: set[str] = field(default_factory=set)
     interval: int = 5
     expires_in: int = 900
     started: list[str] = field(default_factory=list)
@@ -234,5 +272,8 @@ class FakeProvider:
             raise UpstreamError(f"no scripted identity for {access_token!r}")
         return self.identities[access_token]
 
-    def accessible_repo_ids(self, access_token: str) -> list[str]:
-        return list(self.repos.get(access_token, ()))
+    def accessible_repos(self, access_token: str) -> RepoAccess:
+        return RepoAccess(
+            tuple(self.repos.get(access_token, ())),
+            complete=access_token not in self.incomplete,
+        )
