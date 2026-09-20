@@ -353,6 +353,7 @@ def timeline(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
     spans = _rows(conn, f"""
         SELECT sp.id AS spanId, sp.thread_id AS threadId, sp.session_id AS sessionId,
                s.project_id AS projectId, p.name AS projectName, s.source AS source,
+               p.group_id AS groupId, g.name AS groupName,
                t.agent_name AS agentName, t.is_subagent AS isSubagent,
                t.parent_thread_id AS parentThreadId,
                sp.attended AS attended, sp.started_at AS start, sp.ended_at AS end
@@ -360,6 +361,7 @@ def timeline(conn: sqlite3.Connection, f: Filters = Filters()) -> dict:
         JOIN thread t ON t.id = sp.thread_id
         JOIN session s ON s.id = sp.session_id
         LEFT JOIN project p ON p.project_id = s.project_id
+        LEFT JOIN project_group g ON g.group_id = p.group_id
         {where}
         ORDER BY sp.started_at""", params)
     for r in spans:

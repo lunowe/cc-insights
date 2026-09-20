@@ -99,6 +99,12 @@ type Timeline = {
   spans: {
     spanId: string; threadId: string; sessionId: string;
     projectId: string | null; projectName: string | null;
+    // The LOGICAL project this span belongs to. A swimlane lane must be
+    // labelled and coloured by this, not by projectName: a worktree's path is
+    // called `tenant-restricted` while the project is atlas-chat, and
+    // labelling by path splits one project across several differently-named,
+    // differently-coloured lanes. Null when the path is not grouped yet.
+    groupId: string | null; groupName: string | null;
     source: Source; agentName: string | null;
     isSubagent: boolean;
     parentThreadId: string | null;

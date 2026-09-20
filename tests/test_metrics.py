@@ -390,8 +390,15 @@ def test_timeline_rows_carry_the_contract_fields(small):
     assert t["truncated"] is False and t["limit"] == metrics.TIMELINE_LIMIT
     assert [r["start"] for r in t["spans"]] == sorted(r["start"] for r in t["spans"])
     row = next(r for r in t["spans"] if r["threadId"] == "t2")
+    # Exhaustive on purpose: a span is what the swimlane draws, so a field
+    # silently appearing or vanishing here changes the picture.
     assert row == {"spanId": row["spanId"], "threadId": "t2", "sessionId": "s1",
                    "projectId": "p-alpha", "projectName": "alpha",
+                   # The logical project. A lane is labelled by this, not by
+                   # projectName -- the path `tenant-restricted` belongs to the
+                   # project atlas-chat, and labelling by path splits one
+                   # project across several lanes.
+                   "groupId": "g-omega", "groupName": "omega",
                    "source": "claude_code", "agentName": "general-purpose",
                    "isSubagent": True, "parentThreadId": "t1", "attended": 0,
                    "start": B_START, "end": B_END}

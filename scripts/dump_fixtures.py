@@ -105,6 +105,7 @@ def timeline(conn):
     all_spans = rows(conn, """
         SELECT sp.id spanId, sp.thread_id threadId, sp.session_id sessionId,
                s.project_id projectId, p.name projectName, s.source,
+               p.group_id groupId, g.name groupName,
                t.agent_name agentName, t.is_subagent isSubagent,
                t.parent_thread_id parentThreadId,
                sp.attended, sp.started_at start, sp.ended_at end
@@ -112,6 +113,7 @@ def timeline(conn):
         JOIN thread t ON t.id = sp.thread_id
         JOIN session s ON s.id = sp.session_id
         LEFT JOIN project p ON p.project_id = s.project_id
+        LEFT JOIN project_group g ON g.group_id = p.group_id
         ORDER BY sp.started_at""")
     for r in all_spans:
         r["isSubagent"] = bool(r["isSubagent"])
