@@ -10,9 +10,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { useFilters } from "@/hooks/use-filters"
-import { DATA_MODE } from "@/lib/api"
 import { EMPTY_FILTERS } from "@/lib/filters"
 import { formatCount, formatDateTime } from "@/lib/format"
+import type { DataMode } from "@/lib/api"
 import type { Meta } from "@/lib/types"
 
 export function App() {
@@ -23,7 +23,9 @@ export function App() {
     <TooltipProvider delayDuration={200}>
       <div className="flex min-h-svh flex-col">
         <div className="z-40 bg-background/85 backdrop-blur-md sm:sticky sm:top-0">
-          <AppHeader meta={data?.meta ?? null} mode={DATA_MODE} />
+          {/* `mode` is only known once the backend probe has resolved; until
+              then the badge stays absent rather than guessing "sample". */}
+          <AppHeader meta={data?.meta ?? null} mode={data?.mode ?? null} />
           <FilterBar
             meta={data?.meta ?? null}
             roster={data?.roster ?? []}
@@ -74,13 +76,19 @@ export function App() {
           )}
         </main>
 
-        <Footer meta={data?.meta ?? null} />
+        <Footer meta={data?.meta ?? null} mode={data?.mode ?? null} />
       </div>
     </TooltipProvider>
   )
 }
 
-function Footer({ meta }: { meta: Meta | null }) {
+function Footer({
+  meta,
+  mode,
+}: {
+  meta: Meta | null
+  mode: DataMode | null
+}) {
   return (
     <footer className="mt-4 border-t">
       <div className="mx-auto flex max-w-[110rem] flex-col gap-1.5 px-4 py-5 text-[0.75rem] leading-relaxed text-muted-foreground sm:px-6 lg:px-8">
@@ -104,6 +112,21 @@ function Footer({ meta }: { meta: Meta | null }) {
             </>
           ) : null}
         </p>
+        {/* Without this the line above reads as if this machine produced the
+            numbers, which in sample mode is the one thing it did not. */}
+        {mode === "fixtures" ? (
+          <p>
+            <span className="font-medium text-foreground">
+              These are sample numbers, not yours.
+            </span>{" "}
+            The page is showing a capture bundled into the build so it renders
+            with no server. Run{" "}
+            <code className="num rounded bg-muted px-1 py-0.5 text-foreground">
+              cci serve
+            </code>{" "}
+            and open the address it prints to see this machine&rsquo;s data.
+          </p>
+        ) : null}
       </div>
     </footer>
   )

@@ -224,7 +224,10 @@ reviewed with **no server running**.
 **WP9. Frontend scaffold, shell and filters** → *opus-5 or fable-5.1 (taste ≥ 7)*
 - Scaffold `frontend/` with the stack above. `pnpm` only.
 - A data layer that reads **fixtures by default** and the live API when
-  `VITE_API_URL` is set — so the app always runs standalone.
+  `VITE_API_URL` is set, else same-origin `/api` when one answers, else the
+  bundled sample. NOTE: "standalone" means served by anything, not `file://` —
+  a browser gives a `file://` page an opaque origin and blocks every
+  sub-resource, so no multi-file bundle can open by double-click.
 - App shell: header, responsive layout, dark/light via shadcn theming.
 - **The filter bar is the point of this package**: multi-select **project**
   filter (the user asked for this explicitly), plus source toggle, role

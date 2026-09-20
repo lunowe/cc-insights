@@ -1,4 +1,4 @@
-import { Activity, Database, Radio } from "lucide-react"
+import { Activity, Database, FlaskConical, Radio } from "lucide-react"
 
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
@@ -7,10 +7,17 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { DataMode } from "@/lib/api"
-import { formatRange } from "@/lib/format"
+import { formatDateTime, formatRange, formatSince } from "@/lib/format"
 import type { Meta } from "@/lib/types"
 
-export function AppHeader({ meta, mode }: { meta: Meta | null; mode: DataMode }) {
+export function AppHeader({
+  meta,
+  mode,
+}: {
+  meta: Meta | null
+  /** null until the backend probe resolves. */
+  mode: DataMode | null
+}) {
   return (
     <header className="border-b border-rule">
       <div className="mx-auto flex max-w-[110rem] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-8">
@@ -36,7 +43,7 @@ export function AppHeader({ meta, mode }: { meta: Meta | null; mode: DataMode })
 
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {meta ? <IdleThresholdBadge seconds={meta.idleThresholdS} /> : null}
-          <ModeBadge mode={mode} />
+          {mode !== null ? <ModeBadge mode={mode} meta={meta} /> : null}
           <ThemeToggle />
         </div>
       </div>
@@ -68,23 +75,68 @@ export function IdleThresholdBadge({ seconds }: { seconds: number }) {
   )
 }
 
-function ModeBadge({ mode }: { mode: DataMode }) {
-  const live = mode === "live"
+/**
+ * Where the numbers came from, and — when they came from a real database —
+ * how fresh they are.
+ *
+ * "Live" over a database last ingested three weeks ago is its own quiet lie,
+ * so the badge carries the newest recorded activity beside the word. And a
+ * local tool showing a stranger's bundled sample is surprising enough that
+ * "fixtures" will not do: it says **sample data**, in a colour that stops the
+ * eye, on every screen width.
+ */
+function ModeBadge({ mode, meta }: { mode: DataMode; meta: Meta | null }) {
+  if (mode !== "live") {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-primary/50 bg-primary/8 px-2.5 py-1 text-[0.6875rem] text-primary"
+          >
+            <FlaskConical className="size-3" />
+            <span>sample data</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-72">
+          Not this machine&rsquo;s data — a sample bundled into the page, so it
+          renders with no server running. Start <code>cci serve</code> and open
+          the address it prints to see your own.
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
+
+  const newest = meta?.lastTs ?? null
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.6875rem] text-muted-foreground sm:inline-flex"
+          className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.6875rem] text-muted-foreground"
         >
-          <Database className="size-3" />
-          <span>{live ? "live" : "fixtures"}</span>
+          <Database className="size-3 text-primary" />
+          <span className="text-foreground">live</span>
+          {newest !== null ? (
+            <>
+              <span aria-hidden className="text-border">|</span>
+              <span className="num whitespace-nowrap">
+                {formatSince(newest)}
+              </span>
+            </>
+          ) : null}
         </button>
       </TooltipTrigger>
-      <TooltipContent className="max-w-64">
-        {live
-          ? "Reading the local cci server; filters are applied server-side."
-          : "Reading the committed capture in src/fixtures. Filters are recomputed in the browser. Set VITE_API_URL to read a live database."}
+      <TooltipContent className="max-w-72">
+        Reading this machine&rsquo;s database through <code>cci serve</code>;
+        filters are applied server-side.
+        {newest !== null ? (
+          <>
+            {" "}
+            Newest recorded activity: {formatDateTime(newest)}. If that is older
+            than you expect, the database has not been re-ingested since.
+          </>
+        ) : null}
       </TooltipContent>
     </Tooltip>
   )

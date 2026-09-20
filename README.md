@@ -22,6 +22,12 @@ python3 -m venv .venv && .venv/bin/pip install -e . pytest
 .venv/bin/cci stats
 ```
 
+`cci serve` opens the dashboard: filter by project, source, thread role and
+date range, with the filter state in the URL so a view is shareable. The page
+reads the live database through the API it is served from; if it is opened
+from somewhere with no API behind it, it falls back to the bundled sample and
+says so on the badge rather than passing the sample off as your data.
+
 To keep it current automatically — **this is the point of the project**, since
 agent log directories are pruned on a rolling basis and uncaptured history is
 lost for good:
@@ -34,6 +40,10 @@ lost for good:
 
 185 hours of active agent time across 223 days, from 306 sessions and 714
 threads:
+
+Projects are the logical unit: a repo's worktrees and subdirectories fold into
+one. `atlas-chat` reads **111.6 h across 13 paths**, seven of which no longer
+exist on disk — flat, it looked like 54.5 h.
 
 | | Claude Code | Codex |
 | --- | --- | --- |

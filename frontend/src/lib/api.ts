@@ -1,14 +1,30 @@
 /**
  * The data layer, and the single switch this app turns on.
  *
- *   VITE_API_URL unset  →  read the committed fixtures and recompute every
- *                          filtered figure in the browser (see `derive.ts`).
- *   VITE_API_URL set    →  pass the same filters to `cci serve` as a query
- *                          string and let the backend do it.
+ * The switch is thrown at **runtime**, not at build time, because one bundle
+ * has to serve three situations and only the browser knows which it is in:
  *
- * Everything downstream — tiles, tables, and WP10's charts — calls
- * `fetchDashboard` and never learns which half it got. Adding the server is a
- * one-line environment change, not a refactor.
+ *   1. `VITE_API_URL` set        →  that server. The dev-server-with-proxy
+ *                                   case, and an explicit override.
+ *   2. same-origin `/api/meta`
+ *      answers with JSON         →  same-origin `/api`. This is `cci serve`,
+ *                                   which ships this bundle next to the real
+ *                                   database. Same origin, so no CORS.
+ *   3. neither                   →  the committed fixtures, recomputed in the
+ *                                   browser (see `derive.ts`). `dist/index.html`
+ *                                   opened straight off the filesystem still
+ *                                   renders, with no server anywhere.
+ *
+ * Deciding this at build time was the bug: `cci serve` shipped a bundle that
+ * could only ever show the snapshot committed in the repo, and it looked
+ * plausible, which is what made it dangerous.
+ *
+ * The probe runs **once**, is cached, and is bounded by `PROBE_TIMEOUT_MS`. A
+ * server that hangs costs one short timeout and then falls back to fixtures;
+ * it never blocks first paint indefinitely.
+ *
+ * Everything downstream — tiles, tables, charts — calls `fetchDashboard` and
+ * never learns which half it got.
  */
 
 import {
@@ -38,14 +54,73 @@ import type {
 } from "./types"
 
 const RAW_API_URL = import.meta.env.VITE_API_URL
-const API_URL =
+const CONFIGURED_URL =
   typeof RAW_API_URL === "string" && RAW_API_URL.length > 0
     ? RAW_API_URL.replace(/\/+$/, "")
     : null
 
 export type DataMode = "live" | "fixtures"
 
-export const DATA_MODE: DataMode = API_URL === null ? "fixtures" : "live"
+/**
+ * Long enough for a local server that is busy, short enough that nobody sits
+ * in front of a blank page wondering. `cci serve` answers in single-digit ms.
+ */
+const PROBE_TIMEOUT_MS = 1500
+
+/** Resolved once per page load. `null` means "no backend — use fixtures". */
+let backendPromise: Promise<string | null> | null = null
+
+/**
+ * The probe has to fetch `/api/meta` anyway, so its answer is kept for the
+ * first `getMeta` and then dropped. Consume-once, never a cache: `meta` moves
+ * whenever the database is re-ingested and must not go stale behind the page.
+ */
+let probedMeta: Meta | null = null
+
+async function probeSameOrigin(): Promise<string | null> {
+  if (typeof window === "undefined") return null
+
+  // `file://` has an opaque origin: there is nothing to probe, and trying only
+  // buys a console error and a wasted timeout.
+  const { protocol, origin } = window.location
+  if (protocol !== "http:" && protocol !== "https:") return null
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
+  try {
+    const res = await fetch(`${origin}/api/meta`, {
+      signal: controller.signal,
+      headers: { Accept: "application/json" },
+    })
+    if (!res.ok) return null
+    // A dev server with no proxy answers every unknown path with index.html
+    // and a 200, so status alone proves nothing. It has to parse as the JSON
+    // we asked for before we believe there is an API behind it.
+    if (!(res.headers.get("content-type") ?? "").includes("json")) return null
+    const meta = (await res.json()) as Meta
+    if (typeof meta !== "object" || meta === null || !("idleThresholdS" in meta))
+      return null
+    probedMeta = meta
+    return origin
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function resolveBackend(): Promise<string | null> {
+  backendPromise ??=
+    CONFIGURED_URL !== null
+      ? Promise.resolve(CONFIGURED_URL)
+      : probeSameOrigin()
+  return backendPromise
+}
+
+/** Exposed for tests and for the header, which must not guess. */
+export async function resolveDataMode(): Promise<DataMode> {
+  return (await resolveBackend()) === null ? "fixtures" : "live"
+}
 
 export class ApiError extends Error {
   readonly status: number
@@ -60,12 +135,13 @@ export class ApiError extends Error {
 /* ── live ────────────────────────────────────────────────────────────────── */
 
 async function request<T>(
+  base: string,
   path: string,
   filters: Filters,
   signal?: AbortSignal,
 ): Promise<T> {
   const query = toSearchParams(filters).toString()
-  const url = `${API_URL}${path}${query === "" ? "" : `?${query}`}`
+  const url = `${base}${path}${query === "" ? "" : `?${query}`}`
   const res = await fetch(url, { signal, headers: { Accept: "application/json" } })
   if (!res.ok) {
     let detail = res.statusText
@@ -129,76 +205,90 @@ function projectIndex(): Promise<ProjectIndex> {
 
 /** GET /api/meta. Never filtered — it is what populates the filter controls. */
 export async function getMeta(signal?: AbortSignal): Promise<Meta> {
-  if (API_URL === null) return fixture.meta()
-  return request<Meta>("/api/meta", EMPTY_FILTERS, signal)
+  const base = await resolveBackend()
+  if (base === null) return fixture.meta()
+  // The probe already paid for this exact request; spend its answer once.
+  if (probedMeta !== null) {
+    const meta = probedMeta
+    probedMeta = null
+    return meta
+  }
+  return request<Meta>(base, "/api/meta", EMPTY_FILTERS, signal)
 }
 
 export async function getSummary(f: Filters, signal?: AbortSignal): Promise<Summary> {
-  if (API_URL === null) {
+  const base = await resolveBackend()
+  if (base === null) {
     const base = await fixture.summary()
     if (isUnfiltered(f)) return base
     const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
     return deriveSummary(filterSpans(spans, f, index), base)
   }
-  return request<Summary>("/api/summary", f, signal)
+  return request<Summary>(base, "/api/summary", f, signal)
 }
 
 export async function getTimeline(f: Filters, signal?: AbortSignal): Promise<Timeline> {
-  if (API_URL === null) {
+  const base = await resolveBackend()
+  if (base === null) {
     const tl = await fixture.timeline()
     if (isUnfiltered(f)) return tl
     const index = await projectIndex()
     return { ...tl, spans: filterSpans(tl.spans, f, index) }
   }
-  return request<Timeline>("/api/timeline", f, signal)
+  return request<Timeline>(base, "/api/timeline", f, signal)
 }
 
 export async function getProjects(f: Filters, signal?: AbortSignal): Promise<Projects> {
-  if (API_URL === null) {
+  const base = await resolveBackend()
+  if (base === null) {
     if (isUnfiltered(f)) return fixture.projects()
     const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
     return deriveProjects(filterSpans(spans, f, index), index)
   }
-  return request<Projects>("/api/projects", f, signal)
+  return request<Projects>(base, "/api/projects", f, signal)
 }
 
 export async function getConcurrency(
   f: Filters,
   signal?: AbortSignal,
 ): Promise<Concurrency> {
-  if (API_URL === null) {
+  const base = await resolveBackend()
+  if (base === null) {
     if (isUnfiltered(f)) return fixture.concurrency()
     const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
     return deriveConcurrency(filterSpans(spans, f, index))
   }
-  return request<Concurrency>("/api/concurrency", f, signal)
+  return request<Concurrency>(base, "/api/concurrency", f, signal)
 }
 
 export async function getDaily(f: Filters, signal?: AbortSignal): Promise<Daily> {
-  if (API_URL === null) {
+  const base = await resolveBackend()
+  if (base === null) {
     if (isUnfiltered(f)) return fixture.daily()
     const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
     return deriveDaily(filterSpans(spans, f, index), f)
   }
-  return request<Daily>("/api/daily", f, signal)
+  return request<Daily>(base, "/api/daily", f, signal)
 }
 
 export async function getAgents(f: Filters, signal?: AbortSignal): Promise<Agents> {
-  if (API_URL === null) {
+  const base = await resolveBackend()
+  if (base === null) {
     if (isUnfiltered(f)) return fixture.agents()
     const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
     return deriveAgents(filterSpans(spans, f, index))
   }
-  return request<Agents>("/api/agents", f, signal)
+  return request<Agents>(base, "/api/agents", f, signal)
 }
 
 export async function getHeatmap(f: Filters, signal?: AbortSignal): Promise<Heatmap> {
-  if (API_URL === null) {
+  const base = await resolveBackend()
+  if (base === null) {
     if (isUnfiltered(f)) return fixture.heatmap()
     const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
     return deriveHeatmap(filterSpans(spans, f, index))
   }
-  return request<Heatmap>("/api/heatmap", f, signal)
+  return request<Heatmap>(base, "/api/heatmap", f, signal)
 }
 
 /**
@@ -212,19 +302,21 @@ export async function getHeatmap(f: Filters, signal?: AbortSignal): Promise<Heat
 export async function getProjectRoster(
   signal?: AbortSignal,
 ): Promise<ProjectRow[]> {
-  if (API_URL === null) return (await fixture.projects()).projects
-  return (await request<Projects>("/api/projects", EMPTY_FILTERS, signal))
+  const base = await resolveBackend()
+  if (base === null) return (await fixture.projects()).projects
+  return (await request<Projects>(base, "/api/projects", EMPTY_FILTERS, signal))
     .projects
 }
 
 export async function getGroups(f: Filters, signal?: AbortSignal): Promise<Groups> {
-  if (API_URL === null) {
+  const base = await resolveBackend()
+  if (base === null) {
     const base = await fixture.groups()
     if (isUnfiltered(f)) return base
     const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
     return deriveGroups(filterSpans(spans, f, index), index, base)
   }
-  return request<Groups>("/api/groups", f, signal)
+  return request<Groups>(base, "/api/groups", f, signal)
 }
 
 /* ── one call for the whole page ─────────────────────────────────────────── */
@@ -259,7 +351,7 @@ export async function fetchDashboard(
 ): Promise<DashboardData> {
   const filtered = !isUnfiltered(f)
 
-  if (API_URL !== null) {
+  if ((await resolveBackend()) !== null) {
     const [
       meta,
       summary,

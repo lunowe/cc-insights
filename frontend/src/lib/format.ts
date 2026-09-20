@@ -152,3 +152,17 @@ export function daysStale(lastTs: number, newestTs: number | null): number {
   if (newestTs === null) return 0
   return Math.max(0, Math.floor((newestTs - lastTs) / 86_400_000))
 }
+
+/**
+ * How long ago, in the coarsest unit that is still honest: `4 m ago`,
+ * `3 h ago`, `12 d ago`. Freshness is the question, not the exact instant, and
+ * the exact instant is always one hover away.
+ */
+export function formatSince(ts: number, now: number = Date.now()): string {
+  const ms = now - ts
+  if (ms < 0) return "just now"
+  if (ms < MINUTE) return "just now"
+  if (ms < HOUR) return `${Math.floor(ms / MINUTE)} m ago`
+  if (ms < 86_400_000) return `${Math.floor(ms / HOUR)} h ago`
+  return `${Math.floor(ms / 86_400_000)} d ago`
+}
