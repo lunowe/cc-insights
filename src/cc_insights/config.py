@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import socket
 import tomllib
 import uuid
@@ -169,8 +170,78 @@ class Config:
 
     def save(self) -> Path:
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(self.to_toml())
+        _atomic_write(self.path, self.to_toml())
         return self.path
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write via a temp file and rename, so a crash cannot truncate the config.
+
+    `host_id` lives in this file and must never change. A half-written
+    config.toml does not parse, an unparseable config is a config `load` will
+    replace, and a replaced config is a regenerated host_id -- which forks the
+    entire history. Cheap insurance against an expensive, silent failure.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text)
+    tmp.replace(path)
+
+
+# `db_path = "..."` on its own line, before any [table] header. Anchored so a
+# key of the same name inside a table could never be mistaken for it.
+_DB_PATH_LINE = re.compile(r"^(?P<key>db_path\s*=\s*).*$", re.MULTILINE)
+
+
+def make_db_path_portable(config_dir: Path) -> Path | None:
+    """Rewrite an absolute `db_path` that points inside its own config directory.
+
+    `_db_path_for_toml` has written a relative path since the fix that
+    introduced it, but that fix never rewrote the configs already on disk. On
+    one of those, copying the config directory to experiment on STILL silently
+    writes to the original database -- which is the exact trap the relative
+    path exists to close, and it has now caused damage twice: two corrupted
+    rows in a committed fixture, and a migration applied to a live database
+    during v2.
+
+    Only the one line is touched, so comments, formatting and any key this
+    version does not model survive byte-for-byte. The result must parse and
+    must resolve to the same file, or nothing is written -- a config that
+    cannot be read is worse than the bug being fixed.
+
+    Returns the config path if it changed, None if there was nothing to do.
+    """
+    path = config_dir / "config.toml"
+    if not path.exists():
+        return None
+
+    before = path.read_text()
+    try:
+        raw = tomllib.loads(before)
+    except tomllib.TOMLDecodeError:
+        return None                       # not ours to repair
+    if "db_path" not in raw:
+        return None
+
+    cfg = load(config_dir, create=False)
+    want = cfg._db_path_for_toml()
+    if raw["db_path"] == want:
+        return None                       # already portable, or deliberately absolute
+
+    after, count = _DB_PATH_LINE.subn(lambda m: m.group("key") + _toml_str(want), before, count=1)
+    if count != 1:
+        return None
+
+    # Belt and braces: the rewrite must still parse, and must still name the
+    # same database. Anything else and the original stays exactly as it was.
+    try:
+        checked = tomllib.loads(after)
+    except tomllib.TOMLDecodeError:
+        return None
+    if _resolve_db_path(checked["db_path"], config_dir) != cfg.db_path:
+        return None
+
+    _atomic_write(path, after)
+    return path
 
 
 def _toml_str(value: str) -> str:

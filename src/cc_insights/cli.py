@@ -32,10 +32,18 @@ from cc_insights import (
 
 
 def cmd_init(args: argparse.Namespace) -> int:
+    # Whether the file existed has to be checked BEFORE load(), which creates
+    # it. Checking after meant `created_config` was always False and the
+    # "(created)" marker never appeared on a first run.
+    config_dir = (args.config_dir or config_mod.DEFAULT_CONFIG_DIR).expanduser()
+    created_config = not (config_dir / "config.toml").exists()
+
     cfg = config_mod.load(args.config_dir)
-    created_config = not cfg.path.exists()
-    if created_config:
-        cfg.save()
+    # An absolute db_path inside its own config directory makes a copy of that
+    # directory point back at the original database. Configs written before
+    # that was fixed are still on disk, so repair them here rather than leaving
+    # a trap armed for whoever next copies one.
+    repaired = config_mod.make_db_path_portable(cfg.config_dir)
 
     conn = db.connect(cfg.db_path)
     try:
@@ -45,6 +53,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         conn.close()
 
     print(f"config  {cfg.path}{'  (created)' if created_config else ''}")
+    if repaired is not None:
+        print("        db_path made relative — copying this directory is now safe")
     print(f"db      {cfg.db_path}")
     print(f"host_id {cfg.host_id}")
     print(
