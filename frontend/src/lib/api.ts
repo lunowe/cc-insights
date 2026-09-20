@@ -43,6 +43,7 @@ import { EMPTY_FILTERS, isUnfiltered, toSearchParams, type Filters } from "./fil
 import type {
   Agents,
   Concurrency,
+  Cost,
   Daily,
   Groups,
   Heatmap,
@@ -185,6 +186,7 @@ const fixture = {
     import("../fixtures/heatmap.json").then((m) => m.default as unknown as Heatmap),
   groups: () =>
     import("../fixtures/groups.json").then((m) => m.default as unknown as Groups),
+  cost: () => import("../fixtures/cost.json").then((m) => m.default as unknown as Cost),
 }
 
 /**
@@ -201,7 +203,7 @@ function projectIndex(): Promise<ProjectIndex> {
   return indexPromise
 }
 
-/* ── the eight endpoints ─────────────────────────────────────────────────── */
+/* ── the nine endpoints ─────────────────────────────────────────────────── */
 
 /** GET /api/meta. Never filtered — it is what populates the filter controls. */
 export async function getMeta(signal?: AbortSignal): Promise<Meta> {
@@ -241,9 +243,10 @@ export async function getTimeline(f: Filters, signal?: AbortSignal): Promise<Tim
 export async function getProjects(f: Filters, signal?: AbortSignal): Promise<Projects> {
   const base = await resolveBackend()
   if (base === null) {
-    if (isUnfiltered(f)) return fixture.projects()
+    const capture = await fixture.projects()
+    if (isUnfiltered(f)) return capture
     const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
-    return deriveProjects(filterSpans(spans, f, index), index)
+    return deriveProjects(filterSpans(spans, f, index), index, capture.currency)
   }
   return request<Projects>(base, "/api/projects", f, signal)
 }
@@ -264,9 +267,10 @@ export async function getConcurrency(
 export async function getDaily(f: Filters, signal?: AbortSignal): Promise<Daily> {
   const base = await resolveBackend()
   if (base === null) {
-    if (isUnfiltered(f)) return fixture.daily()
+    const capture = await fixture.daily()
+    if (isUnfiltered(f)) return capture
     const [{ spans }, index] = await Promise.all([fixture.timeline(), projectIndex()])
-    return deriveDaily(filterSpans(spans, f, index), f)
+    return deriveDaily(filterSpans(spans, f, index), f, capture)
   }
   return request<Daily>(base, "/api/daily", f, signal)
 }
@@ -319,6 +323,31 @@ export async function getGroups(f: Filters, signal?: AbortSignal): Promise<Group
   return request<Groups>(base, "/api/groups", f, signal)
 }
 
+/**
+ * GET /api/cost. In fixtures mode there is nothing to recompute from: cost is
+ * a per-event fact and the span capture carries none, so the unfiltered
+ * capture comes back whatever the filter. `fetchDashboard` flags that with
+ * `eventFactsUnfiltered`; a caller using this directly must do the same.
+ */
+export async function getCost(f: Filters, signal?: AbortSignal): Promise<Cost> {
+  const base = await resolveBackend()
+  if (base === null) return fixture.cost()
+  return request<Cost>(base, "/api/cost", f, signal)
+}
+
+/**
+ * The URL of the watch-mode event stream, or null when this page has no
+ * backend to listen to.
+ *
+ * Not a `get*` function because it is not a fetch: `/api/live` is an SSE
+ * stream outside the `Filters` contract, held open by `cci watch --serve`
+ * and answered with a 404 by a plain `cci serve`. See `use-live.ts`.
+ */
+export async function resolveLiveUrl(): Promise<string | null> {
+  const base = await resolveBackend()
+  return base === null ? null : `${base}/api/live`
+}
+
 /* ── one call for the whole page ─────────────────────────────────────────── */
 
 export type DashboardData = {
@@ -334,15 +363,24 @@ export type DashboardData = {
   daily: Daily
   agents: Agents
   heatmap: Heatmap
+  /**
+   * The list-price equivalent, broken down and qualified. NOT a bill: every
+   * surface that shows `cost.total` says so and shows `unpricedTokens`,
+   * `approximations` and `attributedEvents` beside it.
+   */
+  cost: Cost
   mode: DataMode
   /** True when the view is narrowed. */
   filtered: boolean
   /**
-   * In fixtures mode `summary.events` and `summary.tokens` are per-event facts
-   * the timeline capture does not carry, so under a filter they stay at their
-   * unfiltered values. Do not render them as filtered numbers.
+   * In fixtures mode, **per-event facts** — `summary.events`, `summary.tokens`,
+   * and every `cost` (`cost`, `summary.cost`, `projects[].cost`,
+   * `daily.days[].cost`) — cannot be recomputed from the span capture, so
+   * under a filter they stay at their unfiltered values. When this is true,
+   * render them as unavailable, never as filtered numbers: a cost that
+   * silently ignores the filter is the one figure this page must not show.
    */
-  tokensAreUnfiltered: boolean
+  eventFactsUnfiltered: boolean
 }
 
 export async function fetchDashboard(
@@ -363,6 +401,7 @@ export async function fetchDashboard(
       daily,
       agents,
       heatmap,
+      cost,
     ] = await Promise.all([
       getMeta(signal),
       getSummary(f, signal),
@@ -374,6 +413,7 @@ export async function fetchDashboard(
       getDaily(f, signal),
       getAgents(f, signal),
       getHeatmap(f, signal),
+      getCost(f, signal),
     ])
     return {
       meta,
@@ -386,28 +426,38 @@ export async function fetchDashboard(
       daily,
       agents,
       heatmap,
+      cost,
       mode: "live",
       filtered,
-      tokensAreUnfiltered: false,
+      eventFactsUnfiltered: false,
     }
   }
 
   // Fixtures: load once, filter once, derive the rest from the same span list.
-  const [meta, baseSummary, baseTimeline, baseGroups, baseProjects, index] =
-    await Promise.all([
-      fixture.meta(),
-      fixture.summary(),
-      fixture.timeline(),
-      fixture.groups(),
-      fixture.projects(),
-      projectIndex(),
-    ])
+  const [
+    meta,
+    baseSummary,
+    baseTimeline,
+    baseGroups,
+    baseProjects,
+    baseDaily,
+    cost,
+    index,
+  ] = await Promise.all([
+    fixture.meta(),
+    fixture.summary(),
+    fixture.timeline(),
+    fixture.groups(),
+    fixture.projects(),
+    fixture.daily(),
+    fixture.cost(),
+    projectIndex(),
+  ])
   const roster = baseProjects.projects
 
   if (!filtered) {
-    const [concurrency, daily, agents, heatmap] = await Promise.all([
+    const [concurrency, agents, heatmap] = await Promise.all([
       fixture.concurrency(),
-      fixture.daily(),
       fixture.agents(),
       fixture.heatmap(),
     ])
@@ -419,12 +469,13 @@ export async function fetchDashboard(
       roster,
       concurrency,
       timeline: baseTimeline,
-      daily,
+      daily: baseDaily,
       agents,
       heatmap,
+      cost,
       mode: "fixtures",
       filtered: false,
-      tokensAreUnfiltered: false,
+      eventFactsUnfiltered: false,
     }
   }
 
@@ -432,16 +483,19 @@ export async function fetchDashboard(
   return {
     meta,
     summary: deriveSummary(spans, baseSummary),
-    projects: deriveProjects(spans, index),
+    projects: deriveProjects(spans, index, baseProjects.currency),
     groups: deriveGroups(spans, index, baseGroups),
     roster,
     concurrency: deriveConcurrency(spans),
     timeline: { ...baseTimeline, spans },
-    daily: deriveDaily(spans, f),
+    daily: deriveDaily(spans, f, baseDaily),
     agents: deriveAgents(spans),
     heatmap: deriveHeatmap(spans),
+    // Unfiltered on purpose — there is nothing to recompute it from. The flag
+    // below is what keeps it off the page.
+    cost,
     mode: "fixtures",
     filtered: true,
-    tokensAreUnfiltered: true,
+    eventFactsUnfiltered: true,
   }
 }

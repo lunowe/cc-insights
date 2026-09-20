@@ -47,6 +47,13 @@ export type ProjectInfo = {
   groupPinned: boolean
   /** true = on disk · false = gone · null = not probed. Never conflate the last two. */
   pathExists: boolean | null
+  /**
+   * The path's UNFILTERED list-price equivalent, from `projects.json`. A span
+   * list cannot re-price itself, so this is passed through under a filter and
+   * flagged by `DashboardData.eventFactsUnfiltered`. 0 for a path known only
+   * from `meta`, which carries no cost.
+   */
+  cost: number
 }
 
 export type ProjectIndex = Map<string, ProjectInfo>
@@ -69,6 +76,7 @@ export function buildProjectIndex(meta: Meta, base: Projects): ProjectIndex {
       // `meta` has no existence flag, so a project known only from `meta` is
       // unprobed, which is exactly what `null` means. Never `false`.
       pathExists: null,
+      cost: 0,
     })
   }
   for (const p of base.projects) {
@@ -80,6 +88,7 @@ export function buildProjectIndex(meta: Meta, base: Projects): ProjectIndex {
       groupName: p.groupName,
       groupPinned: p.groupPinned,
       pathExists: p.pathExists,
+      cost: p.cost,
     })
   }
   return index
@@ -128,10 +137,10 @@ export function filterSpans(
 }
 
 /**
- * `base` supplies only the two fields a span list cannot know: `events` and
- * `tokens` are per-event facts that the timeline endpoint does not carry. They
- * are passed through unchanged and must not be presented as filtered — see
- * `DashboardData.tokensAreUnfiltered` in `api.ts`.
+ * `base` supplies only the fields a span list cannot know: `events`, `tokens`
+ * and `cost` are per-event facts that the timeline endpoint does not carry.
+ * They are passed through unchanged and must not be presented as filtered —
+ * see `DashboardData.eventFactsUnfiltered` in `api.ts`.
  */
 export function deriveSummary(spans: Span[], base: Summary): Summary {
   const sessions = new Set<string>()
@@ -170,6 +179,7 @@ export function deriveSummary(spans: Span[], base: Summary): Summary {
     autonomousMs,
     unattendedRootMs,
     tokens: base.tokens,
+    cost: base.cost,
   }
 }
 
@@ -215,7 +225,17 @@ export function deriveConcurrency(spans: Span[]): Concurrency {
   }
 }
 
-export function deriveProjects(spans: Span[], index: ProjectIndex): Projects {
+/**
+ * `currency` is the unfiltered capture's; `cost` on each row is that path's
+ * unfiltered figure from the index, because a span list cannot re-price
+ * itself. Under a filter the caller flags it (`eventFactsUnfiltered`) and
+ * the UI shows a dash, never the number.
+ */
+export function deriveProjects(
+  spans: Span[],
+  index: ProjectIndex,
+  currency: string,
+): Projects {
   type Acc = {
     activeMs: number
     sessions: Set<string>
@@ -262,10 +282,11 @@ export function deriveProjects(spans: Span[], index: ProjectIndex): Projects {
       threads: a.threads.size,
       firstTs: a.firstTs,
       lastTs: a.lastTs,
+      cost: known?.cost ?? 0,
     }
   })
   projects.sort((a, b) => b.activeMs - a.activeMs)
-  return { projects }
+  return { projects, currency }
 }
 
 /**
@@ -468,7 +489,14 @@ function eachPiece(
   }
 }
 
-export function deriveDaily(spans: Span[], f: Filters): Daily {
+/**
+ * `base` is the unfiltered daily capture: it supplies `currency` and each
+ * day's `cost`, which a span list cannot recompute. Those pass through
+ * unfiltered, flagged by `eventFactsUnfiltered`, and are never rendered under
+ * a filter in fixtures mode.
+ */
+export function deriveDaily(spans: Span[], f: Filters, base: Daily): Daily {
+  const baseCost = new Map(base.days.map((d) => [d.date, d.cost]))
   const active = new Map<string, number>()
   const bySource = new Map<string, Partial<Record<Source, number>>>()
   // Per-day wall clock: union of the day's clipped pieces, so two threads
@@ -499,7 +527,7 @@ export function deriveDaily(spans: Span[], f: Filters): Daily {
   }
 
   const days: Daily["days"] = []
-  if (!Number.isFinite(min)) return { days }
+  if (!Number.isFinite(min)) return { days, currency: base.currency }
 
   // "gaps filled with 0" across the requested range, or the observed range.
   const start = f.from !== null ? Math.min(f.from, min) : min
@@ -515,10 +543,11 @@ export function deriveDaily(spans: Span[], f: Filters): Daily {
       activeMs: active.get(key) ?? 0,
       wallMs: unionMs(pieces.get(key)),
       bySource: bySource.get(key) ?? {},
+      cost: baseCost.get(key) ?? 0,
     })
     cursor = new Date(nextLocalDay(cursor.getTime()))
   }
-  return { days }
+  return { days, currency: base.currency }
 }
 
 function unionMs(events: Interval[] | undefined): number {

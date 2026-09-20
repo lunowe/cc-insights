@@ -21,6 +21,83 @@ const twoDp = new Intl.NumberFormat(undefined, {
 
 export const formatCount = (n: number) => num.format(n)
 
+const compact = new Intl.NumberFormat("en", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+})
+
+/** `138.1M`, `11.1B`, `12.4K` — for token counts, where the magnitude is the point. */
+export const formatCompact = (n: number) => compact.format(n)
+
+/* ── money ───────────────────────────────────────────────────────────────────
+   Every cost on this page is a LIST-PRICE EQUIVALENT — what the traffic would
+   have cost at published API rates — and never a bill. These helpers only
+   format; the words "not a bill" belong beside every number they produce.
+
+   `currency` arrives as a string from the API: an ISO code like "USD", or
+   "mixed" when the rates that met disagree. Intl throws on "mixed", and a
+   made-up symbol would be worse than none, so anything that is not a
+   three-letter code is rendered as a bare number with the unit spelled out
+   by `currencyUnit()`.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+export const MIXED_CURRENCY = "mixed"
+
+const isIsoCurrency = (c: string) => /^[A-Z]{3}$/.test(c)
+
+const moneyFormatters = new Map<string, Intl.NumberFormat>()
+
+function moneyFormatter(
+  currency: string,
+  opts: Intl.NumberFormatOptions,
+): Intl.NumberFormat | null {
+  if (!isIsoCurrency(currency)) return null
+  const key = `${currency}\u0000${JSON.stringify(opts)}`
+  let f = moneyFormatters.get(key)
+  if (f === undefined) {
+    try {
+      f = new Intl.NumberFormat(undefined, { style: "currency", currency, ...opts })
+    } catch {
+      // A well-formed but unknown code. Fall back to a bare number.
+      return null
+    }
+    moneyFormatters.set(key, f)
+  }
+  return f
+}
+
+/** Whole units from 100 up, cents below: `$13,273`, `$18.63`, `$0.01`. */
+export function formatCost(amount: number, currency: string): string {
+  const digits = Math.abs(amount) >= 100 ? 0 : 2
+  const opts = { minimumFractionDigits: digits, maximumFractionDigits: digits }
+  return (
+    moneyFormatter(currency, opts)?.format(amount) ??
+    new Intl.NumberFormat(undefined, opts).format(amount)
+  )
+}
+
+/** `$7.8K`, `$216` — for axis ticks and bar-end labels. */
+export function formatCostCompact(amount: number, currency: string): string {
+  const opts: Intl.NumberFormatOptions =
+    Math.abs(amount) >= 1000
+      ? { notation: "compact", maximumFractionDigits: 1 }
+      : { maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2 }
+  return (
+    moneyFormatter(currency, opts)?.format(amount) ??
+    new Intl.NumberFormat("en", opts).format(amount)
+  )
+}
+
+/**
+ * The unit to print beside a number `formatCost` could not decorate: `null`
+ * when the symbol already carries it, `"mixed currencies"` when the rates
+ * disagreed, else the raw code so nothing is ever silently unitless.
+ */
+export function currencyUnit(currency: string): string | null {
+  if (currency === MIXED_CURRENCY) return "mixed currencies"
+  return moneyFormatter(currency, {}) === null ? currency : null
+}
+
 /** Hours with one decimal — the unit the rest of the project reports in. */
 export function formatHours(ms: number): string {
   return oneDp.format(ms / HOUR)

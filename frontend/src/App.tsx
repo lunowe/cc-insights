@@ -1,15 +1,17 @@
+import { useCallback, useState } from "react"
 import { AlertTriangle, FilterX, Scissors } from "lucide-react"
 
 import { AppHeader } from "@/components/app-header"
 import { ChartSlots } from "@/components/chart-slots"
 import { FilterBar } from "@/components/filters/filter-bar"
 import { ProjectsTable } from "@/components/projects-table"
-import { ActivityTiles, OriginTiles } from "@/components/stat-tiles"
+import { ActivityTiles, CostTiles, OriginTiles } from "@/components/stat-tiles"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { useFilters } from "@/hooks/use-filters"
+import { useLive } from "@/hooks/use-live"
 import { EMPTY_FILTERS } from "@/lib/filters"
 import { formatCount, formatDateTime } from "@/lib/format"
 import type { DataMode } from "@/lib/api"
@@ -17,7 +19,12 @@ import type { Meta } from "@/lib/types"
 
 export function App() {
   const [filters, setFilters] = useFilters()
-  const { data, loading, error } = useDashboard(filters)
+  // `cci watch --serve` pushes a tick when the database moves; bumping the
+  // revision refetches the same filters. With no watcher behind the page
+  // this never fires and nothing on screen mentions it.
+  const [revision, setRevision] = useState(0)
+  const live = useLive(useCallback(() => setRevision((n) => n + 1), []))
+  const { data, loading, error } = useDashboard(filters, revision)
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -25,7 +32,11 @@ export function App() {
         <div className="z-40 bg-background/85 backdrop-blur-md sm:sticky sm:top-0">
           {/* `mode` is only known once the backend probe has resolved; until
               then the badge stays absent rather than guessing "sample". */}
-          <AppHeader meta={data?.meta ?? null} mode={data?.mode ?? null} />
+          <AppHeader
+            meta={data?.meta ?? null}
+            mode={data?.mode ?? null}
+            live={live}
+          />
           <FilterBar
             meta={data?.meta ?? null}
             roster={data?.roster ?? []}
@@ -63,12 +74,18 @@ export function App() {
                     daily={data.daily}
                   />
                   <OriginTiles summary={data.summary} />
+                  <CostTiles
+                    cost={data.cost}
+                    unavailable={data.eventFactsUnfiltered}
+                  />
                   <ChartSlots data={data} loading={loading} />
                   <ProjectsTable
                     groups={data.groups}
                     projects={data.projects.projects}
                     totalActiveMs={data.summary.activeMs}
                     newestTs={data.meta.lastTs}
+                    currency={data.projects.currency}
+                    costUnavailable={data.eventFactsUnfiltered}
                   />
                 </>
               )}
@@ -109,6 +126,40 @@ function Footer({
               Captured on{" "}
               <span className="num">{meta.hostname}</span>,{" "}
               <span className="num">{formatDateTime(meta.generatedAt)}</span>.
+            </>
+          ) : null}
+        </p>
+        <p>
+          Every cost on this page is a{" "}
+          <span className="font-medium text-foreground">
+            list-price equivalent
+          </span>
+          : tokens × published API rates. It is not a bill — a subscription
+          charges a flat fee however many tokens run through it — and tokens
+          with no rate on file are left out as unknown, not free.
+          {meta?.pricing.catalog.repo ? (
+            <>
+              {" "}
+              Rates from{" "}
+              <span className="num">{meta.pricing.catalog.repo}</span>
+              {meta.pricing.catalog.commit ? (
+                <>
+                  {" "}
+                  @{" "}
+                  <span className="num">
+                    {meta.pricing.catalog.commit.slice(0, 7)}
+                  </span>
+                </>
+              ) : null}
+              {meta.pricing.catalog.fetched_at ? (
+                <>
+                  , fetched{" "}
+                  <span className="num">
+                    {formatDateTime(Date.parse(meta.pricing.catalog.fetched_at))}
+                  </span>
+                </>
+              ) : null}
+              .
             </>
           ) : null}
         </p>

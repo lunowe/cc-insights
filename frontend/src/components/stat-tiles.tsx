@@ -7,13 +7,17 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
+  SOURCE_LABEL,
+  currencyUnit,
+  formatCompact,
+  formatCost,
   formatCount,
   formatDateTime,
   formatHours,
   formatMultiplier,
   formatPercent,
 } from "@/lib/format"
-import type { Concurrency, Daily, Summary } from "@/lib/types"
+import type { Concurrency, Cost, Daily, Summary } from "@/lib/types"
 
 function Tile({
   label,
@@ -28,7 +32,7 @@ function Tile({
   value: ReactNode
   unit?: string
   sub?: ReactNode
-  hint?: string
+  hint?: ReactNode
   className?: string
   size?: "md" | "lg"
 }) {
@@ -70,7 +74,7 @@ function Tile({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{body}</TooltipTrigger>
-      <TooltipContent className="max-w-64">{hint}</TooltipContent>
+      <TooltipContent className="max-w-72">{hint}</TooltipContent>
     </Tooltip>
   )
 }
@@ -209,6 +213,181 @@ export function OriginTiles({ summary }: { summary: Summary }) {
           sub={b.sub}
         />
       ))}
+    </Panel>
+  )
+}
+
+/** `anthropic/claude-fable-5` → `claude-fable-5`; the provider is noise in a tile. */
+const shortModel = (id: string) => id.slice(id.lastIndexOf("/") + 1)
+
+/**
+ * The list-price equivalent and the three things that qualify it.
+ *
+ * The total is what this traffic would have cost at published API rates and
+ * never what was paid — a subscription charges a flat fee however many tokens
+ * run through it. That sentence sits in the panel header rather than a
+ * tooltip so it is in every screenshot the number is in. The three tiles
+ * beside it are the caveats `docs/API.md` makes machine-readable: tokens no
+ * rate covered, money resting on a relative's rates, and events whose model
+ * was inferred. Each is a number, because "some of this is uncertain" is not
+ * something a reader can act on and "$6,414 of it is" is.
+ */
+export function CostTiles({
+  cost,
+  unavailable,
+}: {
+  cost: Cost
+  /** `DashboardData.eventFactsUnfiltered`: the figure ignores the filter. */
+  unavailable: boolean
+}) {
+  const { currency } = cost
+  const unit = currencyUnit(currency)
+  const money = (n: number) => formatCost(n, currency)
+
+  const approximated = new Set(cost.approximations.map((a) => a.model))
+  const approxCost = cost.byModel
+    .filter((m) => approximated.has(m.model))
+    .reduce((n, m) => n + m.cost, 0)
+  const unpriced = [...cost.unpriced].sort((a, b) => b.tokens - a.tokens)
+  const unpricedModels = unpriced.filter((u) => u.model !== null).length
+  const topUnpriced = unpriced[0]
+
+  if (unavailable) {
+    return (
+      <Panel
+        title="Cost at list price"
+        note="Sample data can only be priced whole — clear the filters to see the all-time figure."
+        cols="grid-cols-2 lg:grid-cols-6"
+      >
+        <Tile
+          size="lg"
+          className="col-span-2"
+          label="List-price equivalent"
+          value="—"
+          sub="Cost is a per-event fact the bundled sample cannot narrow by span. It is not zero; it is not shown."
+        />
+        <Tile label="Unpriced tokens" value="—" sub="Unavailable under a filter in sample mode." />
+        <Tile label="Priced as a relative" value="—" sub="Unavailable under a filter in sample mode." />
+        <Tile label="Attributed events" value="—" sub="Unavailable under a filter in sample mode." />
+      </Panel>
+    )
+  }
+
+  return (
+    <Panel
+      title="Cost at list price"
+      note="What this traffic would have cost at published API rates. Not a bill: a subscription charges a flat fee however many tokens run through it."
+      cols="grid-cols-2 lg:grid-cols-6"
+    >
+      <Tile
+        size="lg"
+        className="col-span-2"
+        label="List-price equivalent"
+        value={money(cost.total)}
+        unit={unit ?? undefined}
+        sub={
+          <>
+            {formatCount(cost.pricedEvents)} priced events at published API
+            rates. A comparison figure for projects, models and months — not
+            what was paid.
+          </>
+        }
+        hint={
+          <>
+            Tokens × the published per-token rate for each model and token
+            component, summed. Cache reads and writes are priced at their own
+            rates, not folded into input.
+            {cost.bySource.length > 1 ? (
+              <>
+                {" "}
+                By source:{" "}
+                {cost.bySource.map((s, i) => (
+                  <span key={s.source}>
+                    {i > 0 ? " · " : ""}
+                    <span className="num">{money(s.cost)}</span>{" "}
+                    {SOURCE_LABEL[s.source]}
+                  </span>
+                ))}
+                .
+              </>
+            ) : null}
+          </>
+        }
+      />
+      <Tile
+        label="Unpriced tokens"
+        value={formatCompact(cost.unpricedTokens)}
+        unit="tokens"
+        sub={
+          cost.unpricedTokens === 0 ? (
+            "Every token in view had a rate."
+          ) : (
+            <>
+              No rate covered them — unknown, not free.
+              {topUnpriced !== undefined ? (
+                <>
+                  {" "}
+                  {unpricedModels > 1
+                    ? `${unpricedModels} models, mostly `
+                    : "Mostly "}
+                  {topUnpriced.model ?? "events naming no model"} (
+                  <span className="num">{formatCompact(topUnpriced.tokens)}</span>
+                  ).
+                </>
+              ) : null}
+            </>
+          )
+        }
+        hint={
+          unpriced.length === 0 ? undefined : (
+            <>
+              Not in the total, and not zero-cost — there is simply no rate on
+              file.{" "}
+              {unpriced.map((u, i) => (
+                <span key={`${u.model ?? ""}-${u.reason}`}>
+                  {i > 0 ? " · " : ""}
+                  {u.model ?? "no model named"}{" "}
+                  <span className="num">{formatCompact(u.tokens)}</span>
+                </span>
+              ))}
+            </>
+          )
+        }
+      />
+      <Tile
+        label="Priced as a relative"
+        value={cost.approximations.length === 0 ? "0" : money(approxCost)}
+        unit={
+          cost.approximations.length === 0
+            ? "models"
+            : `${formatPercent(approxCost, cost.total)} of total`
+        }
+        sub={
+          cost.approximations.length === 0 ? (
+            "Every priced model in view has a rate of its own."
+          ) : (
+            <>
+              {cost.approximations.map((a, i) => (
+                <span key={a.model}>
+                  {i > 0 ? ", " : ""}
+                  <span className="text-foreground">{a.model}</span> at{" "}
+                  {shortModel(a.pricedAs)} rates
+                </span>
+              ))}
+              . The catalog has none of their own, so this much of the total
+              could sit well off the true figure.
+            </>
+          )
+        }
+        hint="A model with no published rate is priced at its nearest relative's. Defensible as a default, and a real source of error: relatives can differ several-fold on cache-read pricing, which is most of the bill."
+      />
+      <Tile
+        label="Attributed events"
+        value={formatCount(cost.attributedEvents)}
+        unit={`of ${formatCount(cost.pricedEvents)}`}
+        sub="Priced off a model carried forward from earlier in the thread — Codex logs usage without naming one."
+        hint="Codex records token usage on events that name no model; the model is on an earlier event in the same thread. Each thread is walked in order carrying the last model seen forward. This is how many priced events rest on that inference."
+      />
     </Panel>
   )
 }
