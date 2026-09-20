@@ -114,7 +114,10 @@ are re-keyed on the repo's remote, the boundary is repo access, and work with
 no remote stays local, counted rather than silently dropped. The projection
 runs on your laptop; the shared database never receives a path.
 
-Teams and auth follow. The privacy plumbing is in place for them.
+Teams and auth follow, and `docs/ACCOUNTS.md` is now the design for them:
+one private instance, two stores rather than one filtered on read, GitHub
+OAuth, and a `cci login` that makes a second machine a sign-in instead of a
+database URL. The privacy plumbing is in place; what is left is the server.
 ## What it costs
 
 ```bash
@@ -236,7 +239,8 @@ frontend/       Vite + React dashboard, built into frontend/dist -- the wheel
                 force-includes it as cc_insights/web
 migrations/     numbered SQL, applied in order; also force-included
 docs/           FINDINGS.md (ground truth), API.md (frozen contract),
-                REDACTION.md (what may be shared), ROADMAP.md, probes/
+                REDACTION.md (what may be shared), ACCOUNTS.md (teams,
+                designed not built), ROADMAP.md, probes/
 scripts/        launchd jobs (interval and watch) + installer (macOS),
                 Task Scheduler job (Windows), fixture and price sync
 ```

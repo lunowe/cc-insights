@@ -148,18 +148,29 @@ of the schema, for the same reason.
 test that fails when a migration adds one nobody has ruled on. It fired for
 real on v1's three cost tables during the merge.
 
-### Accounts and teams — not started
+### Accounts and teams — designed, not built
 
-What is left is auth and scoping, not privacy plumbing.
+**`docs/ACCOUNTS.md` is the design.** Four decisions are settled: one private
+instance rather than SaaS; two stores (full personal + redacted team) rather
+than one filtered on read; GitHub OAuth now with email later; PyPI plus a
+thin `curl | sh`.
 
-- **GitHub OAuth is the right front door**, and not only for convenience:
-  groups already carry `forge`/`owner`/`repo`, so a team's scope can be
-  *derived* from repo access rather than hand-maintained.
-- `host_id` becomes a child of an account; an account belongs to teams.
-  `redact.publication()` already takes `actor` as a parameter for this.
+The one that carries the rest is **two stores**. `sync` and `redact` are not
+two versions of the same pipe — one moves a person's own paths between their
+own machines, the other builds what a second person may see — and collapsing
+them into one store filtered at query time fails the first time anything
+goes wrong, with no un-leaking. Same discipline that has kept prompt text
+out of the schema.
+
+- `host_id` does **not** become an account id. It is baked into every session
+  id, so reassigning it forks the history; a host is *claimed by* an account
+  and keeps its identity.
 - Needs a tenant column and row-level scoping on every query.
 - **No publish transport exists.** `redact` builds the projection and `cci
-  privacy` shows it; nothing sends it anywhere yet.
+  privacy` shows it; nothing sends it anywhere yet. The open fork is direct
+  Postgres with RLS versus an HTTP transport — ACCOUNTS §3 recommends HTTP,
+  because an RLS policy missing from one table is a silent total leak of the
+  most sensitive store in the system.
 
 Two constraints that the projection cannot enforce and the API must, from its
 first commit:
@@ -170,6 +181,25 @@ first commit:
 - **Branch names need a per-repo opt-out.** They are publishable under the
   rule above — repo access shows the branch list — but they are still free
   text, and `feat/restricted-org-dbs` may say more than its author meant.
+
+### Product packaging — done
+
+The thing that made all of the above unreachable: **the wheel did not
+contain the product.** Both the built dashboard and the schema migrations
+were found by walking up from `__file__` to the source checkout, which
+resolves under `pip install -e .` and nowhere else. A pip-installed `cci
+serve` had no dashboard, and a pip-installed `cci init` applied zero
+migrations and reported success, leaving an empty database. No test could
+see it: every test imports from the source tree, where the paths worked.
+`assets.py` resolves both packaged-first now, and `test_packaging.py` builds
+an actual wheel and looks inside.
+
+On top of that, `cci install` and `cci doctor` — one command for the whole
+first run, one to confirm it is still capturing. Both had to move out of
+`scripts/install-launchd.sh`, which you can only run if you have the repo.
+Doctor measures freshness from when the tool last *looked*, not from the
+newest event: no events for three days is a quiet week, no ingest for three
+days is a broken install.
 
 ### Known gaps in what shipped
 
