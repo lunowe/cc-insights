@@ -31,6 +31,7 @@ import type {
   Groups,
   Heatmap,
   Meta,
+  ProjectRow,
   Projects,
   Summary,
   Timeline,
@@ -200,6 +201,22 @@ export async function getHeatmap(f: Filters, signal?: AbortSignal): Promise<Heat
   return request<Heatmap>("/api/heatmap", f, signal)
 }
 
+/**
+ * The **unfiltered** path list, for the filter control.
+ *
+ * `meta` carries a flat roster of paths with no indication of which project
+ * each belongs to, so the hierarchy in the Projects control cannot be built
+ * from it. This is the same `/api/projects` shape with no filters applied, so
+ * narrowing the page never removes a choice from the control that offered it.
+ */
+export async function getProjectRoster(
+  signal?: AbortSignal,
+): Promise<ProjectRow[]> {
+  if (API_URL === null) return (await fixture.projects()).projects
+  return (await request<Projects>("/api/projects", EMPTY_FILTERS, signal))
+    .projects
+}
+
 export async function getGroups(f: Filters, signal?: AbortSignal): Promise<Groups> {
   if (API_URL === null) {
     const base = await fixture.groups()
@@ -218,6 +235,8 @@ export type DashboardData = {
   projects: Projects
   /** One row per logical project. `sum(groups) + ungrouped === summary.activeMs`. */
   groups: Groups
+  /** Every path, unfiltered, with its project — what the filter control lists. */
+  roster: ProjectRow[]
   concurrency: Concurrency
   timeline: Timeline
   daily: Daily
@@ -246,6 +265,7 @@ export async function fetchDashboard(
       summary,
       projects,
       groups,
+      roster,
       concurrency,
       timeline,
       daily,
@@ -256,6 +276,7 @@ export async function fetchDashboard(
       getSummary(f, signal),
       getProjects(f, signal),
       getGroups(f, signal),
+      getProjectRoster(signal),
       getConcurrency(f, signal),
       getTimeline(f, signal),
       getDaily(f, signal),
@@ -267,6 +288,7 @@ export async function fetchDashboard(
       summary,
       projects,
       groups,
+      roster,
       concurrency,
       timeline,
       daily,
@@ -279,17 +301,19 @@ export async function fetchDashboard(
   }
 
   // Fixtures: load once, filter once, derive the rest from the same span list.
-  const [meta, baseSummary, baseTimeline, baseGroups, index] = await Promise.all([
-    fixture.meta(),
-    fixture.summary(),
-    fixture.timeline(),
-    fixture.groups(),
-    projectIndex(),
-  ])
+  const [meta, baseSummary, baseTimeline, baseGroups, baseProjects, index] =
+    await Promise.all([
+      fixture.meta(),
+      fixture.summary(),
+      fixture.timeline(),
+      fixture.groups(),
+      fixture.projects(),
+      projectIndex(),
+    ])
+  const roster = baseProjects.projects
 
   if (!filtered) {
-    const [projects, concurrency, daily, agents, heatmap] = await Promise.all([
-      fixture.projects(),
+    const [concurrency, daily, agents, heatmap] = await Promise.all([
       fixture.concurrency(),
       fixture.daily(),
       fixture.agents(),
@@ -298,8 +322,9 @@ export async function fetchDashboard(
     return {
       meta,
       summary: baseSummary,
-      projects,
+      projects: baseProjects,
       groups: baseGroups,
+      roster,
       concurrency,
       timeline: baseTimeline,
       daily,
@@ -317,6 +342,7 @@ export async function fetchDashboard(
     summary: deriveSummary(spans, baseSummary),
     projects: deriveProjects(spans, index),
     groups: deriveGroups(spans, index, baseGroups),
+    roster,
     concurrency: deriveConcurrency(spans),
     timeline: { ...baseTimeline, spans },
     daily: deriveDaily(spans, f),

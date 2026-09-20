@@ -49,7 +49,7 @@ export function ChartSlots({
             idleThresholdS={data.meta.idleThresholdS}
           />
           <ConcurrencyChart concurrency={data.concurrency} />
-          <ProjectsChart projects={data.projects} palette={palette} />
+          <ProjectsChart groups={data.groups} palette={palette} />
           <AgentsChart agents={data.agents} />
         </div>
         <WeekHeatmap heatmap={data.heatmap} />

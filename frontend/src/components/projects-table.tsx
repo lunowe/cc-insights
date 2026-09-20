@@ -45,7 +45,7 @@ const COLUMNS: {
   hide?: string
   defaultDir: Dir
 }[] = [
-  { key: "name", label: "Group / path", align: "left", defaultDir: "asc" },
+  { key: "name", label: "Project / path", align: "left", defaultDir: "asc" },
   { key: "activeMs", label: "Active", align: "right", defaultDir: "desc" },
   {
     key: "paths",
@@ -164,7 +164,7 @@ function buildBuckets(groups: Groups, projects: ProjectRow[]): Bucket[] {
     out.push({
       key: UNGROUPED,
       kind: "ungrouped",
-      name: "Ungrouped",
+      name: "No project",
       group: null,
       members: loose,
       // The endpoint's own figure, not the members' sum: it also carries the
@@ -183,12 +183,12 @@ function buildBuckets(groups: Groups, projects: ProjectRow[]): Bucket[] {
 }
 
 /**
- * The projects table, rolled up by group.
+ * Projects, each opening onto the paths it was checked out at.
  *
- * A project row is one on-disk path; the logical project is the group behind
- * several of them. Flat, this list reads `atlas-chat` at 54.5 h and its own
- * worktree `tenant-restricted` at 39.8 h as unrelated work. Rolled up it reads
- * 111.6 h across 13 paths, which is the true number.
+ * Flat, this list read `atlas-chat` at 54.5 h and its own worktree
+ * `tenant-restricted` at 39.8 h as unrelated work. Rolled up it reads 111.6 h
+ * across 13 paths, which is the true number. The `group*` names below are the
+ * schema's word for a project; no string the user sees uses it.
  */
 export function ProjectsTable({
   groups,
@@ -275,14 +275,14 @@ export function ProjectsTable({
     <section>
       <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 className="eyebrow text-foreground">
-          {groupCount === 0 ? "Projects" : "Projects by group"}
+          Projects
         </h2>
         <div className="flex items-baseline gap-3">
           <p className="num text-[0.75rem] text-muted-foreground">
             {groupCount > 0 ? (
               <>
                 {formatCount(groupCount)}{" "}
-                {groupCount === 1 ? "group" : "groups"} ·{" "}
+                {groupCount === 1 ? "project" : "projects"} ·{" "}
               </>
             ) : null}
             {formatCount(projects.length)}{" "}
@@ -384,11 +384,11 @@ export function ProjectsTable({
                 {formatHours(groupMs)} h
               </span>{" "}
               in {formatCount(groupCount)}{" "}
-              {groupCount === 1 ? "group" : "groups"} +{" "}
+              {groupCount === 1 ? "project" : "projects"} +{" "}
               <span className="text-foreground">
                 {formatHours(ungroupedMs)} h
               </span>{" "}
-              ungrouped ={" "}
+              on unplaced paths ={" "}
               <span className="text-foreground">
                 {formatHours(totalActiveMs)} h
               </span>{" "}
@@ -505,8 +505,8 @@ function BucketRows({
           <p className="mt-0.5 ml-3 truncate text-[0.6875rem] text-muted-foreground/80">
             {ungrouped ? (
               <>
-                Not a group — {formatCount(b.paths)} unplaced{" "}
-                {b.paths === 1 ? "path" : "paths"}
+                {formatCount(b.paths)} {b.paths === 1 ? "path" : "paths"}{" "}
+                detection has not placed in a project
               </>
             ) : (
               <>
@@ -611,9 +611,9 @@ function PinnedMarker({ count }: { count?: number }) {
       </TooltipTrigger>
       <TooltipContent className="max-w-64">
         {count !== undefined
-          ? `${count} of these paths ${count === 1 ? "was" : "were"} placed in this group by hand. `
-          : "A human placed this path in this group. "}
-        <code>cci group auto</code> will never move it.
+          ? `${count} of these paths ${count === 1 ? "was" : "were"} assigned to this project by hand. `
+          : "A human assigned this path to this project. "}
+        Detection will never move it.
       </TooltipContent>
     </Tooltip>
   )
@@ -629,8 +629,8 @@ function WorktreeMarker() {
         </span>
       </TooltipTrigger>
       <TooltipContent className="max-w-72">
-        A scratch worktree of this repo, placed into the group by its path
-        shape. That says how the checkout was made, not whether it survives —
+        A scratch worktree of this repo, matched to it by path shape. That
+        says how the checkout was made, not whether it survives —
         this row is marked <span className="font-medium">gone</span> separately
         if the directory is no longer on disk.
       </TooltipContent>
@@ -704,8 +704,8 @@ function UnknownMarker({ count }: { count?: number }) {
       <TooltipContent className="max-w-72">
         {count !== undefined ? `${count} of these paths have ` : "This path has "}
         not been probed yet, so whether {count !== undefined ? "they still exist" : "it still exists"} is
-        unknown — which is not the same as gone. <code>cci group auto</code>{" "}
-        checks on its next run.
+        unknown — which is not the same as gone. Detection checks on its next
+        run.
       </TooltipContent>
     </Tooltip>
   )

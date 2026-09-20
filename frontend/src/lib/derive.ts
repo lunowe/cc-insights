@@ -91,10 +91,13 @@ export function buildProjectIndex(meta: Meta, base: Projects): ProjectIndex {
  *
  * `project` and `group` **union** with each other — `?group=G&project=P` keeps
  * the spans of G *plus* the spans of P, never their intersection. A span that
- * satisfies both is still one span, so a group and one of its own members
- * select exactly the group. That union then intersects with `source`, `from`,
- * `to` and `role`. `index` supplies the project → group mapping; without it a
- * group filter can match nothing, so it is required whenever one is set.
+ * satisfies both is still one span, so a project and one of its own paths
+ * select exactly the project. That union then intersects with `source`,
+ * `from`, `to` and `role`.
+ *
+ * A span now carries its own `groupId`, so the mapping is read from the span
+ * itself; `index` is only the fallback for a capture taken before that field
+ * existed.
  */
 export function filterSpans(
   spans: Span[],
@@ -110,7 +113,8 @@ export function filterSpans(
       const inProject =
         projects !== null && s.projectId !== null && projects.has(s.projectId)
       const groupId =
-        s.projectId === null ? null : (index?.get(s.projectId)?.groupId ?? null)
+        s.groupId ??
+        (s.projectId === null ? null : (index?.get(s.projectId)?.groupId ?? null))
       const inGroup = groups !== null && groupId !== null && groups.has(groupId)
       if (!inProject && !inGroup) return false
     }
@@ -296,7 +300,7 @@ export function deriveGroups(
   for (const s of spans) {
     const d = durationOf(s)
     const info = s.projectId === null ? undefined : index.get(s.projectId)
-    const groupId = info?.groupId ?? null
+    const groupId = s.groupId ?? info?.groupId ?? null
 
     if (groupId === null) {
       // A span with no project at all still belongs to nothing, so its time
@@ -309,7 +313,7 @@ export function deriveGroups(
     let a = acc.get(groupId)
     if (a === undefined) {
       a = {
-        name: info?.groupName ?? groupId.slice(0, 8),
+        name: s.groupName ?? info?.groupName ?? groupId.slice(0, 8),
         activeMs: 0,
         sessions: new Set(),
         threads: new Set(),

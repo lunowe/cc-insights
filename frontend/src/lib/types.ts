@@ -61,8 +61,18 @@ export type Span = {
   spanId: string
   threadId: string
   sessionId: string
+  /** The on-disk path. In UI copy this is a **path**, never a project. */
   projectId: string | null
   projectName: string | null
+  /**
+   * The **project** this span belongs to (`project_group` in the schema).
+   * A swimlane lane is labelled and coloured by this, never by `projectName`:
+   * the path is called `tenant-restricted` while the project is atlas-chat,
+   * and labelling by path splits one project into a dozen differently-named,
+   * differently-coloured lanes. Null when the path has no project yet.
+   */
+  groupId: string | null
+  groupName: string | null
   source: Source
   /** Claude Code records an agent *type*; Codex records a random per-thread
    *  nickname. Never present a Codex nickname as an agent type. */

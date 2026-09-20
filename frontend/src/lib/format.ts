@@ -125,7 +125,7 @@ export const GROUP_ORIGIN_LABEL: Record<GroupOrigin, string> = {
   git_remote: "same git remote",
   git_common_dir: "same git repo",
   path_worktree: "worktree path shape",
-  path_ancestor: "inside another project",
+  path_ancestor: "inside another path",
   manual: "placed by hand",
 }
 

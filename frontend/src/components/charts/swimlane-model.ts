@@ -25,10 +25,17 @@ export type Lane = {
   firstStart: number
 }
 
+/**
+ * One session's lanes. `groupId`/`groupName` are the **project**; `projectId`/
+ * `projectName` are the on-disk **path** it was checked out at. The header
+ * shows the project, the tooltip shows the path.
+ */
 export type SessionGroup = {
   sessionId: string
   projectId: string | null
   projectName: string | null
+  groupId: string | null
+  groupName: string | null
   source: Source
   lanes: Lane[]
   firstStart: number
@@ -110,6 +117,8 @@ export function buildGroups(spans: Span[], w: Window): SessionGroup[] {
       sessionId,
       projectId: projectSpan.projectId,
       projectName: projectSpan.projectName,
+      groupId: projectSpan.groupId,
+      groupName: projectSpan.groupName,
       source: first.source,
       lanes,
       firstStart: Math.min(...list.map((t) => t.firstStart)),

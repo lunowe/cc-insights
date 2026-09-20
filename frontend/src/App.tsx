@@ -26,6 +26,7 @@ export function App() {
           <AppHeader meta={data?.meta ?? null} mode={DATA_MODE} />
           <FilterBar
             meta={data?.meta ?? null}
+            roster={data?.roster ?? []}
             filters={filters}
             setFilters={setFilters}
             summary={data?.summary ?? null}

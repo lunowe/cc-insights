@@ -22,3 +22,39 @@ def test_defaults(tmp_path):
     assert cfg.idle_threshold_s == 300
     assert set(cfg.source_globs) == {"claude_code", "codex"}
     assert cfg.globs_for("codex") and all(not str(p).startswith("~") for p in cfg.globs_for("codex"))
+
+
+def test_a_copied_config_dir_points_at_its_own_database(tmp_path):
+    """Copying a config dir to experiment on must not write to the original.
+
+    With an absolute db_path in the TOML the copy silently keeps pointing at
+    the source database, so `--config-dir <copy>` mutates the real one. That
+    happened and corrupted two rows of a committed fixture.
+    """
+    import shutil
+
+    from cc_insights import config as config_mod
+
+    src = tmp_path / "src"
+    original = config_mod.load(src)
+    original.db_path.write_bytes(b"")  # the DB itself need not be valid here
+
+    copy = tmp_path / "copy"
+    shutil.copytree(src, copy)
+
+    reloaded = config_mod.load(copy, create=False)
+    assert reloaded.db_path.parent == copy, (
+        f"copy resolves to {reloaded.db_path}, which is not inside {copy}"
+    )
+    assert reloaded.db_path != original.db_path
+
+
+def test_a_database_deliberately_outside_the_config_dir_stays_absolute(tmp_path):
+    from cc_insights import config as config_mod
+
+    cfg = config_mod.load(tmp_path / "cfg")
+    elsewhere = tmp_path / "elsewhere" / "custom.db"
+    cfg.db_path = elsewhere
+    cfg.save()
+    assert f'db_path = "{elsewhere}"' in cfg.path.read_text()
+    assert config_mod.load(tmp_path / "cfg", create=False).db_path == elsewhere

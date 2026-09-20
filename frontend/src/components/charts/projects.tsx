@@ -7,7 +7,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { formatCount, formatHours, formatPercent } from "@/lib/format"
-import type { Projects } from "@/lib/types"
+import type { Groups } from "@/lib/types"
 
 import { BarEndLabel } from "./bar-label"
 import { ChartFrame, type TableView } from "./chart-frame"
@@ -33,73 +33,109 @@ type Row = {
 
 const config = { hours: { label: "Active hours" } } satisfies ChartConfig
 
+/**
+ * One bar per **project**, not per on-disk path. Broken down by path this
+ * chart put atlas-chat at 55.7 h and its own worktree at 39.8 h two rows
+ * apart, as if they were rival pieces of work; by project it is one bar at
+ * 111.6 h. Paths live in the table below, where the detail belongs.
+ */
 export function ProjectsChart({
-  projects,
+  groups,
   palette,
 }: {
-  projects: Projects
+  groups: Groups
   palette: ProjectPalette
 }) {
   const [ref, width] = useMeasure<HTMLDivElement>()
-  const total = projects.projects.reduce((n, p) => n + p.activeMs, 0)
-
+  const unplacedMs = groups.ungrouped.activeMs
+  const total =
+    groups.groups.reduce((n, g) => n + g.activeMs, 0) + unplacedMs
   const rows = useMemo<Row[]>(() => {
-    const sorted = [...projects.projects].sort(
-      (a, b) => b.activeMs - a.activeMs,
-    )
+    const sorted = [...groups.groups].sort((a, b) => b.activeMs - a.activeMs)
     const head = sorted.slice(0, TOP_N)
     const tail = sorted.slice(TOP_N)
-    const out: Row[] = head.map((p) => ({
-      id: p.projectId,
-      name: p.name,
-      ms: p.activeMs,
-      hours: p.activeMs / HOUR,
-      sessions: p.sessions,
-      threads: p.threads,
-      color: palette.colorOf(p.projectId),
-      tip: `${formatHours(p.activeMs)} h · ${formatPercent(p.activeMs, total)}`,
+    const out: Row[] = head.map((g) => ({
+      id: g.groupId,
+      name: g.name,
+      ms: g.activeMs,
+      hours: g.activeMs / HOUR,
+      sessions: g.sessions,
+      threads: g.threads,
+      color: palette.colorOf(g.groupId),
+      tip: `${formatHours(g.activeMs)} h · ${formatPercent(g.activeMs, total)}`,
       isTail: false,
       tailCount: 0,
     }))
     if (tail.length > 0) {
-      const ms = tail.reduce((n, p) => n + p.activeMs, 0)
+      const ms = tail.reduce((n, g) => n + g.activeMs, 0)
       out.push({
         id: "__tail",
         name: `${tail.length} other project${tail.length === 1 ? "" : "s"}`,
         ms,
         hours: ms / HOUR,
-        sessions: tail.reduce((n, p) => n + p.sessions, 0),
-        threads: tail.reduce((n, p) => n + p.threads, 0),
+        sessions: tail.reduce((n, g) => n + g.sessions, 0),
+        threads: tail.reduce((n, g) => n + g.threads, 0),
         color: OTHER_COLOR,
         tip: `${formatHours(ms)} h · ${formatPercent(ms, total)}`,
         isTail: true,
         tailCount: tail.length,
       })
     }
+    if (unplacedMs > 0) {
+      out.push({
+        id: "__unplaced",
+        // Short on purpose: this is an axis tick, and it must not wrap.
+        name: `No project (${groups.ungrouped.projects})`,
+        ms: unplacedMs,
+        hours: unplacedMs / HOUR,
+        sessions: 0,
+        threads: 0,
+        color: OTHER_COLOR,
+        tip: `${formatHours(unplacedMs)} h · ${formatPercent(unplacedMs, total)}`,
+        isTail: true,
+        tailCount: groups.ungrouped.projects,
+      })
+    }
     return out
-  }, [projects, palette, total])
+  }, [groups, palette, total, unplacedMs])
 
   const table = useMemo<TableView>(
     () => ({
       columns: [
         { key: "name", label: "Project" },
+        { key: "paths", label: "Paths", align: "right" },
         { key: "hours", label: "Active", align: "right" },
         { key: "share", label: "Share", align: "right" },
         { key: "sessions", label: "Sessions", align: "right" },
         { key: "threads", label: "Threads", align: "right" },
       ],
-      rows: [...projects.projects]
-        .sort((a, b) => b.activeMs - a.activeMs)
-        .map((p) => ({
-          name: p.name,
-          hours: `${formatHours(p.activeMs)} h`,
-          share: formatPercent(p.activeMs, total),
-          sessions: formatCount(p.sessions),
-          threads: formatCount(p.threads),
-        })),
-      note: "Every project in the filtered range, not only the top rows the chart shows.",
+      rows: [
+        ...[...groups.groups]
+          .sort((a, b) => b.activeMs - a.activeMs)
+          .map((g) => ({
+            name: g.name,
+            paths: formatCount(g.projects),
+            hours: `${formatHours(g.activeMs)} h`,
+            share: formatPercent(g.activeMs, total),
+            sessions: formatCount(g.sessions),
+            threads: formatCount(g.threads),
+          })),
+        ...(unplacedMs > 0
+          ? [
+              {
+                name: "No project",
+                paths: formatCount(groups.ungrouped.projects),
+                hours: `${formatHours(unplacedMs)} h`,
+                share: formatPercent(unplacedMs, total),
+                sessions: "—",
+                threads: "—",
+              },
+            ]
+          : []),
+      ],
+      note: "Every project in the filtered range, not only the top rows the chart shows. Paths counts the on-disk checkouts each one covers.",
     }),
-    [projects, total],
+    [groups, total, unplacedMs],
   )
 
   const narrow = width > 0 && width < 480
@@ -115,13 +151,17 @@ export function ProjectsChart({
       title="Project breakdown"
       description={
         <>
-          {projects.projects.length > TOP_N
-            ? `Top ${TOP_N} projects by active time; the other ${projects.projects.length - TOP_N} share one row.`
-            : projects.projects.length === 1
-              ? "The one project in view."
-              : `All ${projects.projects.length} projects in view, by active time.`}{" "}
-          Colours are the swimlane&rsquo;s: the five largest projects all-time
-          keep a hue, everything else is gray, whatever the filter.
+          {groups.groups.length === 0
+            ? `Nothing has been folded into a project yet, so every path in view shares one row.`
+            : groups.groups.length > TOP_N
+              ? `Top ${TOP_N} projects by active time; the other ${groups.groups.length - TOP_N} share one row.`
+              : groups.groups.length === 1
+                ? "The one project in view."
+                : `All ${groups.groups.length} projects in view, by active time.`}{" "}
+          A project is one repo however many paths it was checked out at, so a
+          worktree adds to its project rather than standing beside it. Colours
+          are the swimlane&rsquo;s: the five largest projects all-time keep a
+          hue, everything else is gray, whatever the filter.
         </>
       }
       table={table}

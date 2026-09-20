@@ -25,7 +25,7 @@ import type { Span } from "@/lib/types"
 
 import { ChartFrame, Legend, type TableView } from "./chart-frame"
 import { HoverTip, TipRow, localPoint, type Tip } from "./hover-tip"
-import { OTHER_COLOR, type ProjectPalette } from "./palette"
+import { OTHER_COLOR, colorKey, type ProjectPalette } from "./palette"
 import {
   DAY,
   HOUR,
@@ -258,10 +258,14 @@ export function TimelineSwimlane({
       body: (
         <div className="grid gap-1">
           <TipRow
-            swatch={palette.colorOf(s.projectId)}
-            label={s.projectName ?? "No project"}
+            swatch={palette.colorOf(colorKey(s.groupId, s.projectId))}
+            label={s.groupName ?? s.projectName ?? "No project"}
             value={formatDuration(s.end - s.start)}
           />
+          {/* The path is worth showing — just never instead of the project. */}
+          {s.projectName !== null && s.projectName !== s.groupName ? (
+            <p className="num text-muted-foreground">path {s.projectName}</p>
+          ) : null}
           <p className="text-muted-foreground">{kind}</p>
           <p className="num text-muted-foreground">
             {formatDateTime(s.start)} → {formatDateTime(s.end)}
@@ -281,7 +285,8 @@ export function TimelineSwimlane({
       for (const lane of g.lanes) {
         for (const s of lane.spans) {
           rowsOut.push({
-            project: g.projectName ?? "—",
+            project: g.groupName ?? g.projectName ?? "—",
+            path: g.projectName ?? "—",
             thread: lane.isSubagent
               ? `subagent${lane.depth > 1 ? ` (depth ${lane.depth})` : ""} · ${
                   s.source === "claude_code" && s.agentName
@@ -299,6 +304,7 @@ export function TimelineSwimlane({
     return {
       columns: [
         { key: "project", label: "Project" },
+        { key: "path", label: "Path" },
         { key: "thread", label: "Thread" },
         { key: "start", label: "Start", align: "right" },
         { key: "end", label: "End", align: "right" },
@@ -340,7 +346,9 @@ export function TimelineSwimlane({
       title="Timeline swimlane"
       description={
         <>
-          One lane per thread, grouped by session, coloured by project; subagent
+          One lane per thread, gathered by session and coloured by project — a
+          project&rsquo;s worktrees and subdirectories share its name and hue,
+          and the path is in each span&rsquo;s tooltip. Subagent
           lanes sit indented under the thread that spawned them. The ribbon
           counts threads running at once. Drag to pan, ⌘/Ctrl + wheel to zoom.
         </>
@@ -600,7 +608,9 @@ export function TimelineSwimlane({
                   narrow={narrow}
                   win={win}
                   x={x}
-                  color={palette.colorOf(group.projectId)}
+                  color={palette.colorOf(
+                    colorKey(group.groupId, group.projectId),
+                  )}
                   hatchId={hatchId}
                   onEnter={showSpan}
                   onLeave={() => setTip(null)}
@@ -761,7 +771,9 @@ function SessionRows({
   onEnter: (e: ReactPointerEvent<SVGElement>, s: Span) => void
   onLeave: () => void
 }) {
-  const name = group.projectName ?? "No project"
+  // The project, never the path: a lane headed `tenant-restricted` is the bug
+  // this fixes — that worktree is atlas-chat, and so are twelve others.
+  const name = group.groupName ?? group.projectName ?? "No project"
   const n = group.lanes.length
   const header = narrow
     ? `${name} · ${n}`

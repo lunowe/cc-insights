@@ -2,7 +2,6 @@ import { Boxes, FolderGit2, RotateCcw, Sigma, X } from "lucide-react"
 import { cn } from "cn"
 
 import { DateRangeFilter } from "@/components/filters/date-range-filter"
-import { GroupFilter } from "@/components/filters/group-filter"
 import { ProjectFilter } from "@/components/filters/project-filter"
 import { Button } from "@/components/ui/button"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -14,7 +13,7 @@ import {
   type Filters,
 } from "@/lib/filters"
 import { SOURCE_LABEL, formatCount, formatHours } from "@/lib/format"
-import type { Meta, Role, Source, Summary } from "@/lib/types"
+import type { Meta, ProjectRow, Role, Source, Summary } from "@/lib/types"
 
 const ROLE_OPTIONS: { value: Role; label: string; hint: string }[] = [
   { value: "all", label: "All", hint: "Root and subagent threads together." },
@@ -32,28 +31,43 @@ const ROLE_OPTIONS: { value: Role; label: string; hint: string }[] = [
 
 export function FilterBar({
   meta,
+  roster,
   filters,
   setFilters,
   summary,
   loading,
 }: {
   meta: Meta | null
+  /** Every path, unfiltered, with the project it belongs to. */
+  roster: ProjectRow[]
   filters: Filters
   setFilters: SetFilters
   summary: Summary | null
   loading: boolean
 }) {
   const active = activeFilterCount(filters)
+  const pathNames = new Map(roster.map((p) => [p.projectId, p.name] as const))
   const projectNames = new Map(
-    (meta?.projects ?? []).map((p) => [p.projectId, p.name] as const),
-  )
-  const groupNames = new Map(
     (meta?.groups ?? []).map((g) => [g.groupId, g.name] as const),
   )
-  // Both kinds of chip are on screen at once: say which is which, because the
-  // two do not narrow each other — see `unionActive` below.
-  const unionActive = filters.groups.length > 0 && filters.projects.length > 0
-  const noGroupsYet = meta !== null && meta.groups.length === 0
+
+  /*
+   * One filter, two granularities, and they **union** on the wire. Nested in
+   * one control, picking a project and a path inside it needs no explanation —
+   * the subtree already showed the containment. What still surprises is a
+   * project plus a path from somewhere else, because the total then exceeds
+   * the project the user thought they had chosen. Say it only then.
+   */
+  const pathOwner = new Map(
+    roster.map((p) => [p.projectId, p.groupId] as const),
+  )
+  const chosen = new Set(filters.groups)
+  const strays = filters.projects.filter((id) => {
+    const owner = pathOwner.get(id) ?? null
+    return owner === null || !chosen.has(owner)
+  })
+  const unionActive = filters.groups.length > 0 && strays.length > 0
+  const noProjectsYet = meta !== null && meta.groups.length === 0
 
   // Empty means "all": both sources render lit, and switching one off narrows
   // to the other. Turning the last one off returns to all rather than to zero.
@@ -64,16 +78,19 @@ export function FilterBar({
     <div className="border-b">
       <div className="mx-auto max-w-[110rem] px-4 py-2.5 sm:px-6 lg:px-8">
         <div className="flex flex-wrap items-center gap-2">
-          <GroupFilter
-            groups={meta?.groups ?? []}
-            selected={filters.groups}
-            onChange={(groups) => setFilters((f) => ({ ...f, groups }))}
-          />
-
           <ProjectFilter
-            projects={meta?.projects ?? []}
-            selected={filters.projects}
-            onChange={(projects) => setFilters((f) => ({ ...f, projects }))}
+            projects={meta?.groups ?? []}
+            roster={roster}
+            selected={{ projects: filters.groups, paths: filters.projects }}
+            onChange={(next) =>
+              setFilters((f) => ({
+                ...f,
+                // `group=` for a project, `project=` for a path: the schema's
+                // names, not the UI's. See `docs/GROUPING.md`.
+                groups: next.projects,
+                projects: next.paths,
+              }))
+            }
           />
 
           <ToggleGroup
@@ -183,8 +200,8 @@ export function FilterBar({
               <Chip
                 key={`g:${id}`}
                 icon={Boxes}
-                label={groupNames.get(id) ?? id.slice(0, 8)}
-                title="Group — every on-disk path of this logical project"
+                label={projectNames.get(id) ?? id.slice(0, 8)}
+                title="Project — every on-disk path it was checked out at"
                 onRemove={() =>
                   setFilters((f) => ({
                     ...f,
@@ -197,8 +214,8 @@ export function FilterBar({
               <Chip
                 key={`p:${id}`}
                 icon={FolderGit2}
-                label={projectNames.get(id) ?? id.slice(0, 8)}
-                title="Project — one on-disk path"
+                label={pathNames.get(id) ?? id.slice(0, 8)}
+                title="Path — one on-disk checkout"
                 onRemove={() =>
                   setFilters((f) => ({
                     ...f,
@@ -213,33 +230,34 @@ export function FilterBar({
               <span className="inline-flex items-center gap-1.5 py-0.5 pl-1 text-[0.75rem] text-muted-foreground">
                 <Sigma className="size-3.5 shrink-0 text-primary" />
                 <span>
-                  Union:{" "}
+                  Adds up:{" "}
                   <span className="text-foreground">
                     {filters.groups.length === 1
-                      ? "the group"
-                      : `all ${filters.groups.length} groups`}
+                      ? "the project"
+                      : `all ${filters.groups.length} projects`}
                   </span>{" "}
                   <span className="text-foreground">plus</span>{" "}
                   <span className="text-foreground">
-                    {filters.projects.length === 1
-                      ? "the extra project"
-                      : `${filters.projects.length} extra projects`}
+                    {strays.length === 1
+                      ? "a path from elsewhere"
+                      : `${strays.length} paths from elsewhere`}
                   </span>
-                  , not the overlap.
+                  , so the total is larger than{" "}
+                  {filters.groups.length === 1 ? "it" : "they"} alone.
                 </span>
               </span>
             ) : null}
           </div>
         ) : null}
 
-        {noGroupsYet ? (
+        {noProjectsYet ? (
           <p className="mt-2 text-[0.75rem] text-muted-foreground">
-            No groups yet — one row per on-disk path, so a repo&rsquo;s
-            worktrees and subdirectories each read as a separate project. Run{" "}
+            Paths have not been folded into projects yet, so a repo&rsquo;s
+            worktrees and subdirectories each read as work of their own. Run{" "}
             <code className="num rounded bg-muted px-1 py-0.5 text-foreground">
               cci group auto
             </code>{" "}
-            to fold them together.
+            to gather them.
           </p>
         ) : null}
       </div>

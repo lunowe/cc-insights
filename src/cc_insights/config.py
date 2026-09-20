@@ -59,7 +59,7 @@ class Config:
             "",
             f'host_id = "{self.host_id}"',
             f'hostname = "{self.hostname}"',
-            f'db_path = "{self.db_path}"',
+            f'db_path = "{self._db_path_for_toml()}"',
             "",
             "# Seconds of silence that ends an active span. See docs/FINDINGS.md.",
             f"idle_threshold_s = {self.idle_threshold_s}",
@@ -71,10 +71,31 @@ class Config:
             lines.append(f"{name} = [{rendered}]")
         return "\n".join(lines) + "\n"
 
+    def _db_path_for_toml(self) -> str:
+        """Relative when the database lives inside the config directory.
+
+        Copying a config directory to experiment on is the obvious safety move,
+        and with an absolute path here it silently fails: the copy's config
+        still points at the ORIGINAL database, so `--config-dir <copy>` writes
+        to the real one. That actually happened and corrupted two rows of a
+        committed fixture. A relative path makes a copied directory
+        self-contained, which is what anyone copying it assumes.
+        """
+        try:
+            return str(self.db_path.relative_to(self.config_dir))
+        except ValueError:
+            return str(self.db_path)  # deliberately elsewhere: keep it absolute
+
     def save(self) -> Path:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.path.write_text(self.to_toml())
         return self.path
+
+
+def _resolve_db_path(raw: str, config_dir: Path) -> Path:
+    """A relative db_path belongs to the directory its config was read from."""
+    p = Path(raw).expanduser()
+    return p if p.is_absolute() else (config_dir / p)
 
 
 def load(config_dir: Path | None = None, *, create: bool = True) -> Config:
@@ -87,7 +108,7 @@ def load(config_dir: Path | None = None, *, create: bool = True) -> Config:
         return Config(
             host_id=raw["host_id"],
             hostname=raw.get("hostname", socket.gethostname()),
-            db_path=Path(raw["db_path"]).expanduser(),
+            db_path=_resolve_db_path(raw["db_path"], config_dir),
             idle_threshold_s=int(raw.get("idle_threshold_s", DEFAULT_IDLE_THRESHOLD_S)),
             source_globs={k: list(v) for k, v in (raw.get("source_globs") or {}).items()}
             or dict(DEFAULT_SOURCE_GLOBS),
