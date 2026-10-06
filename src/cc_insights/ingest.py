@@ -665,7 +665,15 @@ def _plan_file(
     # Shrunk => rotated or rewritten. Restart; dedup makes that harmless.
     if size_bytes < prior_size or size_bytes < bytes_read:
         return _FilePlan(from_byte=0, prior_lines=0, skip=False, rotated=True)
-    if size_bytes == prior_size and mtime_ms == prior_mtime and bytes_read >= size_bytes:
+    # Unchanged since the last run: nothing new can be in it. `bytes_read`
+    # may legitimately sit short of the end -- the Claude adapter holds back a
+    # response that may still be streaming -- so "read to the end" is not the
+    # test. A recorded offset of 0 is: that is a source with no byte offsets
+    # (opencode's SQLite store, whose new rows can land in its WAL without
+    # touching the main file), which must be re-read every run.
+    if size_bytes == prior_size and mtime_ms == prior_mtime and (
+        bytes_read >= size_bytes or bytes_read > 0
+    ):
         return _FilePlan(from_byte=bytes_read, prior_lines=lines_read, skip=True, rotated=False)
     return _FilePlan(from_byte=bytes_read, prior_lines=lines_read, skip=False, rotated=False)
 

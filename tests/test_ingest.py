@@ -873,3 +873,108 @@ def test_full_corpus_reconciles_with_the_adapters_in_one_process(tmp_path: Path)
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
     assert conn.execute("SELECT count(*) FROM span").fetchone()[0] == 0
     assert conn.execute("SELECT count(*) FROM thread WHERE active_ms <> 0").fetchone()[0] == 0
+
+
+# --------------------------------------------------- one response, billed once --
+#
+# Claude Code writes one line per content block of a response, and each line
+# repeats the response's whole `usage`. Summing per line counted input and
+# cache ~2x. These run the real adapter through the real ingest, because the
+# thing that can go wrong is the interaction: a response cut in half by an
+# ingest run that happens while it is still streaming.
+
+
+def _response_line(uuid: str, ts: str, msg: str, req: str | None, out: int,
+                   block: str = "text", **usage) -> dict:
+    content = [{"type": "tool_use", "id": f"tu-{uuid}", "name": "Bash", "input": {}}] \
+        if block == "tool_use" else [{"type": block, block: "x"}]
+    rec = {
+        "type": "assistant", "uuid": uuid, "timestamp": ts, "sessionId": "s1",
+        "cwd": "/Users/demo/Coding/Demo", "version": "2.1.0",
+        "message": {
+            "id": msg, "role": "assistant", "model": "claude-opus-5-5", "content": content,
+            "usage": {"input_tokens": usage.get("inp", 10), "output_tokens": out,
+                      "cache_read_input_tokens": usage.get("cr", 1000),
+                      "cache_creation_input_tokens": usage.get("cw", 200),
+                      "cache_creation": {"ephemeral_5m_input_tokens": 0,
+                                         "ephemeral_1h_input_tokens": usage.get("cw", 200)}},
+        },
+    }
+    if req is not None:
+        rec["requestId"] = req
+    return rec
+
+
+def _tool_result(uuid: str, ts: str) -> dict:
+    rec = claude_line("s1", uuid, ts)
+    rec["message"] = {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "x"}]}
+    return rec
+
+
+def _totals(conn: sqlite3.Connection) -> tuple[int, ...]:
+    return tuple(conn.execute(
+        "SELECT coalesce(sum(input_tokens),0), coalesce(sum(output_tokens),0), "
+        "coalesce(sum(cache_read_tokens),0), coalesce(sum(cache_write_tokens),0), "
+        "coalesce(sum(cache_write_1h_tokens),0), count(*) FROM event").fetchone())
+
+
+# Two responses. The first streams thinking, text, a tool call (with its
+# result in between, as Claude Code writes it) and a second tool call; output
+# grows as it streams. The second response has a single line.
+_STREAMED = [
+    _response_line("a1", "2026-10-01T10:00:00Z", "msg_1", "req_1", 5, "thinking"),
+    _response_line("a2", "2026-10-01T10:00:01Z", "msg_1", "req_1", 40, "text"),
+    _response_line("a3", "2026-10-01T10:00:02Z", "msg_1", "req_1", 90, "tool_use"),
+    _tool_result("u1", "2026-10-01T10:00:03Z"),
+    _response_line("a4", "2026-10-01T10:00:04Z", "msg_1", "req_1", 120, "tool_use"),
+    _tool_result("u2", "2026-10-01T10:00:05Z"),
+    _response_line("b1", "2026-10-01T10:00:06Z", "msg_2", "req_2", 7, "text",
+                   inp=3, cr=2000, cw=0),
+]
+# What the API billed: each response once, at its final output count.
+_BILLED = (10 + 3, 120 + 7, 1000 + 2000, 200 + 0, 200 + 0)
+
+
+def test_a_streamed_response_is_billed_once(tmp_path: Path):
+    log = write_jsonl(tmp_path / "claude" / "p" / "s1.jsonl", _STREAMED)
+    cfg = make_config(tmp_path, claude_code=[str(tmp_path / "claude" / "*" / "*.jsonl")])
+    conn = fresh_db(cfg)
+    ingest.ingest(conn, cfg, sources=["claude_code"])
+
+    *tokens, events = _totals(conn)
+    assert tuple(tokens) == _BILLED
+    assert events == len(_STREAMED), "every line is still an event on the timeline"
+    assert log.exists()
+
+
+@pytest.mark.parametrize("cut", range(1, len(_STREAMED)))
+def test_a_response_cut_by_an_ingest_run_is_still_billed_once(tmp_path: Path, cut: int):
+    """The file is ingested with only its first `cut` lines on disk, then
+    again once the rest has been written -- for every possible cut, including
+    in the middle of the streaming response. The totals must equal a single
+    pass over the finished file."""
+    log = tmp_path / "claude" / "p" / "s1.jsonl"
+    cfg = make_config(tmp_path, claude_code=[str(tmp_path / "claude" / "*" / "*.jsonl")])
+    conn = fresh_db(cfg)
+
+    write_jsonl(log, _STREAMED[:cut])
+    ingest.ingest(conn, cfg, sources=["claude_code"])
+    with log.open("a") as handle:
+        handle.write("".join(json.dumps(r) + "\n" for r in _STREAMED[cut:]))
+    os.utime(log, (1, 1))   # a different mtime, as a real append would leave
+    ingest.ingest(conn, cfg, sources=["claude_code"])
+
+    *tokens, events = _totals(conn)
+    assert tuple(tokens) == _BILLED
+    assert events == len(_STREAMED)
+
+
+def test_an_unchanged_file_with_a_held_back_response_is_skipped(tmp_path: Path):
+    """Holding the last response back leaves the offset short of the end of
+    the file. That must not turn every run into a re-read of every file."""
+    write_jsonl(tmp_path / "claude" / "p" / "s1.jsonl", _STREAMED)
+    cfg = make_config(tmp_path, claude_code=[str(tmp_path / "claude" / "*" / "*.jsonl")])
+    conn = fresh_db(cfg)
+    ingest.ingest(conn, cfg, sources=["claude_code"])
+    again = ingest.ingest(conn, cfg, sources=["claude_code"])
+    assert again.files_skipped == 1 and again.events_inserted == 0
