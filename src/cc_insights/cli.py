@@ -229,7 +229,7 @@ def _print_price_caveats(conn) -> None:
     """
     approx = pricing.approximations(conn)
     if approx:
-        print("\n  priced as a near relative, which the catalog has not split yet:")
+        print("\n  priced as a near relative (no exact catalog key for the name):")
         for model, matched in approx:
             print(f"    {model:<28} priced as {matched}")
         print("    correct one with: cci price set <model> --input ... --output ...")
@@ -363,7 +363,9 @@ def cmd_price_list(args: argparse.Namespace) -> int:
                 print(f"    {r['model']}")
         src = pricing.catalog_source()
         if src:
-            print(f"\n  catalog {src.get('repo')}@{(src.get('commit') or '?')[:7]} "
+            fallback = src.get("fallback") or {}
+            also = (f", {fallback['name']} as fallback" if fallback.get("name") else "")
+            print(f"\n  catalog {src.get('repo')}@{(src.get('commit') or '?')[:7]}{also}, "
                   f"fetched {src.get('fetched_at')}, plus {src.get('overrides', 0)} "
                   "shipped correction(s)")
             print("  refresh it with: python3 scripts/sync_prices.py")
@@ -384,8 +386,9 @@ def cmd_price_sync(args: argparse.Namespace) -> int:
         print(f"  {len(r.overridden)} priced from the shipped corrections instead: "
               f"{', '.join(sorted(r.overridden))}")
     if r.redundant:
-        print(f"  the catalog now has entries of its own for {', '.join(sorted(r.redundant))}"
-              " \u2014 those overrides can be deleted from price_overrides.json")
+        print(f"  the catalog now agrees with the correction(s) for "
+              f"{', '.join(sorted(r.redundant))}"
+              " \u2014 move them to `retired` in price_overrides.json")
     if r.rows_kept_manual:
         print(f"  kept {r.rows_kept_manual} manual rate(s) untouched")
     if r.unpriced:

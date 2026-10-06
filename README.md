@@ -246,10 +246,23 @@ token is most of the bill.
 
 That figure is a *list-price equivalent*, not a bill — a subscription charges a
 flat monthly fee no matter how many tokens run through it. Rates come from a
-committed snapshot of [pydantic/genai-prices](https://github.com/pydantic/genai-prices),
+committed snapshot of [LiteLLM's price list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json),
+the same catalog [ccusage](https://github.com/ccusage/ccusage) uses, with
+[models.dev](https://models.dev) filling in a model LiteLLM lacks. They are
 keyed by model **and date**, so a vendor's next price change does not rewrite
-last month. Anything it cannot price is reported rather than counted as zero
-(138 M tokens here).
+last month: LiteLLM publishes no dates, so `scripts/sync_prices.py` keeps the
+old rate and dates the new one the day it first saw it, and prints every change
+for a human to check. Anything it cannot price is reported rather than counted
+as zero — free tiers such as opencode's `*-free` models stay unpriced rather
+than borrowing the paid model's rate.
+
+A model is matched by the name the log recorded: the exact key first (also
+without an `anthropic/` or `openai/` prefix or a date suffix), then the longest
+key the name contains — but never across a version number, so
+`claude-opus-5-5` can only be priced as itself and never as `claude-opus-5`
+($4/$20 against $5/$25 per MTok), and never across a size tier, so `o1-mini` is
+not priced as `o1`. A name priced through a near relative is listed beside every
+total.
 
 Cache writes are priced at two rates, because they have two lifetimes: 1.25x
 base input for a five-minute write and 2x for a one-hour one. 41% of this
@@ -262,12 +275,14 @@ are still on disk.
 Three layers, most specific first: the catalog, then
 `src/cc_insights/price_overrides.json` — corrections checked against the
 vendor's own pricing page and shipped with the code — then `cci price set`,
-which a human owns and no sync touches. The middle layer exists because the
+which a human owns and no sync touches. The middle layer exists because a
 catalog's errors are not small and a fix kept in one laptop's database is
-lost on the next machine: it priced **Claude Fable 5.1 as Fable 5**, whose
-cache reads cost four times as much ($1.00 against $0.25 per MTok), which was
-**$2,752 — 21% of the total** — and it carried a Sonnet 5 price rise that
-never happened.
+lost on the next machine: the previous catalog priced **Claude Fable 5.1 as
+Fable 5**, whose cache reads cost four times as much ($1.00 against $0.25 per
+MTok), which was **$2,752 — 21% of the total** — and it carried a Sonnet 5
+price rise that never happened. LiteLLM gets both right, so those corrections
+are retired (the file says why) and the layer is empty until the next one is
+needed; `cci price sync` says when upstream agrees with a correction.
 
 ## What it found on this machine
 

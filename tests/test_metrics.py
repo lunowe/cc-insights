@@ -191,7 +191,7 @@ def _insert_prices(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT INTO model_price (model, effective_from, input_mtok, output_mtok,"
             " cache_read_mtok, cache_write_mtok, currency, origin, matched_id, note,"
-            " updated_at) VALUES (?, 0, ?, ?, ?, ?, 'USD', 'genai-prices', ?, NULL, ?)",
+            " updated_at) VALUES (?, 0, ?, ?, ?, ?, 'USD', 'litellm', ?, NULL, ?)",
             (model, *rates, matched, A_START))
 
 
