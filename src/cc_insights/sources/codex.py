@@ -80,13 +80,17 @@ fixed a measured overcount on the real corpus.
   its ``response_id`` is paired with a ``compacted`` line's
   ``compaction_response_id``, and only if no advancing ``token_count`` already
   covered it. Pairing needs both lines; the tokens go on whichever of the two
-  comes second, so no event ever has to look ahead.
+  comes second, so no event ever has to look ahead. Unlike ccusage, an
+  advancing ``token_count`` that repeats a compaction already billed this way
+  (record, marker, then the count) bills nothing.
 * A forked or spawned thread (``forked_from_id`` or
   ``source.subagent.thread_spawn.parent_thread_id``) starts with a replay of the
   parent's usage. Leading usage that equals the parent's usage sequence up to
   the fork instant is not counted. When the parent's log is not on this
   machine, a burst of usage at the head of the file written less than a second
-  apart is skipped instead. Copied compaction requests are skipped too.
+  apart is skipped instead; only billable usage counts as burst evidence, so a
+  repeated snapshot does not turn the fork's own first request into "replay".
+  Copied compaction requests are skipped too.
 
 Events whose usage does not count keep their ``native_event_id`` and their
 place on the timeline; they just carry no tokens.
@@ -95,6 +99,13 @@ All of that state is per file and starts at byte 0, so a resumed parse
 (``from_byte > 0``) replays the earlier lines through the same state machine,
 decoding only the few lines that can carry usage, and yields events after
 ``from_byte`` only.
+
+Ingest never updates a stored event, so usage must not be emitted before its
+classification is final. The one case that can still change is a lone usage
+event at the head of a parentless fork: a second one within a second would
+make both replay. Until a later line (or a minute of wall clock) settles it,
+that event is not emitted, and every event after it reports the start of its
+line as ``byte_end``, so the next ingest run re-reads and decides it.
 
 Codex's ``input_tokens`` INCLUDES ``cached_input_tokens`` (verified on 25,181
 usage blocks: ``total_tokens == input_tokens + output_tokens`` and
@@ -114,6 +125,7 @@ from __future__ import annotations
 import glob as _glob
 import json
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -394,11 +406,17 @@ class _UsageLedger:
     (codex/src/parser.rs:342-555); see the module docstring for the rules.
     :meth:`feed` takes every decoded record and returns the usage that record
     makes countable, with the ``response_id`` when it is a compaction request.
+
+    One deliberate difference: ccusage only lets a token_count cover a record
+    that is still pending. When the compaction is billed first (record, then
+    ``compacted``, then an advancing token_count for the same request), it
+    bills the request twice. Here the billed compaction is kept, so that
+    token_count counts nothing.
     """
 
     __slots__ = (
         "previous_total", "compacted", "pending", "settled", "latest_record",
-        "record_ts",
+        "record_ts", "billed",
     )
 
     def __init__(self) -> None:
@@ -412,6 +430,10 @@ class _UsageLedger:
         self.latest_record: str | None = None
         #: response id -> timestamp of its token_usage_record
         self.record_ts: dict[str, int] = {}
+        #: The compaction billed most recently, as (response id, usage,
+        #: thread_token_usage), until the next advancing token_count shows
+        #: whether it repeats that request.
+        self.billed: tuple[str, Usage, Usage | None] | None = None
 
     def compactions(self) -> dict[str, int]:
         """Compaction requests this file recorded, by response id."""
@@ -433,6 +455,7 @@ class _UsageLedger:
             pending = self.pending.pop(rid, None)
             if pending is not None and rid not in self.settled:
                 self.settled.add(rid)
+                self.billed = (rid, *pending)
                 return pending[0], rid
             return None
 
@@ -445,12 +468,12 @@ class _UsageLedger:
                 return None
             self.record_ts.setdefault(rid, ts_ms)
             self.latest_record = rid
+            thread = _raw_usage(payload.get("thread_token_usage"))
             if rid in self.compacted:
                 self.settled.add(rid)
+                self.billed = (rid, usage, thread)
                 return usage, rid
-            self.pending.setdefault(
-                rid, (usage, _raw_usage(payload.get("thread_token_usage")))
-            )
+            self.pending.setdefault(rid, (usage, thread))
             return None
 
         if payload is None or payload.get("type") != "token_count" or ts_ms is None:
@@ -478,13 +501,35 @@ class _UsageLedger:
         # covered, so an unrelated request with equal counts cannot consume it.
         if advanced and self.latest_record is not None:
             pending = self.pending.get(self.latest_record)
-            if pending is not None and (
-                pending[0] == usage
-                or (pending[1] is not None and pending[1] == total)
-            ):
+            if pending is not None and _same_request(pending, usage, total):
                 del self.pending[self.latest_record]
                 self.settled.add(self.latest_record)
+            # The other order: the compaction was billed first, and this
+            # token_count reports the same request again. Only the first
+            # advancing token_count after it can be that report.
+            billed, self.billed = self.billed, None
+            if (
+                billed is not None
+                and billed[0] == self.latest_record
+                and _same_request(billed[1:], usage, total)
+            ):
+                return None
         return usage, None
+
+
+def _same_request(
+    recorded: tuple[Usage, Usage | None], usage: Usage, total: Usage | None
+) -> bool:
+    """Whether a token_count's usage is the request a token_usage_record
+    recorded: the same counts, or the same cumulative thread usage after it."""
+    record_usage, thread_usage = recorded
+    return record_usage == usage or (thread_usage is not None and thread_usage == total)
+
+
+#: A burst probe's verdict: the burst's start, NO_BURST, or UNDECIDED.
+NO_BURST = None
+UNDECIDED = "undecided"
+BurstVerdict = int | None | str
 
 
 class _ReplayFilter:
@@ -492,34 +537,44 @@ class _ReplayFilter:
 
     A port of ccusage's ``CodexReplayState`` (codex/src/parser.rs:96-267).
     `prefix` is None for a thread that is not a fork, and empty for a fork
-    whose parent log is unavailable. `burst_start` is called at most once, when
-    the parent cannot anchor the replay.
+    whose parent log is unavailable. `burst_probe` is consulted when the
+    parent cannot anchor the replay; see :func:`_probe_rewritten_burst`.
+
+    :meth:`replayed` answers True or False, or None while the answer still
+    depends on lines not written yet. The caller must not bill or commit such
+    usage; a later parse decides it.
     """
 
-    __slots__ = ("_prefix", "_index", "_state", "_previous", "_burst_start")
+    __slots__ = ("_prefix", "_index", "_state", "_previous", "_burst_probe")
 
     def __init__(
-        self, prefix: Sequence[Usage] | None, burst_start: Callable[[], int | None]
+        self, prefix: Sequence[Usage] | None, burst_probe: Callable[[], BurstVerdict]
     ) -> None:
         self._prefix = prefix or ()
         self._index = 0
         self._state = "done" if prefix is None else "matching"
         self._previous = 0
-        self._burst_start = burst_start
+        self._burst_probe = burst_probe
 
-    def replayed(self, usage: Usage, ts_ms: int | None) -> bool:
+    def replayed(self, usage: Usage, ts_ms: int | None) -> bool | None:
         while True:
             if self._state == "matching":
                 if self._index < len(self._prefix) and self._prefix[self._index] == usage:
                     self._index += 1
                     return True
-                # The parent stream cannot anchor this replay. Only a thread
-                # that matched nothing falls back to the rewritten burst.
-                start = self._burst_start() if self._index == 0 else None
-                if start is None:
+                if self._index > 0:
+                    # Matched some of the parent, then diverged: the replay
+                    # is over. Only a thread that matched nothing falls back
+                    # to the rewritten burst.
+                    self._state = "done"
+                    continue
+                verdict = self._burst_probe()
+                if verdict == UNDECIDED:
+                    return None  # stays "matching": the next call asks again
+                if verdict is NO_BURST:
                     self._state = "done"
                 else:
-                    self._state, self._previous = "burst", start
+                    self._state, self._previous = "burst", verdict
             elif self._state == "burst":
                 if ts_ms is not None and 0 <= ts_ms - self._previous <= _REPLAY_BURST_PAUSE_MS:
                     self._previous = ts_ms
@@ -529,40 +584,74 @@ class _ReplayFilter:
                 return False
 
 
-def _rewritten_burst_start(path: Path) -> int | None:
-    """Start of a burst of usage at the head of `path`, if it opens with one.
+#: How long a lone first usage event at the head of a fork waits for a second
+#: one before it is taken as the fork's own. Codex writes a replay in one go
+#: (bursts of 10-40 ms), so a minute without a second event, and without any
+#: later line, settles it.
+_UNDECIDED_GRACE_MS = 60_000
 
-    A thread whose first two ``token_count`` events are under a second apart
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _line_ts(raw: bytes) -> int | None:
+    """A line's timestamp, without decoding the whole line when Codex wrote
+    it first (it always does)."""
+    prefix = b'{"timestamp":"'
+    if raw.startswith(prefix):
+        close = raw.find(b'"', len(prefix))
+        if close > 0:
+            return _ts_ms(raw[len(prefix):close].decode("ascii", "replace"))
+    record = _loads(raw)
+    return _ts_ms(record.get("timestamp")) if record else None
+
+
+def _probe_rewritten_burst(path: Path) -> BurstVerdict:
+    """Whether `path` opens with a burst of usage, and where it starts.
+
+    A thread whose first two billable usage events are under a second apart
     replayed history it did not spend; one that pauses between them was
     recording its own turns from the start (codex/src/parser.rs:129-177).
+
+    Two deliberate differences from ccusage:
+
+    * Only usage that would be billed counts as evidence: the events come from
+      a fresh :class:`_UsageLedger`, so a repeated snapshot of an unchanged
+      total is not mistaken for the second event of a burst.
+    * The verdict must not change once usage has been committed, and the file
+      may still be growing. With one usage event so far, any later line more
+      than the pause after it settles NO_BURST (timestamps only grow). Without
+      one, the verdict is UNDECIDED until the grace period has passed.
     """
+    ledger = _UsageLedger()
     first: int | None = None
     try:
         fh = open(path, "rb")
     except OSError:
-        return None
+        return NO_BURST
     with fh:
         for raw, _end in _iter_lines(fh, 0):
-            if b"token_count" not in raw:
+            if first is not None:
+                line_ts = _line_ts(raw)
+                if line_ts is not None and line_ts - first > _REPLAY_BURST_PAUSE_MS:
+                    return NO_BURST
+            if not any(marker in raw for marker in _USAGE_MARKERS):
                 continue
             record = _loads(raw)
-            payload = record.get("payload") if record else None
-            if not isinstance(payload, dict) or payload.get("type") != "token_count":
-                continue
-            info = payload.get("info")
-            if not isinstance(info, dict) or not (
-                isinstance(info.get("last_token_usage"), dict)
-                or isinstance(info.get("total_token_usage"), dict)
-            ):
+            if record is None:
                 continue
             ts_ms = _ts_ms(record.get("timestamp"))
-            if ts_ms is None:
+            hit = ledger.feed(record, ts_ms)
+            if hit is None or hit[1] is not None or ts_ms is None:
                 continue
             if first is None:
                 first = ts_ms
                 continue
-            return first if 0 <= ts_ms - first <= _REPLAY_BURST_PAUSE_MS else None
-    return None
+            return first if 0 <= ts_ms - first <= _REPLAY_BURST_PAUSE_MS else NO_BURST
+    if first is None or _now_ms() - first > _UNDECIDED_GRACE_MS:
+        return NO_BURST
+    return UNDECIDED
 
 
 @dataclass(frozen=True, slots=True)
@@ -776,20 +865,32 @@ class CodexAdapter:
             meta = self._read_file_meta(fh, path)
             prefix, copied_compactions = self._replay_context(path, meta)
             ledger = _UsageLedger()
-            replay = _ReplayFilter(prefix, lambda: _rewritten_burst_start(path))
+            replay = _ReplayFilter(prefix, lambda: _probe_rewritten_burst(path))
 
-            def counted(record: dict[str, Any], ts_ms: int | None) -> Usage | None:
+            def counted(
+                record: dict[str, Any], ts_ms: int | None
+            ) -> tuple[Usage | None, bool]:
+                """-> (the usage this line bills, whether that is undecided)."""
                 hit = ledger.feed(record, ts_ms)
                 if hit is None:
-                    return None
+                    return None, False
                 usage, response_id = hit
                 if response_id is not None:
                     # A compaction request is identified by its response id,
                     # so it never consumes the replayed prefix; a copy of the
                     # parent's is dropped by id instead.
-                    return None if response_id in copied_compactions else usage
-                return None if replay.replayed(usage, ts_ms) else usage
+                    return (None if response_id in copied_compactions else usage), False
+                replayed = replay.replayed(usage, ts_ms)
+                if replayed is None:
+                    return None, True
+                return (None if replayed else usage), False
 
+            # Usage whose replay classification depends on lines not written
+            # yet is held back: its event is not emitted at all (ingest would
+            # keep the first version of it forever), and every event after it
+            # reports `byte_end` = the start of its line, so ingest records
+            # that offset and the next run re-reads and decides it.
+            held_from: int | None = None
             for raw, byte_end in _iter_lines(fh, 0):
                 if byte_end <= start:
                     if any(marker in raw for marker in _USAGE_MARKERS):
@@ -801,10 +902,15 @@ class CodexAdapter:
                 if record is None:
                     continue
                 ts_ms = _ts_ms(record.get("timestamp"))
-                usage = counted(record, ts_ms)
+                usage, undecided = counted(record, ts_ms)
+                if undecided:
+                    if held_from is None:
+                        held_from = byte_end - len(raw)
+                    continue
                 if ts_ms is None:
                     continue  # no timestamp -> nothing downstream can place it
-                yield self._event(record, raw, ts_ms, byte_end, meta, usage)
+                reported_end = byte_end if held_from is None else held_from
+                yield self._event(record, raw, ts_ms, reported_end, meta, usage)
 
     @staticmethod
     def _event(

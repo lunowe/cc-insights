@@ -6,14 +6,16 @@ is file-scoped and restarts at 0 in every thread, so keying events on
 """
 
 import json
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from cc_insights import ids
+from cc_insights import db, ids, ingest
 from cc_insights.config import DEFAULT_SOURCE_GLOBS, Config
 from cc_insights.sources import EventKind, SourceAdapter
+from cc_insights.sources import codex as codex_module
 from cc_insights.sources.codex import CodexAdapter
 
 ROOT = "01a05385-43c3-77d1-bc25-81e11d29a05c"
@@ -785,6 +787,208 @@ def test_a_file_parsed_in_two_halves_matches_one_pass(stateful_file):
 
     assert [e.ordinal for e in first] == [0, 1, 2, 3, 4, 5]
     assert first + second == full
+
+
+# --- regressions from review ---------------------------------------------
+#
+# Each of these was reproduced against the first version of the usage rules.
+
+
+def ms(seconds: float) -> int:
+    return int((T_BASE + timedelta(seconds=seconds)).timestamp() * 1000)
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Pins the adapter's notion of now, in seconds after T_BASE."""
+
+    def set_now(seconds: float) -> None:
+        monkeypatch.setattr(codex_module, "_now_ms", lambda: ms(seconds))
+
+    return set_now
+
+
+def test_a_compaction_billed_before_its_token_count_counts_once(adapter, tmp_path):
+    """record -> compacted -> advancing token_count for the same request: the
+    marker bills it, so the token_count must not bill it again. (ccusage's
+    main branch bills this order twice.)"""
+    a, c = usage(1000, 10), usage(500, 77)
+    thread = usage(1500, 87)
+    path = write_jsonl(
+        tmp_path / "t.jsonl",
+        [meta_line(THREAD_A, ROOT),
+         token_count(1, 1, a, a),
+         usage_record(2, 5, "resp_c", c, thread=thread),
+         compacted(3, 5.1, "resp_c"),
+         token_count(4, 5.2, c, thread)],
+    )
+    assert counted(adapter.parse(path)) == {1: (1000, 0, 0, 10), 3: (500, 0, 0, 77)}
+
+
+def test_a_billed_compaction_is_matched_by_cumulative_usage_too(adapter, tmp_path):
+    a, c = usage(1000, 10), usage(500, 77)
+    thread = usage(1500, 87)
+    path = write_jsonl(
+        tmp_path / "t.jsonl",
+        [meta_line(THREAD_A, ROOT),
+         token_count(1, 1, a, a),
+         compacted(2, 5, "resp_c"),
+         usage_record(3, 5.1, "resp_c", c, thread=thread),
+         token_count(4, 5.2, usage(501, 77), thread)],
+    )
+    assert counted(adapter.parse(path)) == {1: (1000, 0, 0, 10), 3: (500, 0, 0, 77)}
+
+
+def test_only_the_next_request_can_repeat_a_billed_compaction(adapter, tmp_path):
+    """After one advancing token_count, equal counts are a new request."""
+    a, c, d = usage(1000, 10), usage(500, 77), usage(200, 2)
+    path = write_jsonl(
+        tmp_path / "t.jsonl",
+        [meta_line(THREAD_A, ROOT),
+         token_count(1, 1, a, a),
+         usage_record(2, 5, "resp_c", c, thread=usage(1500, 87)),
+         compacted(3, 5.1, "resp_c"),
+         token_count(4, 6, d, usage(1200, 12)),
+         token_count(5, 7, c, usage(1700, 89))],
+    )
+    assert counted(adapter.parse(path)) == {
+        1: (1000, 0, 0, 10), 3: (500, 0, 0, 77), 4: (200, 0, 0, 2), 5: (500, 0, 0, 77),
+    }
+
+
+def test_a_repeated_snapshot_is_not_evidence_of_a_replay(codex_home):
+    """A fork without its parent log that starts with its own usage, then an
+    unchanged snapshot 100 ms later: the repeat bills nothing, so it cannot be
+    the second event of a replay burst."""
+    home, adapter = codex_home
+    own = usage(100, 10)
+    child = write_jsonl(
+        home / "sessions" / "c.jsonl",
+        [fork_meta(CHILD, PARENT, 30),
+         token_count(1, 31, own, own),
+         token_count(2, 31.1, own, own)],
+    )
+    assert counted(adapter.parse(child)) == {1: (100, 0, 0, 10)}
+
+
+def test_a_lone_head_usage_is_held_until_it_can_be_decided(codex_home, clock):
+    """One usage event at the head of a fork without its parent: whether it
+    is replay depends on whether a second one follows within a second. It is
+    not emitted until that is known, and the events after it point ingest
+    back at it."""
+    home, adapter = codex_home
+    child = write_jsonl(
+        home / "sessions" / "c.jsonl",
+        [fork_meta(CHILD, PARENT, 30),
+         token_count(1, 30.01, A, TA),
+         line(2, at(30.5), "response_item", {"type": "reasoning"})],
+    )
+    head = len(child.read_bytes().splitlines(keepends=True)[0])
+
+    clock(31)
+    events = list(adapter.parse(child))
+    assert [e.ordinal for e in events] == [0, 2]
+    assert counted(events) == {}
+    assert events[-1].byte_end == head
+
+    clock(30 + 120)  # a minute and more without a second event: its own usage
+    assert counted(adapter.parse(child)) == {1: (500, 500, 0, 10)}
+
+
+# The same scenarios through the real ingest, with the file growing between
+# runs. Every event row must end up identical to a cold, single-pass ingest
+# of the finished file.
+
+
+def _ingest(tmp_path: Path, name: str, home: Path) -> sqlite3.Connection:
+    cfg = Config(
+        host_id="host-under-test",
+        hostname="test-host",
+        db_path=tmp_path / f"{name}.db",
+        source_globs={"codex": [str(home / "sessions" / "**" / "*.jsonl")]},
+        config_dir=tmp_path,
+    )
+    conn = db.connect(cfg.db_path)
+    db.migrate(conn)
+    stats = ingest.ingest(conn, cfg, sources=["codex"])
+    assert stats.errors == []
+    return conn
+
+
+def _rows(conn: sqlite3.Connection) -> list[tuple]:
+    return [tuple(row) for row in conn.execute(
+        "SELECT id, ts, input_tokens, output_tokens, cache_read_tokens, "
+        "cache_write_tokens FROM event ORDER BY id"
+    )]
+
+
+def _token_sums(conn: sqlite3.Connection) -> tuple:
+    return tuple(conn.execute(
+        "SELECT coalesce(sum(input_tokens), 0), coalesce(sum(output_tokens), 0) FROM event"
+    ).fetchone())
+
+
+def _grow_and_compare(tmp_path, records, cuts, clock_at=None, clock=None):
+    """Ingest `records` incrementally, cut after each index in `cuts`, then
+    compare with a cold ingest of the whole file. Returns the token sums."""
+    live, cold = tmp_path / "live", tmp_path / "cold"
+    path = live / "sessions" / "2026" / "08" / "30" / f"rollout-{CHILD}.jsonl"
+    conn = None
+    for step, cut in enumerate([*cuts, len(records)]):
+        if clock is not None:
+            clock(clock_at[step])
+        write_jsonl(path, records[:cut])
+        conn = _ingest(tmp_path, "live", live)
+    write_jsonl(cold / "sessions" / "c.jsonl", records)
+    cold_conn = _ingest(tmp_path, "cold", cold)
+    assert _rows(conn) == _rows(cold_conn)
+    return _token_sums(conn)
+
+
+def test_ingest_does_not_commit_replay_before_it_is_recognised(tmp_path, clock):
+    """The first replayed snapshot of a parentless fork is ingested alone; the
+    second one and the fork's own usage arrive on the next run. Billing the
+    first one on the first run would stick: ingest never updates a row."""
+    own = usage(50, 5)
+    records = [
+        fork_meta(CHILD, PARENT, 30),
+        token_count(1, 30.01, usage(100, 10), usage(100, 10)),
+        token_count(2, 30.02, usage(50, 5), usage(150, 15)),
+        token_count(3, 45, own, usage(200, 20)),
+    ]
+    sums = _grow_and_compare(tmp_path, records, cuts=[2], clock_at=[30.5, 46, 46], clock=clock)
+    assert sums == (50, 5)
+
+
+@pytest.mark.parametrize("cut", [2, 3, 4], ids=["after_record", "after_marker", "after_count"])
+@pytest.mark.parametrize("order", ["marker_first", "count_first"])
+def test_ingest_counts_a_compaction_once_across_runs(tmp_path, cut, order):
+    a, c = usage(1000, 10), usage(500, 77)
+    thread = usage(1500, 87)
+    middle = (
+        [compacted(3, 5.1, "resp_c"), token_count(4, 5.2, c, thread)]
+        if order == "marker_first"
+        else [token_count(3, 5.1, c, thread), compacted(4, 5.2, "resp_c")]
+    )
+    records = [
+        meta_line(CHILD, ROOT, ts=at(0)),
+        token_count(1, 1, a, a),
+        usage_record(2, 5, "resp_c", c, thread=thread),
+        *middle,
+    ]
+    assert _grow_and_compare(tmp_path, records, cuts=[cut]) == (1500, 87)
+
+
+def test_ingest_keeps_own_usage_followed_by_a_repeat(tmp_path, clock):
+    own = usage(100, 10)
+    records = [
+        fork_meta(CHILD, PARENT, 30),
+        token_count(1, 31, own, own),
+        token_count(2, 31.1, own, own),
+        line(3, at(50), "response_item", {"type": "reasoning"}),
+    ]
+    sums = _grow_and_compare(tmp_path, records, cuts=[2, 3], clock_at=[31.05, 31.2, 51], clock=clock)
+    assert sums == (100, 10)
 
 
 def test_events_without_usage_report_none(adapter, tmp_path):
