@@ -1,0 +1,13 @@
+{
+  "name": "cc-insights",
+  "version": "0.1.0",
+  "description": "Install, set up and operate CC-Insights (cci): local-first tracking of Claude Code, Codex and opencode usage, with sync and teams.",
+  "author": {
+    "name": "lunowe"
+  },
+  "repository": "https://github.com/lunowe/cc-insights",
+  "license": "MIT",
+  "skills": [
+    "./skills/cc-insights"
+  ]
+}

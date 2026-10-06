@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CC-Insights — know how you really use coding agents</title>
+  <meta name="description" content="A local-first tracker and visualizer for coding-agent usage. Reconstructs an accurate timeline of Claude Code, Codex and opencode activity from the logs the agents already write. Metadata only, SQLite on your machine, MIT." />
+  <meta name="color-scheme" content="light dark" />
+  <meta property="og:title" content="CC-Insights — know how you really use coding agents" />
+  <meta property="og:description" content="Agent logs are a rolling window. Capture them before they are gone, and see when, how long and how parallel you really run agents." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="nav">
+    <a class="brand" href="#top" aria-label="CC-Insights home">
+      <svg class="brand-mark" viewBox="0 0 28 20" aria-hidden="true">
+        <rect x="0"  y="1"  width="19" height="4" rx="1" />
+        <rect x="21" y="1"  width="7"  height="4" rx="1" />
+        <rect x="6"  y="8"  width="12" height="4" rx="1" class="sig" />
+        <rect x="9"  y="15" width="9"  height="4" rx="1" class="sig" />
+        <rect x="20" y="15" width="8"  height="4" rx="1" />
+      </svg>
+      <span class="brand-name">cc-insights</span>
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#window">Why</a>
+      <a href="#learn">What you learn</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#teams">Teams</a>
+      <a href="#install">Install</a>
+    </nav>
+    <a class="nav-gh" href="https://github.com/lunowe/cc-insights" rel="noopener">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      <span>GitHub</span>
+    </a>
+  </header>
+
+  <main id="main">
+
+    <!-- ═══════════════════════════ HERO ═══════════════════════════ -->
+    <section class="hero" id="top">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow reveal">
+            <span>Local-first</span><span class="dot"></span>
+            <span>Metadata only</span><span class="dot"></span>
+            <span>Claude Code · Codex · opencode</span>
+          </p>
+          <h1 class="reveal d1">Know how you <em>really</em> use coding agents.</h1>
+          <p class="lede reveal d2">
+            CC-Insights reconstructs an accurate timeline of agent activity from the logs the agents
+            already write: when you use them, for how long, how often several run at once, which projects
+            take the time, and what it would cost at API list prices. It runs on your machine, stores
+            metadata only, and starts capturing in one command.
+          </p>
+          <div class="hero-actions reveal d3">
+            <div class="cmd cmd-hero">
+              <span class="cmd-prompt" aria-hidden="true">$</span>
+              <code id="cmd-hero">curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/master/scripts/install.sh | bash</code>
+              <button class="copy" type="button" data-copy="#cmd-hero" aria-label="Copy install command">
+                <span class="copy-label">Copy</span>
+              </button>
+            </div>
+            <p class="hero-sub">
+              or <code>pipx install cc-insights &amp;&amp; cci install</code> ·
+              <a href="#agent-setup">let your coding agent set it up</a>
+            </p>
+          </div>
+        </div>
+
+        <aside class="hero-facts reveal d2" aria-label="At a glance">
+          <dl>
+            <div><dt>Storage</dt><dd>SQLite in <code>~/.config/cc-insights</code></dd></div>
+            <div><dt>Captured</dt><dd>Timestamps, ids, cwd, branch, model, token counts, tool names</dd></div>
+            <div><dt>Never stored</dt><dd>Prompt or response text</dd></div>
+            <div><dt>Runs on</dt><dd>macOS, Linux, Windows · Python 3.11+</dd></div>
+            <div><dt>License</dt><dd>MIT</dd></div>
+          </dl>
+        </aside>
+      </div>
+
+      <!-- The thread timeline. Synthetic data, hand-placed. -->
+      <figure class="timeline wrap reveal d4" aria-labelledby="timeline-caption">
+        <div class="timeline-head">
+          <span class="tl-title">One working day, seven threads</span>
+          <span class="tl-legend">
+            <span><i class="sw sw-root"></i>you driving</span>
+            <span><i class="sw sw-sub"></i>agents on their own</span>
+            <span><i class="sw sw-gone"></i>already pruned by the agent</span>
+          </span>
+        </div>
+        <svg class="tl" viewBox="0 0 1200 222" preserveAspectRatio="none" role="img" aria-label="Timeline illustration of seven agent threads across one day, with the oldest part of the day struck out because the agent has pruned its own logs">
+          <defs>
+            <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="8" class="hatch-line" />
+            </pattern>
+          </defs>
+          <!-- lane rules -->
+          <g class="lanes">
+            <line x1="0" x2="1200" y1="24"  y2="24" />
+            <line x1="0" x2="1200" y1="54"  y2="54" />
+            <line x1="0" x2="1200" y1="84"  y2="84" />
+            <line x1="0" x2="1200" y1="114" y2="114" />
+            <line x1="0" x2="1200" y1="144" y2="144" />
+            <line x1="0" x2="1200" y1="174" y2="174" />
+            <line x1="0" x2="1200" y1="204" y2="204" />
+          </g>
+          <!-- hour ticks -->
+          <g class="ticks">
+            <line x1="100"  x2="100"  y1="8" y2="214" />
+            <line x1="300"  x2="300"  y1="8" y2="214" />
+            <line x1="500"  x2="500"  y1="8" y2="214" />
+            <line x1="700"  x2="700"  y1="8" y2="214" />
+            <line x1="900"  x2="900"  y1="8" y2="214" />
+            <line x1="1100" x2="1100" y1="8" y2="214" />
+          </g>
+          <!-- lane 1: root thread, human driven -->
+          <g class="spans">
+            <rect class="sp root" x="30"  y="16" width="190" height="16" rx="2" style="--i:0" />
+            <rect class="sp root" x="250" y="16" width="130" height="16" rx="2" style="--i:1" />
+            <rect class="sp root" x="430" y="16" width="260" height="16" rx="2" style="--i:2" />
+            <rect class="sp root" x="760" y="16" width="100" height="16" rx="2" style="--i:3" />
+            <rect class="sp root" x="900" y="16" width="230" height="16" rx="2" style="--i:4" />
+            <!-- lane 2 -->
+            <rect class="sp sub"  x="70"  y="46" width="110" height="16" rx="2" style="--i:2" />
+            <rect class="sp sub"  x="460" y="46" width="170" height="16" rx="2" style="--i:4" />
+            <rect class="sp sub"  x="930" y="46" width="90"  height="16" rx="2" style="--i:6" />
+            <rect class="sp sub"  x="1040" y="46" width="80" height="16" rx="2" style="--i:7" />
+            <!-- lane 3 -->
+            <rect class="sp sub"  x="90"  y="76" width="60"  height="16" rx="2" style="--i:3" />
+            <rect class="sp sub"  x="480" y="76" width="120" height="16" rx="2" style="--i:5" />
+            <rect class="sp sub"  x="640" y="76" width="40"  height="16" rx="2" style="--i:6" />
+            <rect class="sp sub"  x="950" y="76" width="150" height="16" rx="2" style="--i:8" />
+            <!-- lane 4 -->
+            <rect class="sp sub"  x="500" y="106" width="90" height="16" rx="2" style="--i:6" />
+            <rect class="sp sub"  x="960" y="106" width="60" height="16" rx="2" style="--i:9" />
+            <!-- lane 5 -->
+            <rect class="sp sub"  x="510" y="136" width="70" height="16" rx="2" style="--i:7" />
+            <rect class="sp sub"  x="980" y="136" width="110" height="16" rx="2" style="--i:10" />
+            <!-- lane 6 -->
+            <rect class="sp sub"  x="520" y="166" width="40" height="16" rx="2" style="--i:8" />
+            <!-- lane 7: a second root thread, another project -->
+            <rect class="sp root" x="320" y="196" width="90"  height="16" rx="2" style="--i:5" />
+            <rect class="sp root" x="700" y="196" width="150" height="16" rx="2" style="--i:9" />
+          </g>
+          <!-- what the agent already deleted -->
+          <g class="pruned">
+            <rect x="0" y="8" width="240" height="206" fill="url(#hatch)" />
+            <rect x="0" y="8" width="240" height="206" class="pruned-wash" />
+            <line x1="240" x2="240" y1="8" y2="214" class="pruned-edge" />
+          </g>
+        </svg>
+        <div class="tl-axis" aria-hidden="true">
+          <span style="--x:8.33%">08:00</span>
+          <span style="--x:25%">10:00</span>
+          <span style="--x:41.67%">12:00</span>
+          <span style="--x:58.33%">14:00</span>
+          <span style="--x:75%">16:00</span>
+          <span style="--x:91.67%">18:00</span>
+        </div>
+        <figcaption id="timeline-caption">
+          Hand-drawn illustration with synthetic data. The hatched region is what the agent's own log
+          rotation has already discarded: if nothing captured it, that history is gone.
+        </figcaption>
+      </figure>
+    </section>
+
+    <!-- ═══════════════════════════ §01 THE WINDOW ═══════════════════════════ -->
+    <section class="section" id="window">
+      <div class="wrap section-grid">
+        <div class="margin">
+          <span class="num">§01</span>
+          <span class="label">The window</span>
+        </div>
+        <div class="body">
+          <h2>Agent logs are a rolling window. A gap in capture is a permanent gap in history.</h2>
+          <p>
+            Claude Code, Codex and opencode each write detailed logs of what they do, and each prunes
+            those logs on a rolling basis. Anything older than the window is deleted by the agent itself.
+            Dashboards can wait. Capture cannot, which is why the first run does everything at once.
+          </p>
+
+          <div class="steps">
+            <div class="step">
+              <span class="step-n">1</span>
+              <h3>Config and database</h3>
+              <p>Creates <code>~/.config/cc-insights</code>, or <code>%APPDATA%\cc-insights</code> on Windows, and the SQLite schema.</p>
+            </div>
+            <div class="step">
+              <span class="step-n">2</span>
+              <h3>First ingest</h3>
+              <p>Reads every log the agents still have on disk, incrementally and idempotently.</p>
+            </div>
+            <div class="step">
+              <span class="step-n">3</span>
+              <h3>Background job</h3>
+              <p>A launchd job on macOS, a Task Scheduler job on Windows, or one line in your crontab on Linux. Every 15 minutes, or live with <code>--watch</code>.</p>
+            </div>
+            <div class="step">
+              <span class="step-n">4</span>
+              <h3>Check-up</h3>
+              <p><code>cci doctor</code> reports the job, time since the last ingest, and the command that fixes anything wrong. Non-zero exit on real failure.</p>
+            </div>
+          </div>
+
+          <div class="cmd">
+            <span class="cmd-prompt" aria-hidden="true">$</span>
+            <code id="cmd-install">cci install</code>
+            <button class="copy" type="button" data-copy="#cmd-install" aria-label="Copy cci install">
+              <span class="copy-label">Copy</span>
+            </button>
+          </div>
+          <p class="fine">
+            Watch mode (<code>cci install --watch</code>) follows the logs as they are written, around 0.15 s per cycle.
+            The installer refuses to register both a watcher and a scheduled job, because two writers on one SQLite
+            database is the one way to make it contend with itself. <code>cci install --uninstall</code> removes either and keeps your data.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════ §02 WHAT YOU LEARN ═══════════════════════════ -->
+    <section class="section section-tint" id="learn">
+      <div class="wrap section-grid">
+        <div class="margin">
+          <span class="num">§02</span>
+          <span class="label">What you learn</span>
+        </div>
+        <div class="body">
+          <h2>Where the hours go, how many agents ran at once, and who was driving.</h2>
+          <p>
+            The example figures below were measured on one developer's machine across 223 days,
+            306 sessions and 714 threads. They are an illustration of the shape of the data, not a promise.
+            Your numbers will differ.
+          </p>
+
+          <div class="tiles">
+            <div class="tile">
+              <span class="tile-v">185<small>h</small></span>
+              <span class="tile-k">Active agent time</span>
+              <span class="tile-s">Claude Code 143.8&nbsp;h · Codex 41.5&nbsp;h</span>
+            </div>
+            <div class="tile">
+              <span class="tile-v">1.72<small>×</small></span>
+              <span class="tile-k">Parallelism multiplier</span>
+              <span class="tile-s">143.8&nbsp;h of thread time in 83.6&nbsp;h of wall-clock</span>
+            </div>
+            <div class="tile">
+              <span class="tile-v">41<small>%</small></span>
+              <span class="tile-k">Of wall-clock with ≥2 threads</span>
+              <span class="tile-s">Peak: 7 concurrent threads</span>
+            </div>
+            <div class="tile">
+              <span class="tile-v">$11,630</span>
+              <span class="tile-k">List-price equivalent</span>
+              <span class="tile-s">Not a bill. Dated rates, by model.</span>
+            </div>
+          </div>
+
+          <div class="charts">
+            <!-- Concurrency distribution -->
+            <figure class="chart">
+              <figcaption>
+                <strong>How many threads at once</strong>
+                <span>Share of 83.2 h of Claude Code wall-clock, by concurrent threads</span>
+              </figcaption>
+              <div class="bars" role="img" aria-label="Bar chart. Hours of wall-clock at each concurrency level: one thread 49.4 hours, two 17.6, three 9.4, four 4.8, five 1.3, six 0.4, seven 0.2.">
+                <div class="bar" style="--v:1"><i></i><b>49.4<span>h</span></b><span class="bar-l">1</span></div>
+                <div class="bar sig" style="--v:0.356"><i></i><b>17.6</b><span class="bar-l">2</span></div>
+                <div class="bar sig" style="--v:0.190"><i></i><b>9.4</b><span class="bar-l">3</span></div>
+                <div class="bar sig" style="--v:0.097"><i></i><b>4.8</b><span class="bar-l">4</span></div>
+                <div class="bar sig" style="--v:0.026"><i></i><b>1.3</b><span class="bar-l">5</span></div>
+                <div class="bar sig" style="--v:0.008"><i></i><b>0.4</b><span class="bar-l">6</span></div>
+                <div class="bar sig" style="--v:0.004"><i></i><b>0.2</b><span class="bar-l">7</span></div>
+              </div>
+              <p class="chart-note">Spans are computed per thread, never per session. Merging them would hide exactly the parallelism this exists to measure.</p>
+            </figure>
+
+            <!-- Attendance split -->
+            <figure class="chart">
+              <figcaption>
+                <strong>Who started the work</strong>
+                <span>185 h of active time, split by thread role</span>
+              </figcaption>
+              <div class="stack" role="img" aria-label="Stacked bar. Human-initiated 98.4 hours, 53 percent. Autonomous 81.4 hours, 44 percent. Unattended root 5.5 hours, 3 percent.">
+                <span class="seg seg-ink" style="--w:53"></span>
+                <span class="seg seg-sig" style="--w:44"></span>
+                <span class="seg seg-mute" style="--w:3"></span>
+              </div>
+              <ul class="legend">
+                <li><i class="sw sw-root"></i><span>Human-initiated</span><b>98.4 h · 53%</b><em>a person typed the turn that started it</em></li>
+                <li><i class="sw sw-sub"></i><span>Autonomous</span><b>81.4 h · 44%</b><em>a model spawned it (subagent threads)</em></li>
+                <li><i class="sw sw-mute"></i><span>Unattended root</span><b>5.5 h · 3%</b><em>the agent ran on in the main thread</em></li>
+              </ul>
+            </figure>
+
+            <!-- Cost composition -->
+            <figure class="chart">
+              <figcaption>
+                <strong>What the cost is made of</strong>
+                <span>$11,630 at published API rates, by token component</span>
+              </figcaption>
+              <div class="stack" role="img" aria-label="Stacked bar. Cache reads 44 percent, cache writes 38 percent, output 16 percent, fresh input 2 percent.">
+                <span class="seg seg-sig" style="--w:44"></span>
+                <span class="seg seg-sig2" style="--w:38"></span>
+                <span class="seg seg-ink" style="--w:16"></span>
+                <span class="seg seg-mute" style="--w:2"></span>
+              </div>
+              <ul class="legend">
+                <li><i class="sw sw-sub"></i><span>Cache reads</span><b>44%</b><em>the cheapest token is most of the bill</em></li>
+                <li><i class="sw sw-sub2"></i><span>Cache writes</span><b>38%</b><em>priced at the 5-minute or 1-hour rate, from the logs</em></li>
+                <li><i class="sw sw-root"></i><span>Output</span><b>16%</b></li>
+                <li><i class="sw sw-mute"></i><span>Fresh input</span><b>2%</b></li>
+              </ul>
+            </figure>
+
+            <!-- Project folding -->
+            <figure class="chart">
+              <figcaption>
+                <strong>Projects are the logical unit</strong>
+                <span>One repo's worktrees and subdirectories fold into one row</span>
+              </figcaption>
+              <div class="fold">
+                <div class="fold-row">
+                  <span class="fold-k">Flat, by path</span>
+                  <span class="fold-bar"><i style="--w:49"></i></span>
+                  <b>54.5 h</b>
+                </div>
+                <div class="fold-row">
+                  <span class="fold-k">Folded, 13 paths</span>
+                  <span class="fold-bar"><i class="sig" style="--w:100"></i></span>
+                  <b>111.6 h</b>
+                </div>
+              </div>
+              <p class="chart-note">Seven of those thirteen paths no longer exist on disk. Flat per-path totals would have halved this project.</p>
+            </figure>
+          </div>
+
+          <div class="looking">
+            <div class="looking-item">
+              <code>cci stats</code>
+              <p>The summary, in the terminal.</p>
+            </div>
+            <div class="looking-item">
+              <code>cci serve</code>
+              <p>The dashboard: filter by project, source, thread role and date range. Filter state lives in the URL, so a view is a link.</p>
+            </div>
+            <div class="looking-item">
+              <code>cci watch --serve</code>
+              <p>Follow the logs as the agents write them, with a dashboard that refreshes itself.</p>
+            </div>
+            <div class="looking-item">
+              <code>cci cost</code>
+              <p>The breakdown by model and component. Anything it cannot price is reported, never counted as zero.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════ §03 HONEST NUMBERS ═══════════════════════════ -->
+    <section class="section" id="honest">
+      <div class="wrap section-grid">
+        <div class="margin">
+          <span class="num">§03</span>
+          <span class="label">Honest numbers</span>
+        </div>
+        <div class="body">
+          <h2>Three things that make the numbers trustworthy.</h2>
+          <div class="claims">
+            <div class="claim">
+              <span class="claim-fig">2.4<small>%</small></span>
+              <h3>Wall-span is not usage.</h3>
+              <p>
+                Sessions sit open for days. On the example corpus, summed session spans come to 2,710 h
+                against 143 h of real activity. Active time is the sum of <em>span</em> durations, where a span
+                breaks on any gap over the idle threshold, and a gap above the threshold contributes zero rather
+                than a capped value.
+              </p>
+            </div>
+            <div class="claim">
+              <span class="claim-fig">120<small>–</small>900<small>s</small></span>
+              <h3>The idle threshold is not a tuning knob.</h3>
+              <p>
+                The measured gap distribution has a wide flat valley between "agent is working" and
+                "user left". Any threshold in that range gives materially the same totals, so the number
+                is backed by measurement rather than chosen to flatter.
+              </p>
+            </div>
+            <div class="claim">
+              <span class="claim-fig">1<small> spec</small></span>
+              <h3>Every number is reproduced from one reference implementation.</h3>
+              <p>
+                A probe script is the spec for the time math; the derivation engine is tested for exact
+                agreement with it in a single process, because the corpus grows while you measure it. That test
+                exists because three published "measured" numbers turned out to be bugs.
+              </p>
+            </div>
+          </div>
+          <p class="fine">
+            Costs are list-price equivalents, not bills: a subscription charges a flat fee no matter how many
+            tokens run through it. Rates come from a committed price catalog keyed by model <em>and date</em>, so a
+            vendor's next price change does not rewrite last month.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════ §04 METADATA ONLY ═══════════════════════════ -->
+    <section class="section section-tint" id="privacy">
+      <div class="wrap section-grid">
+        <div class="margin">
+          <span class="num">§04</span>
+          <span class="label">Metadata only</span>
+        </div>
+        <div class="body">
+          <h2>Prompt and response text is never stored. Not filtered out. Never written.</h2>
+          <p>
+            The ingest pipeline carries events through a frozen, slots-only dataclass, so an adapter
+            structurally cannot smuggle content through it. That one rule is what makes the multi-machine
+            and team modes safe to run at all.
+          </p>
+          <div class="ledger">
+            <div class="ledger-col">
+              <h3><span class="tick yes" aria-hidden="true"></span>Stored</h3>
+              <ul>
+                <li>Timestamps and durations</li>
+                <li>Session, thread and event ids</li>
+                <li>Working directory and git branch</li>
+                <li>Model name</li>
+                <li>Token counts, by component</li>
+                <li>Tool names</li>
+                <li>Source: Claude Code, Codex or opencode</li>
+              </ul>
+            </div>
+            <div class="ledger-col">
+              <h3><span class="tick no" aria-hidden="true"></span>Never stored</h3>
+              <ul>
+                <li>What you typed</li>
+                <li>What the model answered</li>
+                <li>Tool inputs and outputs</li>
+                <li>File contents</li>
+                <li>Anything a remote service could read without you running <code>cci sync</code> or <code>cci publish</code> yourself</li>
+              </ul>
+            </div>
+          </div>
+          <p class="fine">
+            Local SQLite is the source of truth. The dashboard is served read-only on localhost.
+            Nothing leaves the machine unless you sign in and push it.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════ §05 MACHINES AND TEAMS ═══════════════════════════ -->
+    <section class="section" id="teams">
+      <div class="wrap section-grid">
+        <div class="margin">
+          <span class="num">§05</span>
+          <span class="label">Machines &amp; teams</span>
+        </div>
+        <div class="body">
+          <h2>Your machines share everything. Your team sees a redacted projection, and nothing else.</h2>
+          <p>
+            These are two different pipes with two different rules, on purpose. <code>sync</code> moves full rows
+            between one person's computers, paths included, because it is all the same person's disk.
+            <code>publish</code> builds what a second person may see, and the projection is computed on your laptop
+            so the shared database physically never receives a path.
+          </p>
+
+          <div class="two-col">
+            <div class="panel">
+              <h3>Several machines</h3>
+              <pre class="term"><code><span class="c"># device code; approve it in a browser</span>
+cci login --server https://your-instance
+<span class="c"># send this machine's rows, bring the others' down</span>
+cci sync push
+cci sync pull
+<span class="c"># who has pushed what</span>
+cci sync status</code></pre>
+              <ul class="bullets">
+                <li>GitHub device-code sign-in. The token lives in <code>credentials.toml</code>, mode 0600, never in config.</li>
+                <li>Or bring your own PostgreSQL: set <code>CC_INSIGHTS_SYNC_URL</code> and push <code>--direct</code>.</li>
+                <li>Every id is a content hash, so a row that crosses twice collapses instead of duplicating. Interrupted pushes resume.</li>
+                <li>Local SQLite stays the source of truth; the dashboard never changes.</li>
+              </ul>
+            </div>
+            <div class="panel">
+              <h3>Other people</h3>
+              <pre class="term"><code><span class="c"># what would cross the boundary. Sends nothing.</span>
+cci privacy
+<span class="c"># asks first, and says what it withholds</span>
+cci publish
+<span class="c"># you, an admin: mints a join code, shown once</span>
+cci team invite
+<span class="c"># them: redeems it with their own sign-in</span>
+cci team join &lt;code&gt;</code></pre>
+              <ul class="bullets">
+                <li>Published rows are re-keyed on the repo's git remote. No paths, no hostnames, no path-derived ids.</li>
+                <li>The boundary is repo access: if you can see the repo, you can see the agent time on it. Work with no remote stays local, counted rather than silently dropped.</li>
+                <li>Invite codes are single-use bearer secrets, stored hashed, valid three days by default. The redemption <em>is</em> the consent: nobody can be added by id.</li>
+                <li>Joining a team widens nothing on its own: inside a team, only <code>cci team share</code> changes what others can read.</li>
+              </ul>
+            </div>
+          </div>
+
+          <p class="fine">
+            Why not just hash the paths? Because a project id is already <code>sha256(root_path)</code>, and a
+            colleague can hash a guess: 555 guesses recovered 20% of the example corpus from the ids alone.
+            So path-derived identity does not cross the boundary at all.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════ §06 INSTALL ═══════════════════════════ -->
+    <section class="section section-tint" id="install">
+      <div class="wrap section-grid">
+        <div class="margin">
+          <span class="num">§06</span>
+          <span class="label">Install</span>
+        </div>
+        <div class="body">
+          <h2>One command on a machine with nothing set up.</h2>
+          <p>
+            The script finds a Python 3.11+ (or names the command that gets you one), installs through
+            <code>pipx</code> when you have it and a managed venv when you do not, links <code>cci</code> into
+            <code>~/.local/bin</code>, then runs <code>cci install</code> and <code>cci doctor</code>. It never
+            prompts. Re-running it upgrades in place.
+          </p>
+
+          <div class="install-block">
+            <h3>With curl</h3>
+            <div class="cmd">
+              <span class="cmd-prompt" aria-hidden="true">$</span>
+              <code id="cmd-curl">curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/master/scripts/install.sh | bash</code>
+              <button class="copy" type="button" data-copy="#cmd-curl" aria-label="Copy curl install command">
+                <span class="copy-label">Copy</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="install-block">
+            <h3>With pipx <span class="h3-note">if you would rather not pipe a script you have not read</span></h3>
+            <div class="cmd">
+              <span class="cmd-prompt" aria-hidden="true">$</span>
+              <code id="cmd-pipx">pipx install cc-insights &amp;&amp; cci install</code>
+              <button class="copy" type="button" data-copy="#cmd-pipx" aria-label="Copy pipx install command">
+                <span class="copy-label">Copy</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="agent-setup" id="agent-setup">
+            <div class="agent-head">
+              <h3>Set it up with your coding agent</h3>
+              <p>
+                Paste this into Claude Code, Codex or a similar agent. It installs CC-Insights and walks you
+                through setup, step by step.
+              </p>
+              <button class="copy copy-lg" type="button" data-copy="#agent-prompt" aria-label="Copy the agent setup prompt">
+                <span class="copy-label">Copy prompt</span>
+              </button>
+            </div>
+            <!--
+              AGENT SETUP PROMPT.
+              Single source of truth for the block below is docs/agent-setup-prompt.md in the repo.
+              To update: run `python3 website/sync_prompt.py`. The copy button reads this element's textContent.
+            -->
+<div class="prompt-wrap is-collapsed" id="prompt-wrap">
+<pre class="prompt" id="agent-prompt" tabindex="0">Set up CC-Insights for me. It is `cci`, a local-first tracker that reads the logs Claude Code, Codex and opencode already write, and shows how much time I really spend with coding agents, how much of it runs in parallel, which projects take the time, and what it would cost at API list prices. It stores metadata only, never prompt or response text. Repo: https://github.com/lunowe/cc-insights
+
+The full guide is a skill in that repo. Read it before you start, and read each reference file when we get to that topic:
+- https://raw.githubusercontent.com/lunowe/cc-insights/master/skills/cc-insights/SKILL.md
+- https://raw.githubusercontent.com/lunowe/cc-insights/master/skills/cc-insights/references/sync.md (several machines, signing in)
+- https://raw.githubusercontent.com/lunowe/cc-insights/master/skills/cc-insights/references/teams.md (publishing, teams, invites)
+- https://raw.githubusercontent.com/lunowe/cc-insights/master/skills/cc-insights/references/troubleshooting.md
+
+If you cannot fetch those files, use this short version:
+
+1. If `cci` is already installed, run `cci doctor`. If it reports `everything is working.`, skip to step 4.
+2. Check whether the package is on PyPI: `curl -fsS -o /dev/null https://pypi.org/pypi/cc-insights/json`. On macOS or Linux, if it is on PyPI, run `curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/master/scripts/install.sh | bash`. If you get a 404, run `git clone https://github.com/lunowe/cc-insights ~/cc-insights &amp;&amp; bash ~/cc-insights/scripts/install.sh`, which also needs pnpm or npm. On Windows, run `pipx install cc-insights`, then `cci install`. The installer finds Python 3.11+, installs `cci`, sets up the config, the database and a background job, then runs `cci doctor`. If it needs a Python or a package installed with sudo, give me the command to run.
+3. If the installer says its bin directory is not on my PATH, add the line it prints to the shell rc file it names, and tell me which file you edited. On Linux the background job is one line in my crontab; `cci install` writes it and leaves my other entries alone. If it says `no scheduler found`, this machine has no cron: give me the command to install it, then run `cci install` again. Setup is done when `$SHELL -ilc 'cci doctor'` passes.
+4. Run `cci stats` and summarize what you see. Active time counts only spans without a gap of more than 5 minutes, so it is far lower than how long sessions sat open. `cci cost` (after `cci price sync`) gives a list-price equivalent, not a bill. Then start `cci serve` in the background so the dashboard opens at http://localhost:8787.
+5. Ask me whether I want to sync several machines (`cci login --server &lt;url&gt;`, then `cci sync push` and `cci sync pull`) or share with a team (`cci publish`, `cci team join &lt;code&gt;`, `cci team new`). Each of these needs an account server URL, which I will give you. There is no public default.
+
+Rules while you do this:
+- `cci doctor` decides whether something works. Every line that is not `ok` names the command that fixes it.
+- Never delete or move `~/.config/cc-insights` (`%APPDATA%\cc-insights` on Windows), and never change `host_id` in its `config.toml`. The database there holds history the agents have already deleted from their logs. Don't print `credentials.toml`; it holds a token.
+- Run exactly one background job per machine. Don't start `cci watch` while a job is installed; use `cci serve` to look at the data.
+- `cci login` blocks until I approve a code in my browser. Start it with `nohup cci login --server &lt;url&gt; &gt; /tmp/cci-login.log 2&gt;&amp;1 &amp;`, give me the URL and the code from that file, then check the file every few seconds until it says `signed in as`.
+- Before anything leaves this machine for other people, run `cci publish --dry-run`, show me the report, and tell me that anyone on that server with access to those repos on GitHub can read what I publish. Run `cci publish --yes` only after I say yes. If you mint a team join code, give it only to me, and tell me it is shown only once and should be sent privately.
+
+Once everything works, offer to save the skill folder (https://github.com/lunowe/cc-insights/tree/master/skills/cc-insights) into your skills directory, so it is available next time I ask about cci.</pre>
+<button class="prompt-toggle" type="button" id="prompt-toggle" aria-expanded="false" aria-controls="agent-prompt">Show the whole prompt</button>
+</div>
+          </div>
+
+          <dl class="reqs">
+            <div><dt>Requires</dt><dd>Python 3.11 or newer</dd></div>
+            <div><dt>Platforms</dt><dd>macOS, Linux, Windows</dd></div>
+            <div><dt>Sources</dt><dd>Claude Code, Codex, opencode</dd></div>
+            <div><dt>Verify</dt><dd><code>cci doctor</code></dd></div>
+          </dl>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-grid">
+      <div class="footer-brand">
+        <svg class="brand-mark" viewBox="0 0 28 20" aria-hidden="true">
+          <rect x="0"  y="1"  width="19" height="4" rx="1" />
+          <rect x="21" y="1"  width="7"  height="4" rx="1" />
+          <rect x="6"  y="8"  width="12" height="4" rx="1" class="sig" />
+          <rect x="9"  y="15" width="9"  height="4" rx="1" class="sig" />
+          <rect x="20" y="15" width="8"  height="4" rx="1" />
+        </svg>
+        <span>CC-Insights</span>
+        <span class="footer-tag">Coding-agent insights, kept on your machine.</span>
+      </div>
+      <ul class="footer-links">
+        <li><a href="https://github.com/lunowe/cc-insights" rel="noopener">Source on GitHub</a></li>
+        <li><a href="https://github.com/lunowe/cc-insights/blob/master/README.md" rel="noopener">README</a></li>
+        <li><a href="https://github.com/lunowe/cc-insights/blob/master/docs/REDACTION.md" rel="noopener">Redaction design</a></li>
+        <li><a href="https://github.com/lunowe/cc-insights/blob/master/docs/FINDINGS.md" rel="noopener">Measured findings</a></li>
+        <li><a href="https://github.com/lunowe/cc-insights/blob/master/LICENSE" rel="noopener">MIT license</a></li>
+      </ul>
+      <p class="footer-fine">
+        Example figures on this page were measured on one developer's machine and are shown to illustrate
+        what the tool reports. Project names in the repository's documentation are invented and the
+        dashboard's sample data is synthetic.
+      </p>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="main.js"></script>
+</body>
+</html>

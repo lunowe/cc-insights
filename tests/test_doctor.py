@@ -116,6 +116,30 @@ def test_an_unsupported_platform_warns_rather_than_fails(cfg, monkeypatch):
     assert check(doctor.run(cfg), "background job").level == doctor.WARN
 
 
+def test_an_unreadable_crontab_is_named_not_reported_missing(cfg, monkeypatch):
+    """"not installed -> cci install" is wrong advice when the crontab itself
+    cannot be opened: the install would fail on the same read."""
+    monkeypatch.setattr(scheduler, "supported", lambda: True)
+    monkeypatch.setattr(scheduler, "cron_error", lambda: "crontab -l: must be suid")
+    c = check(doctor.run(cfg), "background job")
+    assert c.level == doctor.FAIL
+    assert "must be suid" in c.detail and c.fix.startswith("crontab -l")
+
+
+def test_a_cron_line_with_no_daemon_says_start_cron(cfg, monkeypatch):
+    """`cci install` cannot start a cron daemon, so it is the wrong fix."""
+    stopped = scheduler.JobStatus(
+        mode=scheduler.INTERVAL, label=scheduler.LABEL, installed=True, loaded=False
+    )
+    monkeypatch.setattr(scheduler, "cron_error", lambda: None)
+    monkeypatch.setattr(scheduler, "uses_cron", lambda: True)
+    monkeypatch.setattr(scheduler, "status", lambda: [stopped])
+    monkeypatch.setattr(scheduler, "active", lambda: None)
+    c = check(doctor.run(cfg), "background job")
+    assert c.level == doctor.FAIL and "no cron daemon" in c.detail
+    assert c.fix.startswith("start cron")
+
+
 # ------------------------------------------------------------- freshness --
 
 
