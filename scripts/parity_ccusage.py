@@ -28,6 +28,10 @@ Known differences, both deliberate (measured 2026-10-06):
   compaction counting (ccusage PR #1821, merged 2026-10-02), so it leaves out
   remote compaction requests that the adapter, like ccusage's main branch,
   counts. Against a build of ccusage's main branch the totals are identical.
+  The adapter departs from ccusage in two corner cases that do not occur in
+  the measured logs: a compaction billed before its own advancing
+  token_count, and repeated snapshots taken as replay-burst evidence (see
+  ``sources/codex.py``).
 * **opencode gpt-5.3-codex output.** ccusage adds ``reasoning`` to output on
   every message. opencode 1.2 already counted reasoning inside ``output``
   (its ``total`` leaves reasoning out), so the adapter does not add it again
