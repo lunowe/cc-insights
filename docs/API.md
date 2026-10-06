@@ -94,7 +94,9 @@ type Meta = {
   // matched to a NEAR RELATIVE rather than to themselves -- defensible as a
   // default, never acceptable to hide. `unpricedModels` have no rate at all.
   pricing: {
-    catalog: { repo?: string; commit?: string; fetched_at?: string; license?: string };
+    catalog: { repo?: string; commit?: string; fetched_at?: string; license?: string;
+             // the catalog that fills models the primary one lacks (models.dev)
+             fallback?: { name?: string; url?: string; sha256?: string; license?: string; fetched_at?: string } };
     currency: string;
     approximations: { model: string; pricedAs: string }[];
     unpricedModels: string[];
@@ -280,7 +282,9 @@ type Cost = CostTotals & {
   // four times as much -- thousands of dollars of difference on a corpus with
   // billions of cache-read tokens. Show it next to the total.
   approximations: { model: string; pricedAs: string }[];
-  catalog: { repo?: string; commit?: string; fetched_at?: string; license?: string };
+  catalog: { repo?: string; commit?: string; fetched_at?: string; license?: string;
+             // the catalog that fills models the primary one lacks (models.dev)
+             fallback?: { name?: string; url?: string; sha256?: string; license?: string; fetched_at?: string } };
 };
 ```
 

@@ -47,6 +47,27 @@ them measured against the live corpus and reproducing
    a byte offset in the middle. 8 four-line transcripts record none; those get
    `agent_name=None`.
 
+ONE RESPONSE, BILLED ONCE. Claude Code writes one line per *content block*
+of an API response -- thinking, text, each tool call -- and every one of those
+lines repeats the response's full `usage`. Measured: 98,984 usage-bearing
+lines for 46,591 responses, so summing per line counted input and cache
+tokens ~2x and output ~1.6x. ccusage (the reference this was checked against)
+keeps one copy per `(message.id, requestId)`. Here the lines stay events --
+they are the timeline -- and the tokens are spread so they sum to the response
+exactly once: the response's first line carries input, cache reads and cache
+writes; every later line carries only the output tokens added since the line
+before it. Measured over the corpus, output is the only field that varies
+within a response, it never decreases, and the last line always carries the
+final count -- so the sum is the final count. A response's lines never span
+two files and never interleave with another response's (tool results do sit
+between them), which is what lets this be decided inside one file.
+
+The last response in a file may still be streaming, so its lines -- and
+everything after its first line -- are reported with `byte_end` at that
+response's first line. The next run re-reads them from there: lines already
+stored are identical and dedup on `uuid` ignores them, and new lines get the
+right increment because the response is seen from its start.
+
 ONE EVENT PER MESSAGE LINE (the decision the contract asks us to document).
 Applies to both file shapes.
 Claude Code writes one JSON object per message and, measured over the whole
@@ -66,6 +87,7 @@ the canonical probe, which counts lines. Everything else matches key for key.
 
 from __future__ import annotations
 
+import dataclasses
 import glob as _glob
 import json
 import os
@@ -200,11 +222,21 @@ class ClaudeCodeAdapter:
         path = Path(path)
         agent_name: str | None = None
         sniffed = False
+        # The response whose lines are being billed once (see the module
+        # docstring): its key, where its first line starts, and the largest
+        # output count seen on it so far. `held` is every event since that
+        # first line; they are released when the next response starts, or at
+        # the end of the file with their byte_end pulled back to `start`.
+        current: tuple[str, str | None] | None = None
+        start = 0
+        output_so_far = 0
+        held: list[RawEvent] = []
         with path.open("rb") as handle:
             if from_byte:
                 handle.seek(from_byte)
             offset = handle.tell()
             for chunk in handle:
+                line_start = offset
                 offset += len(chunk)
                 text = chunk.decode("utf-8", "replace").rstrip("\r\n")
                 if not text.strip():
@@ -219,7 +251,25 @@ class ClaudeCodeAdapter:
                 # byte 0, so a resumed parse names the agent the same way.
                 if not sniffed and _str_or_none(doc.get("agentId")):
                     agent_name, sniffed = self._agent_name(path), True
-                yield from self._events(doc, text, path, offset, agent_name)
+                events = list(self._events(doc, text, path, offset, agent_name))
+
+                key = _response_key(doc)
+                if key is not None and key != current:
+                    yield from held
+                    held = []
+                    current, start, output_so_far = key, line_start, 0
+                    events, output_so_far = _bill_first_line(events)
+                elif key is not None:
+                    events, output_so_far = _bill_later_line(events, output_so_far)
+
+                if current is None:
+                    yield from events
+                else:
+                    held.extend(events)
+        # The last response may still be streaming: report its lines, and
+        # everything after its first line, as not yet consumed.
+        for ev in held:
+            yield dataclasses.replace(ev, byte_end=start)
 
     def _agent_name(self, path: Path) -> str | None:
         """The subagent type recorded in this transcript's head, or None.
@@ -353,6 +403,54 @@ class ClaudeCodeAdapter:
                 tool_use_id=use_id,
                 **common,
             )
+
+
+def _response_key(doc: dict[str, Any]) -> tuple[str, str | None] | None:
+    """`(message.id, requestId)` for a line that carries a response's usage.
+
+    None for every other line -- user turns, tool results, system lines, and
+    the `<synthetic>` turns Claude Code makes up locally, which carry no
+    message id. `requestId` is absent on a few dozen old lines; the message
+    id alone still identifies the response within a file.
+    """
+    if doc.get("type") != "assistant":
+        return None
+    message = doc.get("message")
+    if not isinstance(message, dict) or not isinstance(message.get("usage"), dict):
+        return None
+    message_id = _str_or_none(message.get("id"))
+    if message_id is None:
+        return None
+    return message_id, _str_or_none(doc.get("requestId"))
+
+
+def _bill_first_line(events: list[RawEvent]) -> tuple[list[RawEvent], int]:
+    """A response's first line keeps its usage as written."""
+    usage = events[0].output_tokens if events else None
+    return events, usage or 0
+
+
+def _bill_later_line(events: list[RawEvent], output_so_far: int) -> tuple[list[RawEvent], int]:
+    """A later line of the same response: only the output added since.
+
+    Input and cache tokens were billed on the first line, so they become None
+    here -- "this line reports none", not 0. Output never decreases within a
+    response in the corpus; `max` keeps a decrease from going negative anyway.
+    """
+    if not events:
+        return events, output_so_far
+    head = events[0]
+    output = head.output_tokens
+    new_total = max(output_so_far, output) if output is not None else output_so_far
+    billed = dataclasses.replace(
+        head,
+        input_tokens=None,
+        output_tokens=new_total - output_so_far if output is not None else None,
+        cache_read_tokens=None,
+        cache_write_tokens=None,
+        cache_write_1h_tokens=None,
+    )
+    return [billed, *events[1:]], new_total
 
 
 def _tool_fields(block: dict[str, Any]) -> tuple[str | None, str | None]:

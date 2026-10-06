@@ -13,10 +13,13 @@ derivation engine, static HTML dashboard, CSV export.
   "re-read me every run". Still to come: Cursor, Gemini CLI, Aider, GitHub
   Copilot CLI. Each is one file.
 - **Real cost tracking.** ✅ `pricing.py` + `cost.py` + migration 003. Rates are
-  keyed (model, effective_from) from a committed snapshot of
-  pydantic/genai-prices, so history does not move when a vendor reprices.
+  keyed (model, effective_from) from a committed snapshot of LiteLLM's price
+  list (models.dev as fallback), matched the way ccusage matches, so history
+  does not move when a vendor reprices. It replaced pydantic/genai-prices,
+  which lacked the newest models and priced `claude-opus-5-5` as
+  `claude-opus-5` by prefix.
   Input, output, cache read and cache write are priced separately, which
-  turned out to matter more than expected: cache reads are 58% of the total.
+  turned out to matter more than expected: cache reads are half of the total.
   What is left, and it is not small:
   - **Context-window tiers are flattened to the base rate.** Some models charge
     more above a threshold; the logs record tokens per request, not context

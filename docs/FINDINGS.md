@@ -301,6 +301,31 @@ Three further facts a total has to disclose, all of them measured here:
    what it can: on this machine that was 100% of 350.1M tokens, because none
    of the cache-writing sessions had aged out yet.
 
+5. **Correction, 2026-10-06: every token and cost figure in this section
+   counted most responses twice.** Claude Code writes one log line per
+   content block of a response and repeats the response's whole `usage` on
+   each; the adapter summed them. Codex repeated usage too: `token_count`
+   events whose cumulative total had not moved, `token_usage_record` lines
+   restating a `token_count`, and forked threads replaying their parent's
+   history. Checked against ccusage, which keeps one copy per
+   `(message.id, requestId)`: on the logs still on disk, Claude Code now
+   matches it token for token, input, output, cache read and cache write.
+   The same corpus window, recounted:
+
+   | | tokens | cost | share |
+   | --- | --- | --- | --- |
+   | cache read | 6,102 M | $2,828 | **50%** |
+   | cache write | 128 M | $1,562 | 28% |
+   | output | 31 M | $1,095 | 19% |
+   | fresh input | 43 M | $173 | 3% |
+
+   **$5,658**, not $11,630. The shape survives — cache reads are still the
+   largest component and output is still a fifth — but every absolute number
+   above was about double. Active time, parallelism and every other
+   time-based figure were never affected: duplicate lines share their
+   timestamps. 42.8% of cache-write tokens are 1-hour writes (55.0 M of
+   128.6 M), and the Fable 5.1 catalog error in item 3 was $1,151 of it.
+
 ## 7. Scale
 
 ~180k events for the combined corpus. A full year of both stays under 1M rows.

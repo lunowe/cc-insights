@@ -283,9 +283,8 @@ def _message_events(
             cwd=_str_or_none(_dict(data.get("path")).get("cwd")),
             # opencode reports `input` net of cache, like Claude Code and
             # unlike Codex, so the contract's fields map straight across.
-            # `reasoning` is a subset of `output` and is not added again.
             input_tokens=_int_or_none(tokens.get("input")),
-            output_tokens=_int_or_none(tokens.get("output")),
+            output_tokens=_billed_output(tokens),
             cache_read_tokens=_int_or_none(cache.get("read")),
             cache_write_tokens=_int_or_none(cache.get("write")),
         )
@@ -300,6 +299,37 @@ def _message_events(
                 model=_str_or_none(data.get("modelID")),
                 cwd=_str_or_none(_dict(data.get("path")).get("cwd")),
             )
+
+
+def _billed_output(tokens: dict[str, Any]) -> int | None:
+    """Output tokens as billed: `output`, plus `reasoning` when it is separate.
+
+    Providers bill reasoning at the output rate. Current opencode (1.18 on the
+    measured store) reports it SEPARATELY from `output`: `total == input +
+    output + reasoning + cache.read + cache.write` on all 272 messages with
+    reasoning, and `output < reasoning` on 22 of them. opencode 1.2 reported
+    it as a SUBSET of output: on all 120 such messages `total == input +
+    output + cache` with reasoning left out. ccusage adds reasoning in both
+    cases (opencode/src/parser.rs:191-227), which double-counts the old rows.
+
+    So the message's own `total` decides. Reasoning is added unless `total`
+    shows it is already inside `output`; with no `total` to go by, it is added,
+    as current opencode writes it.
+    """
+    output = _int_or_none(tokens.get("output"))
+    reasoning = _int_or_none(tokens.get("reasoning"))
+    if not reasoning or reasoning < 0:
+        return output
+    cache = _dict(tokens.get("cache"))
+    parts = (
+        _int_or_none(tokens.get("input")) or 0,
+        output or 0,
+        _int_or_none(cache.get("read")) or 0,
+        _int_or_none(cache.get("write")) or 0,
+    )
+    if _int_or_none(tokens.get("total")) == sum(parts):
+        return output  # opencode 1.2: reasoning is already inside output
+    return (output or 0) + reasoning
 
 
 def _tool_part_events(

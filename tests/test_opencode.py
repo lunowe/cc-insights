@@ -215,10 +215,47 @@ def test_an_assistant_turn_yields_its_start_and_its_completion(store: Path):
 def test_only_the_start_event_carries_token_usage(store: Path):
     """Both halves of a turn priced would double the bill."""
     start, done = [e for e in parse(store) if e.native_event_id.startswith("msg_asst")]
-    assert (start.input_tokens, start.output_tokens) == (100, 20)
+    # output 20 + reasoning 5: the fixture has no `total`, so reasoning is
+    # taken as separate, as current opencode writes it.
+    assert (start.input_tokens, start.output_tokens) == (100, 25)
     assert (start.cache_read_tokens, start.cache_write_tokens) == (900, 40)
     assert done.input_tokens is done.output_tokens is None
     assert done.cache_read_tokens is done.cache_write_tokens is None
+
+
+def _output_for(tmp_path: Path, tokens: dict) -> int | None:
+    s = Store(tmp_path / "opencode.db")
+    s.session(ROOT)
+    s.message(ROOT, assistant(T0, tokens=tokens), mid="msg_1")
+    (event,) = parse(s.close())
+    return event.output_tokens
+
+
+def test_separate_reasoning_is_billed_as_output(tmp_path: Path):
+    """opencode 1.18: `total` counts reasoning on top of output, so reasoning
+    is separate and is billed at the output rate (as ccusage does)."""
+    tokens = {"total": 12593, "input": 120, "output": 422, "reasoning": 546,
+              "cache": {"read": 11505, "write": 0}}
+    assert _output_for(tmp_path, tokens) == 422 + 546
+
+
+def test_reasoning_inside_output_is_not_added_again(tmp_path: Path):
+    """opencode 1.2: `total` leaves reasoning out because it is already inside
+    output. Adding it would bill those tokens twice."""
+    tokens = {"total": 12219, "input": 11799, "output": 420, "reasoning": 338,
+              "cache": {"read": 0, "write": 0}}
+    assert _output_for(tmp_path, tokens) == 420
+
+
+def test_reasoning_without_a_total_is_taken_as_separate(tmp_path: Path):
+    tokens = {"input": 10, "output": 3, "reasoning": 7, "cache": {"read": 0, "write": 0}}
+    assert _output_for(tmp_path, tokens) == 10
+
+
+def test_no_reasoning_leaves_output_alone(tmp_path: Path):
+    tokens = {"total": 33, "input": 10, "output": 3, "reasoning": 0,
+              "cache": {"read": 20, "write": 0}}
+    assert _output_for(tmp_path, tokens) == 3
 
 
 def test_a_completion_equal_to_the_start_emits_one_event(tmp_path: Path):

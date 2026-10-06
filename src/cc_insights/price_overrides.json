@@ -1,109 +1,42 @@
 {
- "why": "Corrections to the genai-prices catalog, checked against the vendor's own pricing page. An override beats the catalog and loses to a human's `cci price set`. Each entry says what the catalog gets wrong, where the right number came from, and when someone last looked; delete an entry once upstream agrees. Rates are the vendor's five columns collapsed to ours: base input, 5m cache write, 1h cache write, cache hit, output. Same matcher language as model_prices.json, first match wins, and a matcher must not be broader than the model it corrects -- `claude-fable-5-1` and `claude-fable-5` differ only in cache reads, and a rule that caught both would reintroduce the error it exists to fix.",
- "models": [
+ "why": "Corrections to the catalog snapshot (model_prices.json, from LiteLLM with models.dev as fallback), checked against the vendor's own pricing page. An override beats the catalog and loses to a human's `cci price set`. Each entry says what the catalog gets wrong, where the right number came from, and when someone last looked; delete an entry once upstream agrees -- `cci price sync` says when it does -- and move it to `retired` with the reason. Rates are the vendor's five columns collapsed to ours: base input, 5m cache write, 1h cache write, cache hit, output, per million tokens. An entry is matched by its `id` exactly -- the same spelling rules as the catalog (provider prefix, date suffix, `.` for `-`) but never fuzzily -- so it cannot reach a model it does not name: `claude-fable-5-1` and `claude-fable-5` differ only in cache reads, and a correction that caught both would reintroduce the error it exists to fix.",
+ "models": [],
+ "retired": [
   {
    "provider": "anthropic",
    "id": "claude-fable-5-1",
-   "why": "The catalog has no entry of its own for Fable 5.1 and matches it to `claude-fable-5`, whose cache reads cost four times as much ($1 against $0.25 per MTok). Fable 5.1 prices cache hits at 0.025x base input where every other model uses 0.1x. On a corpus where cache reads are 59% of the bill that single substitution was worth $2,752, or 21% of the total.",
+   "corrected": "genai-prices had no entry of its own for Fable 5.1 and matched it to `claude-fable-5`, whose cache reads cost four times as much ($1 against $0.25 per MTok). On a corpus where cache reads were 59% of the bill that substitution was worth $2,752, or 21% of the total.",
+   "why_retired": "LiteLLM has an exact `claude-fable-5-1` key at $10/$50, cache read $0.25, 5m write $12.50, 1h write $20 -- the override's numbers exactly, and the claude-api skill's model table agrees ($10/$50, cache read $0.25). The version boundary in the matcher also stops it falling back to `claude-fable-5` if the key ever goes.",
    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
-   "checked": "2026-09-20",
-   "match": {
-    "or": [
-     {
-      "starts_with": "claude-fable-5-1"
-     },
-     {
-      "starts_with": "claude-fable-5.1"
-     },
-     {
-      "starts_with": "claude-5-1-fable"
-     }
-    ]
-   },
-   "clauses": [
-    {
-     "start_date": null,
-     "input_mtok": 10,
-     "output_mtok": 50,
-     "cache_read_mtok": 0.25,
-     "cache_write_mtok": 12.5,
-     "cache_write_1h_mtok": 20
-    }
-   ]
+   "checked": "2026-10-06",
+   "upstream": "litellm@096b20b6db40a9f22500ea837b0ab77a7374a26a"
   },
   {
    "provider": "anthropic",
    "id": "claude-mythos-5-1",
-   "why": "Limited availability, so the catalog does not carry it at all and its traffic would be reported unpriced. The vendor lists it at Fable 5.1's rates, cheap cache hits included.",
+   "corrected": "Limited availability, so genai-prices did not carry it at all and its traffic was reported unpriced. The vendor lists it at Fable 5.1's rates, cheap cache hits included.",
+   "why_retired": "LiteLLM has an exact `claude-mythos-5-1` key at $10/$50, cache read $0.25, 5m write $12.50, 1h write $20 -- the override's numbers exactly.",
    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
-   "checked": "2026-09-20",
-   "match": {
-    "or": [
-     {
-      "starts_with": "claude-mythos-5-1"
-     },
-     {
-      "starts_with": "claude-mythos-5.1"
-     }
-    ]
-   },
-   "clauses": [
-    {
-     "start_date": null,
-     "input_mtok": 10,
-     "output_mtok": 50,
-     "cache_read_mtok": 0.25,
-     "cache_write_mtok": 12.5,
-     "cache_write_1h_mtok": 20
-    }
-   ]
+   "checked": "2026-10-06",
+   "upstream": "litellm@096b20b6db40a9f22500ea837b0ab77a7374a26a"
   },
   {
    "provider": "anthropic",
    "id": "claude-mythos-5",
-   "why": "As above, at Claude Fable 5's rates -- standard 0.1x cache hits, not Fable 5.1's 0.025x.",
+   "corrected": "As claude-mythos-5-1, at Claude Fable 5's rates -- standard 0.1x cache hits, not Fable 5.1's 0.025x.",
+   "why_retired": "LiteLLM has an exact `claude-mythos-5` key at $10/$50, cache read $1, 5m write $12.50, 1h write $20 -- the override's numbers exactly.",
    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
-   "checked": "2026-09-20",
-   "match": {
-    "starts_with": "claude-mythos-5"
-   },
-   "clauses": [
-    {
-     "start_date": null,
-     "input_mtok": 10,
-     "output_mtok": 50,
-     "cache_read_mtok": 1,
-     "cache_write_mtok": 12.5,
-     "cache_write_1h_mtok": 20
-    }
-   ]
+   "checked": "2026-10-06",
+   "upstream": "litellm@096b20b6db40a9f22500ea837b0ab77a7374a26a"
   },
   {
    "provider": "anthropic",
    "id": "claude-sonnet-5",
-   "why": "The catalog carries a price rise on 2026-09-01 to $3/$15 that did not happen: those are Claude Sonnet 4.6's rates. The vendor still lists Sonnet 5 at $2/$10 with $0.20 cache hits. Worth $4.73 here, and wrong in a way that grows with every Sonnet 5 hour.",
+   "corrected": "genai-prices carried a price rise on 2026-09-01 to $3/$15 that did not happen: those are Claude Sonnet 4.6's rates. The vendor still listed Sonnet 5 at $2/$10 with $0.20 cache hits.",
+   "why_retired": "LiteLLM has an exact `claude-sonnet-5` key at $2/$10, cache read $0.20, 5m write $2.50, 1h write $4 and no dated rise -- the override's numbers exactly. Not on the claude-api skill's table, which lists Sonnet 5.5 at the same $2/$10; the vendor page was last read for Sonnet 5 on 2026-09-20.",
    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
-   "checked": "2026-09-20",
-   "match": {
-    "or": [
-     {
-      "starts_with": "claude-sonnet-5"
-     },
-     {
-      "starts_with": "claude-5-sonnet"
-     }
-    ]
-   },
-   "clauses": [
-    {
-     "start_date": null,
-     "input_mtok": 2,
-     "output_mtok": 10,
-     "cache_read_mtok": 0.2,
-     "cache_write_mtok": 2.5,
-     "cache_write_1h_mtok": 4
-    }
-   ]
+   "checked": "2026-10-06",
+   "upstream": "litellm@096b20b6db40a9f22500ea837b0ab77a7374a26a"
   }
  ]
 }
