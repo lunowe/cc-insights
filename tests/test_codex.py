@@ -6,6 +6,7 @@ is file-scoped and restarts at 0 in every thread, so keying events on
 """
 
 import json
+import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -977,6 +978,40 @@ def test_ingest_counts_a_compaction_once_across_runs(tmp_path, cut, order):
         *middle,
     ]
     assert _grow_and_compare(tmp_path, records, cuts=[cut]) == (1500, 87)
+
+
+def test_a_held_event_in_a_file_that_never_changes_again_is_still_counted(
+        tmp_path, clock, monkeypatch):
+    """A parentless fork whose log stops right after its first usage event:
+    the first ingest cannot decide it and holds it back, and the file is
+    never written again. An unchanged file is normally skipped -- so the skip
+    rule has to wait until a read has happened HOLD_SETTLE_MS after the last
+    write, or the fork's only usage is never counted at all."""
+    own = usage(100, 10)
+    home = tmp_path / "home"
+    path = write_jsonl(home / "sessions" / "c.jsonl",
+                       [fork_meta(CHILD, PARENT, 30), token_count(1, 30.01, own, own)])
+    written = ms(30.02) / 1000
+    os.utime(path, (written, written))
+
+    def run(seconds: float):
+        clock(seconds)
+        monkeypatch.setattr(db, "now_ms", lambda: ms(seconds))
+        cfg = Config(host_id="host-under-test", hostname="test-host",
+                     db_path=tmp_path / "live.db",
+                     source_globs={"codex": [str(home / "sessions" / "*.jsonl")]},
+                     config_dir=tmp_path)
+        conn = db.connect(cfg.db_path)
+        db.migrate(conn)
+        return conn, ingest.ingest(conn, cfg, sources=["codex"])
+
+    conn, _ = run(31)                      # held: a second event may follow
+    assert _token_sums(conn) == (0, 0)
+    conn, stats = run(120)                 # unchanged file, but not settled yet
+    assert stats.files_skipped == 0
+    assert _token_sums(conn) == (100, 10)
+    conn, stats = run(130)                 # read long after the last write
+    assert stats.files_skipped == 1
 
 
 def test_ingest_keeps_own_usage_followed_by_a_repeat(tmp_path, clock):

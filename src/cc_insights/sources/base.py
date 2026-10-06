@@ -91,6 +91,16 @@ class RawEvent:
     byte_end: int = 0
 
 
+#: The longest an adapter may hold back the tail of a file it cannot decide
+#: yet -- by reporting `byte_end` short of the events it has seen -- counted
+#: from the file's last write. Claude Code holds back a response that may
+#: still be streaming, Codex a fork's first usage event until it knows whether
+#: it is replayed history. Ingest relies on this: an unchanged file is skipped
+#: only once it has been read this long after its last write, because only
+#: then is everything held back certain to have been decided.
+HOLD_SETTLE_MS = 60_000
+
+
 @runtime_checkable
 class SourceAdapter(Protocol):
     """Implemented once per tool. See sources/claude_code.py, codex.py, opencode.py."""

@@ -111,7 +111,7 @@ from typing import Iterable, Iterator, Sequence, TypeVar
 
 from cc_insights import db, ids, paths
 from cc_insights.config import Config
-from cc_insights.sources.base import RawEvent, SourceAdapter
+from cc_insights.sources.base import HOLD_SETTLE_MS, RawEvent, SourceAdapter
 from cc_insights.sources.claude_code import ClaudeCodeAdapter
 from cc_insights.sources.codex import CodexAdapter
 from cc_insights.sources.opencode import OpencodeAdapter
@@ -654,25 +654,30 @@ def _plan_file(
     conn: sqlite3.Connection, host_id: str, path: str, size_bytes: int, mtime_ms: int
 ) -> _FilePlan:
     row = conn.execute(
-        "SELECT size_bytes, mtime_ms, bytes_read, lines_read FROM ingest_file "
+        "SELECT size_bytes, mtime_ms, bytes_read, lines_read, last_ingest FROM ingest_file "
         "WHERE host_id = ? AND path = ?",
         (host_id, path),
     ).fetchone()
     if row is None:
         return _FilePlan(from_byte=0, prior_lines=0, skip=False, rotated=False)
 
-    prior_size, prior_mtime, bytes_read, lines_read = (row[0], row[1], row[2], row[3])
+    prior_size, prior_mtime, bytes_read, lines_read, last_read = row
     # Shrunk => rotated or rewritten. Restart; dedup makes that harmless.
     if size_bytes < prior_size or size_bytes < bytes_read:
         return _FilePlan(from_byte=0, prior_lines=0, skip=False, rotated=True)
-    # Unchanged since the last run: nothing new can be in it. `bytes_read`
-    # may legitimately sit short of the end -- the Claude adapter holds back a
-    # response that may still be streaming -- so "read to the end" is not the
-    # test. A recorded offset of 0 is: that is a source with no byte offsets
-    # (opencode's SQLite store, whose new rows can land in its WAL without
-    # touching the main file), which must be re-read every run.
+    # Unchanged since the last run, and nothing is still waiting on it.
+    # `bytes_read` may sit short of the end on purpose: adapters hold back a
+    # tail they cannot decide yet (base.HOLD_SETTLE_MS) -- a Claude response
+    # that may still be streaming, a Codex fork's first usage event. What is
+    # held back is decided by a read at least HOLD_SETTLE_MS after the file's
+    # last write, so until such a read has happened the file is re-read even
+    # though it has not changed; after it, re-reading cannot yield anything.
+    # A recorded offset of 0 is never skipped short of the end: that is a
+    # source with no byte offsets (opencode's SQLite store, whose new rows can
+    # land in its WAL without touching the main file).
+    settled = last_read is not None and last_read - mtime_ms > HOLD_SETTLE_MS
     if size_bytes == prior_size and mtime_ms == prior_mtime and (
-        bytes_read >= size_bytes or bytes_read > 0
+        bytes_read >= size_bytes or (bytes_read > 0 and settled)
     ):
         return _FilePlan(from_byte=bytes_read, prior_lines=lines_read, skip=True, rotated=False)
     return _FilePlan(from_byte=bytes_read, prior_lines=lines_read, skip=False, rotated=False)

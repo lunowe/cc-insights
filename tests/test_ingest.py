@@ -971,10 +971,24 @@ def test_a_response_cut_by_an_ingest_run_is_still_billed_once(tmp_path: Path, cu
 
 def test_an_unchanged_file_with_a_held_back_response_is_skipped(tmp_path: Path):
     """Holding the last response back leaves the offset short of the end of
-    the file. That must not turn every run into a re-read of every file."""
-    write_jsonl(tmp_path / "claude" / "p" / "s1.jsonl", _STREAMED)
+    the file. Once the file has been read HOLD_SETTLE_MS after its last write,
+    that must not turn every run into a re-read of every file."""
+    log = write_jsonl(tmp_path / "claude" / "p" / "s1.jsonl", _STREAMED)
+    long_ago = log.stat().st_mtime - 600
+    os.utime(log, (long_ago, long_ago))
     cfg = make_config(tmp_path, claude_code=[str(tmp_path / "claude" / "*" / "*.jsonl")])
     conn = fresh_db(cfg)
     ingest.ingest(conn, cfg, sources=["claude_code"])
     again = ingest.ingest(conn, cfg, sources=["claude_code"])
     assert again.files_skipped == 1 and again.events_inserted == 0
+
+
+def test_a_recently_written_file_is_reread_until_settled(tmp_path: Path):
+    """Read moments after its last write, a file may hold an undecided tail
+    (base.HOLD_SETTLE_MS), so the next run reads it again even unchanged."""
+    write_jsonl(tmp_path / "claude" / "p" / "s1.jsonl", _STREAMED)
+    cfg = make_config(tmp_path, claude_code=[str(tmp_path / "claude" / "*" / "*.jsonl")])
+    conn = fresh_db(cfg)
+    ingest.ingest(conn, cfg, sources=["claude_code"])
+    again = ingest.ingest(conn, cfg, sources=["claude_code"])
+    assert again.files_skipped == 0 and again.events_inserted == 0

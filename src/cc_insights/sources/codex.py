@@ -133,7 +133,7 @@ from typing import Any, BinaryIO, Callable, Iterable, Iterator, Sequence
 
 from cc_insights import ids
 from cc_insights.config import Config, default_source_globs, expand_glob
-from cc_insights.sources.base import EventKind, RawEvent
+from cc_insights.sources.base import HOLD_SETTLE_MS, EventKind, RawEvent
 
 SOURCE_NAME = "codex"
 
@@ -588,7 +588,8 @@ class _ReplayFilter:
 #: one before it is taken as the fork's own. Codex writes a replay in one go
 #: (bursts of 10-40 ms), so a minute without a second event, and without any
 #: later line, settles it.
-_UNDECIDED_GRACE_MS = 60_000
+#: Bound by the contract in base.py, which ingest's skip rule depends on.
+_UNDECIDED_GRACE_MS = HOLD_SETTLE_MS
 
 
 def _now_ms() -> int:
