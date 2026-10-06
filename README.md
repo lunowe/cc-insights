@@ -239,10 +239,19 @@ sign-in instead of a database URL.
 .venv/bin/cci cost         # the breakdown
 ```
 
-**$11,630 at published API rates** on this corpus, and the shape of it is the
-finding: **cache reads are 44%** of the total, cache writes 38% (21% of it at
-the one-hour rate), output 16%, fresh input 2%. The cheapest component per
-token is most of the bill.
+**$5,658 at published API rates** on this corpus, and the shape of it is the
+finding: **cache reads are half** of the total, cache writes 28% (three-fifths
+of that at the one-hour rate), output 19%, fresh input 3%. The cheapest
+component per token is most of the bill.
+
+Each API response is counted once. Claude Code writes one log line per
+content block — thinking, text, each tool call — and repeats the response's
+whole `usage` on every one of them, and Codex repeats usage events too. An
+earlier version summed what it read and reported **$11,630** for the same
+corpus, about twice the real figure. `scripts/parity_ccusage.py` compares the
+per-model token totals with [ccusage](https://github.com/ccusage/ccusage)'s;
+on this machine Claude Code matches token for token, and Codex differs only by
+the compaction requests the published ccusage release does not count yet.
 
 That figure is a *list-price equivalent*, not a bill — a subscription charges a
 flat monthly fee no matter how many tokens run through it. Rates come from a
@@ -265,8 +274,8 @@ not priced as `o1`. A name priced through a near relative is listed beside every
 total.
 
 Cache writes are priced at two rates, because they have two lifetimes: 1.25x
-base input for a five-minute write and 2x for a one-hour one. 41% of this
-corpus takes the expensive one — Claude Code gives the main conversation an
+base input for a five-minute write and 2x for a one-hour one. 43% of this
+corpus's cache writes take the expensive one — Claude Code gives the main conversation an
 hour on a subscription within plan usage, and five minutes to subagents — and
 the logs record which, so `cci cost` does not have to guess. A database built
 before that column existed fills it with `cci backfill`, from the logs that
@@ -279,7 +288,7 @@ which a human owns and no sync touches. The middle layer exists because a
 catalog's errors are not small and a fix kept in one laptop's database is
 lost on the next machine: the previous catalog priced **Claude Fable 5.1 as
 Fable 5**, whose cache reads cost four times as much ($1.00 against $0.25 per
-MTok), which was **$2,752 — 21% of the total** — and it carried a Sonnet 5
+MTok), which was **$1,151 — a fifth of the total** — and it carried a Sonnet 5
 price rise that never happened. LiteLLM gets both right, so those corrections
 are retired (the file says why) and the layer is empty until the next one is
 needed; `cci price sync` says when upstream agrees with a correction.

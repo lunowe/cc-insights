@@ -19,7 +19,7 @@ derivation engine, static HTML dashboard, CSV export.
   which lacked the newest models and priced `claude-opus-5-5` as
   `claude-opus-5` by prefix.
   Input, output, cache read and cache write are priced separately, which
-  turned out to matter more than expected: cache reads are 58% of the total.
+  turned out to matter more than expected: cache reads are half of the total.
   What is left, and it is not small:
   - **Context-window tiers are flattened to the base rate.** Some models charge
     more above a threshold; the logs record tokens per request, not context
