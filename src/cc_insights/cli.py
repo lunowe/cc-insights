@@ -809,7 +809,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     if args.uninstall:
         try:
             removed = scheduler.uninstall()
-        except scheduler.Unsupported as exc:
+        except (scheduler.Unsupported, RuntimeError) as exc:
             print(exc, file=sys.stderr)
             return 1
         print("removed " + (", ".join(removed) if removed else "nothing — no job was installed"))
@@ -861,6 +861,8 @@ def cmd_install(args: argparse.Namespace) -> int:
                            else "every 15 minutes, and once now"))
     if job_file is not None:
         print(f"  job      {job_file}")
+    elif scheduler.uses_cron():
+        print(f"  job      your crontab, the line ending `{scheduler.CRON_TAG}`")
     print(f"  logs     {cfg.config_dir / 'logs'}")
     print("  remove   cci install --uninstall")
     print()

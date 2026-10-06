@@ -102,8 +102,15 @@ def _capture(cfg: config_mod.Config, conn: sqlite3.Connection | None) -> list[Ch
     if not scheduler.supported():
         out.append(Check(
             "background job", WARN,
-            "no scheduler integration on this platform",
-            "cci install  (prints a cron line you can use instead)",
+            "no scheduler here (no launchd, Task Scheduler or crontab), so "
+            "doctor cannot see a job you scheduled yourself",
+            "cci install  (prints the job line to schedule yourself)",
+        ))
+    elif (unreadable := scheduler.cron_error()) is not None:
+        out.append(Check(
+            "background job", FAIL,
+            f"cannot read your crontab, so whether the job is there is unknown: {unreadable}",
+            "crontab -l  (fix whatever it reports, then `cci install`)",
         ))
     else:
         job = scheduler.active()
@@ -113,7 +120,15 @@ def _capture(cfg: config_mod.Config, conn: sqlite3.Connection | None) -> list[Ch
             out.append(Check("background job", OK, f"{job.label} — {kind}"))
         else:
             stopped = [j for j in scheduler.status() if j.installed and not j.loaded]
-            if stopped:
+            if stopped and scheduler.uses_cron():
+                out.append(Check(
+                    "background job", FAIL,
+                    f"{stopped[0].label} is in your crontab, but no cron daemon "
+                    "is running to read it",
+                    "start cron  (`sudo systemctl enable --now cron`, or `crond` "
+                    "on Fedora, RHEL and Alpine)",
+                ))
+            elif stopped:
                 out.append(Check(
                     "background job", FAIL,
                     f"{stopped[0].label} is installed but not loaded",

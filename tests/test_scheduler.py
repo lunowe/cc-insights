@@ -17,6 +17,7 @@ What is worth asserting is narrow but load-bearing:
 from __future__ import annotations
 
 import plistlib
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -239,9 +240,13 @@ def test_active_names_the_running_job(agents, fake_cci, tmp_path):
 # ------------------------------------------------- unsupported platforms --
 
 
-def test_an_unsupported_platform_prints_a_usable_cron_line(monkeypatch, fake_cci):
-    """"Unsupported" on its own leaves a Linux user with nothing. The cron
-    line is a complete substitute for the interval job, so print it."""
+def test_a_platform_with_no_scheduler_prints_the_whole_job(monkeypatch, fake_cci,
+                                                           tmp_path):
+    """No launchd, no Task Scheduler, no crontab: a container, say. Print the
+    job -- the same line `cci install` writes elsewhere, `init` first --
+    rather than a bare "unsupported", so whatever schedules jobs there can
+    run it. The line this replaced had no `init`, and the first upgrade with
+    a migration stopped capture on every machine that pasted it."""
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(scheduler.paths, "LOCAL", scheduler.paths.POSIX)
 
@@ -249,11 +254,270 @@ def test_an_unsupported_platform_prints_a_usable_cron_line(monkeypatch, fake_cci
     assert not scheduler.supported()
 
     with pytest.raises(scheduler.Unsupported) as exc:
-        scheduler.install(scheduler.INTERVAL, config_dir=Path("/tmp/x"))
+        scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "cfg")
     message = str(exc.value)
-    assert "crontab" in message
     assert "*/15 * * * *" in message
-    assert str(fake_cci) in message
+    assert f"{fake_cci} init && {fake_cci} ingest" in message
+    assert str(tmp_path / "cfg") in message
+
+
+# ------------------------------------------------------------ linux, cron --
+
+
+@pytest.fixture
+def crontab(tmp_path, monkeypatch) -> Path:
+    """Linux with a fake `crontab` whose table is a file in tmp_path.
+
+    The fake speaks the real one's protocol -- `-l` prints the table or fails
+    with "no crontab for <user>", `-` replaces it from stdin -- so the code
+    under test runs its real subprocess calls.
+    """
+    table = tmp_path / "crontab.txt"
+    exe = tmp_path / "fakebin" / "crontab"
+    exe.parent.mkdir()
+    exe.write_text(
+        "#!/bin/sh\n"
+        f"T='{table}'\n"
+        'case "$1" in\n'
+        '  -l) [ -f "$T" ] || { echo "no crontab for tester" >&2; exit 1; }; cat "$T" ;;\n'
+        '  -)  cat > "$T" ;;\n'
+        '  *)  exit 2 ;;\n'
+        "esac\n"
+    )
+    exe.chmod(0o755)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(scheduler.paths, "LOCAL", scheduler.paths.POSIX)
+    monkeypatch.setattr(scheduler, "_crontab_bin", lambda: str(exe))
+    return table
+
+
+def _ours(table: Path) -> list[str]:
+    return [l for l in table.read_text().splitlines()
+            if l.endswith(f" {scheduler.CRON_TAG}")]
+
+
+@pytest.fixture
+def cron_daemon(monkeypatch):
+    """A running cron daemon, unless a test says otherwise. The real check
+    reads /proc, which says nothing useful about a test machine."""
+    monkeypatch.setattr(scheduler, "_cron_daemon_running", lambda: True)
+
+
+def test_linux_install_writes_one_line_and_keeps_the_rest(crontab, fake_cci, tmp_path):
+    """A crontab is the user's file. `crontab -` replaces it wholesale, so
+    every line that is not ours must come back byte for byte."""
+    theirs = ["# my jobs", "MAILTO=me@example.com", "0 3 * * * /usr/bin/backup --all"]
+    crontab.write_text("\n".join(theirs) + "\n")
+
+    job_file, cci = scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "cfg")
+
+    lines = crontab.read_text().splitlines()
+    assert lines[:3] == theirs
+    assert len(_ours(crontab)) == 1 and len(lines) == 4
+    assert job_file is None and cci == fake_cci
+    assert scheduler.supported()
+
+
+def test_other_lines_survive_byte_for_byte(crontab, fake_cci, tmp_path):
+    """Decoding, `\\r` translation and `str.splitlines` each rewrite somebody's
+    jobs: a carriage return inside a printf, a form feed, a U+2028, a Latin-1
+    comment, a table with no final newline. Install and uninstall must hand
+    every one of those back untouched."""
+    theirs = (b"# caf\xe9 -- latin-1, not utf-8\r\n"
+              b"0 3 * * * printf 'a\rb' > /tmp/x\n"
+              b"5 4 * * * echo 'form\x0cfeed' 'sep\xe2\x80\xa8arator'\n"
+              b"@reboot /usr/bin/thing")
+    crontab.write_bytes(theirs)
+
+    scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "cfg")
+    assert crontab.read_bytes().startswith(theirs + b"\n")
+
+    assert scheduler.uninstall() == [scheduler.LABEL]
+    assert crontab.read_bytes() == theirs + b"\n"
+
+
+def test_linux_install_with_no_crontab_yet(crontab, fake_cci, tmp_path):
+    """"no crontab for <user>" is the normal first install, not an error."""
+    scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "cfg")
+    assert len(_ours(crontab)) == 1
+
+
+def test_linux_reinstall_replaces_rather_than_duplicates(crontab, fake_cci, tmp_path):
+    """Two lines would be two writers on one database."""
+    scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "a")
+    scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "b")
+    [line] = _ours(crontab)
+    assert str(tmp_path / "b") in line and str(tmp_path / "a") not in line
+
+
+def test_linux_install_replaces_the_line_people_were_told_to_paste(crontab, fake_cci,
+                                                                   tmp_path):
+    """Earlier versions printed a line to paste. Left beside ours it is a
+    second writer, so it goes -- and only that exact line, for a program
+    called cci, and nothing else that merely looks like it."""
+    pasted = f"*/15 * * * * {fake_cci} ingest && {fake_cci} derive"
+    similar = f"0 * * * * {fake_cci} ingest && {fake_cci} derive && echo mine"
+    other_tool = "*/15 * * * * /usr/local/bin/mytool ingest && /usr/local/bin/mytool derive"
+    crontab.write_text(f"{pasted}\n{similar}\n{other_tool}\n")
+
+    scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "cfg")
+
+    lines = crontab.read_text().splitlines()
+    assert pasted not in lines and similar in lines and other_tool in lines
+    assert len(_ours(crontab)) == 1
+
+
+def test_an_unreadable_crontab_is_never_overwritten(crontab, fake_cci, tmp_path,
+                                                    monkeypatch):
+    """A failed read written back is a deleted crontab. Refuse instead."""
+    crontab.write_text("0 3 * * * /usr/bin/backup\n")
+    real_run = scheduler.subprocess.run
+
+    def flaky(argv, **kw):
+        if argv[-1] == "-l":
+            return subprocess.CompletedProcess(argv, 1, b"", b"crontab: permission denied")
+        return real_run(argv, **kw)
+
+    monkeypatch.setattr(scheduler.subprocess, "run", flaky)
+    with pytest.raises(RuntimeError, match="left untouched"):
+        scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "cfg")
+    assert crontab.read_text() == "0 3 * * * /usr/bin/backup\n"
+
+
+@pytest.mark.parametrize("stderr, empty", [
+    (b"no crontab for tester", True),                                  # cronie, vixie
+    (b"crontab: can't open 'tester': No such file or directory", True),  # busybox
+    (b"crontab: can't open 'tester': Permission denied", False),       # busybox, exists
+    (b"crontab: can't open 'tester': I/O error", False),
+])
+def test_only_a_missing_table_counts_as_empty(crontab, fake_cci, tmp_path, monkeypatch,
+                                              stderr, empty):
+    """busybox says "can't open" for every failure. Only the missing-file one
+    means "no crontab yet"; treating Permission denied as empty would write
+    our single line over a table that exists."""
+    real_run = scheduler.subprocess.run
+    monkeypatch.setattr(scheduler.subprocess, "run", lambda argv, **kw:
+                        subprocess.CompletedProcess(argv, 1, b"", stderr)
+                        if argv[-1] == "-l" else real_run(argv, **kw))
+    if empty:
+        assert scheduler._cron_read() == []
+    else:
+        with pytest.raises(RuntimeError, match="left untouched"):
+            scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "cfg")
+        assert not crontab.exists()
+
+
+def test_a_comment_that_mentions_the_label_is_not_ours(crontab, fake_cci, tmp_path):
+    comment = f"# TODO remove {scheduler.CRON_TAG}"
+    crontab.write_text(comment + "\n")
+    scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "cfg")
+    assert scheduler.uninstall() == [scheduler.LABEL]
+    assert crontab.read_text() == comment + "\n"
+
+
+def test_doctor_names_an_unreadable_crontab(crontab, fake_cci, monkeypatch):
+    """"not installed" would send somebody to `cci install`, which cannot
+    fix a crontab that will not open. Say what is actually wrong."""
+    monkeypatch.setattr(scheduler.subprocess, "run", lambda argv, **kw:
+                        subprocess.CompletedProcess(argv, 1, b"", b"crontab: must be suid"))
+    assert scheduler.cron_error() == "crontab -l: crontab: must be suid"
+
+
+def test_linux_uninstall_removes_only_ours(crontab, fake_cci, tmp_path):
+    crontab.write_text("0 3 * * * /usr/bin/backup\n")
+    scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "cfg")
+
+    assert scheduler.uninstall() == [scheduler.LABEL]
+    assert crontab.read_text() == "0 3 * * * /usr/bin/backup\n"
+    assert scheduler.uninstall() == []
+
+
+def test_linux_refuses_watch(crontab, fake_cci, tmp_path):
+    """cron starts things and does not keep them up, same as Task Scheduler."""
+    with pytest.raises(scheduler.Unsupported, match="macOS-only"):
+        scheduler.install(scheduler.WATCH, config_dir=tmp_path / "cfg")
+    assert not crontab.exists()
+
+
+def test_a_path_cron_would_mangle_is_refused(crontab, tmp_path, monkeypatch):
+    """`%` means newline to cronie and nothing to busybox; no escaping is
+    right for both, so refuse rather than schedule the wrong path."""
+    exe = tmp_path / "100% bin" / "cci"
+    monkeypatch.setattr(scheduler, "cci_executable", lambda: exe)
+    with pytest.raises(RuntimeError, match="'%'"):
+        scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "cfg")
+    assert not crontab.exists()
+
+
+def test_doctor_sees_the_cron_job(crontab, fake_cci, tmp_path, cron_daemon):
+    """What made Linux unfinishable before: doctor could not see a job, so
+    it sent people back to `cci install` forever."""
+    assert scheduler.active() is None
+    scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "cfg")
+
+    job = scheduler.active()
+    assert job is not None and job.mode == scheduler.INTERVAL
+    assert "sync auto" in scheduler.installed_command(scheduler.INTERVAL)
+
+
+def test_a_job_with_no_cron_daemon_is_not_running(crontab, fake_cci, tmp_path,
+                                                  monkeypatch):
+    """WSL without systemd, a container with the package and no init: the
+    line is there and nothing will ever read it."""
+    monkeypatch.setattr(scheduler, "_cron_daemon_running", lambda: False)
+    scheduler.install(scheduler.INTERVAL, config_dir=tmp_path / "cfg")
+    [interval, _] = scheduler.status()
+    assert interval.installed and not interval.loaded
+    assert scheduler.active() is None
+
+
+def test_a_paused_or_edited_line_never_crashes_status(crontab, fake_cci, cron_daemon):
+    """Commented out to pause it: not running. Edited to `@hourly`, or a
+    bare comment that happens to end in the tag: read, never an IndexError."""
+    tag = scheduler.CRON_TAG
+    crontab.write_text(f"#*/15 * * * * /bin/sh -c 'x' {tag}\n")
+    assert scheduler.active() is None
+
+    crontab.write_text(f"just {tag}\n")
+    assert scheduler.active() is None
+
+    crontab.write_text(f"@hourly /bin/sh -c 'x' {tag}\n")
+    assert scheduler.installed_command(scheduler.INTERVAL) == f"/bin/sh -c 'x' {tag}"
+
+
+@pytest.mark.parametrize("shell", ["/bin/sh", "bash", "zsh", "dash"])
+def test_the_cron_line_runs_the_same_pipeline_as_launchd(crontab, tmp_path,
+                                                         monkeypatch, shell):
+    """Run the written line the way cron does -- `$SHELL -c <command>`, with
+    whatever SHELL= the user's table sets -- against a stub cci that records
+    what it was asked and in which environment.
+
+    The path has a space, a quote, a `$` and a `#` in it: the shell-quoting
+    cases that would make the line run something other than what it says.
+    """
+    if shutil.which(shell) is None:
+        pytest.skip(f"{shell} not installed")
+    home = tmp_path / "it's $HOME #1"
+    record = tmp_path / "calls.txt"
+    exe = home / "bin" / "cci"
+    exe.parent.mkdir(parents=True)
+    exe.write_text(f'#!/bin/sh\necho "$* home=$CC_INSIGHTS_HOME" >> \'{record}\'\n'
+                   'echo out; echo err >&2\n')
+    exe.chmod(0o755)
+    monkeypatch.setattr(scheduler, "cci_executable", lambda: exe)
+    cfg = home / "cfg"
+
+    scheduler.install(scheduler.INTERVAL, config_dir=cfg)
+
+    [line] = _ours(crontab)
+    command = line.split(None, 5)[5]
+    subprocess.run([shell, "-c", command], check=True, env={"PATH": "/usr/bin:/bin"})
+
+    assert record.read_text().splitlines() == [
+        f"{step} home={cfg}" for step in ("init", "ingest", "derive", "sync auto")
+    ]
+    assert (cfg / "logs" / "ingest.log").read_text() == "out\n" * 4
+    assert (cfg / "logs" / "ingest.err").read_text() == "err\n" * 4
 
 
 @darwin_only

@@ -2,7 +2,7 @@
 #
 # CC-Insights, from a machine with nothing on it to a running install:
 #
-#   curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/master/scripts/install.sh | bash
 #
 #   ... | bash -s -- --watch       follow the logs instead of every 15 minutes
 #   ... | bash -s -- --uninstall   remove the job and the managed install
@@ -419,6 +419,25 @@ remove_launch_agents() {
     done
 }
 
+# The same fallback for the crontab line `cci install` writes on Linux. It
+# ends in the quote that closes its `sh -c` script and then the job's label
+# (the script's `$0`), and `scheduler.py` matches the same bytes. Trailing
+# whitespace is allowed on both sides, so a CRLF-edited table still matches. Only a table that was read successfully is ever written
+# back, because `crontab -` replaces the whole table. grep runs as `LC_ALL=C
+# grep -a`: in a UTF-8 locale GNU grep calls a line with a Latin-1 byte
+# "binary" and silently drops it from the output, which here would delete it.
+remove_cron_line() {
+    command -v crontab >/dev/null 2>&1 || return 0
+    local table
+    table="$(mktemp)" || return 0
+    if LC_ALL=C crontab -l >"$table" 2>/dev/null &&
+       LC_ALL=C grep -aq "' com\\.cc-insights[[:space:]]*\$" "$table"; then
+        { LC_ALL=C grep -av "' com\\.cc-insights[[:space:]]*\$" "$table" || true; } | crontab - &&
+            note "removed the cc-insights line from your crontab"
+    fi
+    rm -f "$table"
+}
+
 do_uninstall() {
     local cci link
 
@@ -433,6 +452,7 @@ do_uninstall() {
         note "no cci found — nothing to unload"
     fi
     remove_launch_agents
+    remove_cron_line
 
     step "Removing the install"
     if command -v pipx >/dev/null 2>&1 && pipx list --short 2>/dev/null | grep -q "^$PACKAGE "; then

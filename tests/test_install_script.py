@@ -441,8 +441,10 @@ def test_uninstall_unloads_the_job_even_when_cci_cannot_run(tmp_path: Path,
     log = tmp_path / "launchctl.log"
     write_shim(shim_dir, "launchctl", f'printf "%s\\n" "$*" >> "{log}"')
     # Never let a real pipx anywhere near this: it would uninstall the
-    # developer's own copy of the package.
+    # developer's own copy of the package. Nor the real crontab, which
+    # /usr/bin carries on macOS too.
     write_shim(shim_dir, "pipx", "exit 1")
+    write_shim(shim_dir, "crontab", "exit 1")
 
     proc = source_and_run("do_uninstall", env={
         "PATH": f"{shim_dir}{os.pathsep}/usr/bin{os.pathsep}/bin",
@@ -461,3 +463,51 @@ def test_uninstall_unloads_the_job_even_when_cci_cannot_run(tmp_path: Path,
         f"already loaded.\n{unloaded}"
     )
     assert not install_dir.exists(), "the managed install should still be removed"
+
+
+def test_uninstall_removes_the_cron_line_even_when_cci_cannot_run(tmp_path: Path,
+                                                                 shim_dir: Path):
+    """The Linux half of the test above: a crontab line that outlives its
+    venv fires every 15 minutes at a deleted binary, forever.
+
+    The fallback rewrites the user's crontab, so it must hand every other
+    line back byte for byte -- a carriage return and a Latin-1 comment
+    included -- and never write a table it failed to read.
+    """
+    table = tmp_path / "crontab.bin"
+    theirs = b"# caf\xe9\r\n0 3 * * * printf 'a\\rb'\n"
+    ours = b"*/15 * * * * /bin/sh -c 'x' com.cc-insights\n"
+    table.write_bytes(theirs + ours)
+    write_shim(shim_dir, "crontab", f'''T="{table}"
+case "$1" in
+  -l) cat "$T" ;;
+  -)  cat > "$T" ;;
+esac''')
+    write_shim(shim_dir, "pipx", "exit 1")
+    write_shim(shim_dir, "launchctl", "exit 0")
+
+    install_dir = tmp_path / "share" / "cc-insights"
+    (install_dir / "venv" / "bin").mkdir(parents=True)
+    broken = install_dir / "venv" / "bin" / "cci"
+    broken.write_text("#!/nonexistent/python3.11\n")
+    broken.chmod(0o755)
+    env = {
+        "PATH": f"{shim_dir}{os.pathsep}/usr/bin{os.pathsep}/bin",
+        "HOME": str(tmp_path / "home"),
+        "CC_INSIGHTS_INSTALL_DIR": str(install_dir),
+        "CC_INSIGHTS_BIN_DIR": str(tmp_path / "bin"),
+    }
+
+    proc = source_and_run("do_uninstall", env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert table.read_bytes() == theirs
+
+    # An unreadable table is never written back.
+    table.write_bytes(theirs + ours)
+    write_shim(shim_dir, "crontab", f'''case "$1" in
+  -l) echo "crontab: must be suid" >&2; exit 1 ;;
+  -)  cat > "{table}" ;;
+esac''')
+    proc = source_and_run("remove_cron_line", env=env)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert table.read_bytes() == theirs + ours
