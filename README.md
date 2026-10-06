@@ -20,7 +20,7 @@ anyone else. 953 tests.
 One command, on a machine with nothing set up:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/master/scripts/install.sh | bash
 ```
 
 It finds a Python 3.11+ (and if there is not one, names the command that gets
@@ -45,6 +45,25 @@ pipx install cc-insights
 cci install
 ```
 
+### With your coding agent
+
+Paste [`docs/agent-setup-prompt.md`](docs/agent-setup-prompt.md) into Claude
+Code, Codex or any other agent with a shell. It installs, checks
+`cci doctor`, explains the first numbers, and then asks you about sync and
+teams. Two things it always leaves to you: approving the `cci login` code in
+your browser, and saying yes before `cci publish` sends anything.
+
+The same guidance is also available as a skill, so the agent can help again
+later. In Claude Code:
+
+```
+/plugin marketplace add lunowe/cc-insights
+/plugin install cc-insights@cc-insights
+```
+
+For other agents, copy [`skills/cc-insights`](skills/cc-insights) into the
+agent's skills directory.
+
 ### From a checkout
 
 Contributors, and anyone installing before the first release is on PyPI. The
@@ -66,17 +85,20 @@ remember and forgetting the last one is unrecoverable: **agent log directories
 are pruned on a rolling basis, so a gap in capture is a permanent gap in
 history.** That is the point of the project, not a footnote.
 
-It installs a launchd job on macOS and a Task Scheduler job on Windows; on
-anything else it prints the equivalent cron line rather than failing. Either
-way the job is pinned to the config directory you installed from, so
-`CC_INSIGHTS_HOME=/data/cci cci install` captures into `/data/cci` and not
-into a second database under `~/.config` that nothing reads.
+It installs a launchd job on macOS, a Task Scheduler job on Windows, and one
+line in your crontab on Linux. It changes only that line, which ends in
+`com.cc-insights`, and leaves the rest of your crontab as it was. With no
+scheduler at all, for example in a container without cron, it prints the
+line for you to schedule yourself. Either way the job is pinned to the config
+directory you installed from, so `CC_INSIGHTS_HOME=/data/cci cci install`
+captures into `/data/cci` and not into a second database under `~/.config`
+that nothing reads.
 
 To follow the logs live instead of every 15 minutes, `cci install --watch` —
 one or the other, never both, since two writers on one SQLite database is the
 one way to make this contend with itself. The installer enforces that rather
-than documenting it. Watch mode is macOS-only: Task Scheduler starts
-processes but does not keep them up, so on Windows `--watch` is refused with
+than documenting it. Watch mode is macOS-only: Task Scheduler and cron start
+processes but do not keep them up, so on Windows and Linux `--watch` is refused with
 a pointer to the 15-minute job rather than registering a watcher that would
 stay dead after its first exit. `cci install --uninstall` removes either, and
 keeps your data.
@@ -333,7 +355,10 @@ frontend/       Vite + React dashboard, built into frontend/dist -- the wheel
 migrations/     numbered SQL, applied in order; also force-included
 docs/           FINDINGS.md (ground truth), API.md (frozen contract),
                 REDACTION.md (what may be shared), ACCOUNTS.md (teams,
-                designed not built), ROADMAP.md, probes/
+                designed not built), ROADMAP.md, probes/,
+                agent-setup-prompt.md (the copy-paste setup prompt)
+skills/         cc-insights/ -- the agent skill; .claude-plugin/ publishes
+                it as a Claude Code plugin
 scripts/        install.sh -- the `curl | bash` bootstrap; install-launchd.sh
                 -- the from-a-checkout wrapper; fixture and price sync
 .github/        ci.yml (tests on push/PR) and release.yml (tag -> PyPI),
