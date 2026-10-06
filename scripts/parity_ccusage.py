@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare the Codex and opencode adapters' token totals with ccusage's.
+"""Compare the Claude Code, Codex and opencode adapters' token totals with ccusage's.
 
 Adapter level only: this parses the logs on this machine with the adapters,
 attributes models the way `cost.py` does, and sums tokens per model. It never
@@ -10,6 +10,7 @@ touches a database, and it reads the logs read-only.
 
 ccusage's numbers come from
 
+    npx -y ccusage@latest claude monthly --json --breakdown --offline
     npx -y ccusage@latest codex monthly --json --breakdown --offline
     npx -y ccusage@latest opencode monthly --json --breakdown --offline
 
@@ -47,6 +48,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from cc_insights.sources.base import RawEvent  # noqa: E402
+from cc_insights.sources.claude_code import ClaudeCodeAdapter  # noqa: E402
 from cc_insights.sources.codex import CodexAdapter  # noqa: E402
 from cc_insights.sources.opencode import OpencodeAdapter  # noqa: E402
 
@@ -104,6 +106,10 @@ def totals_by_model(events: Iterable[tuple[int, RawEvent]]) -> Totals:
     return dict(totals)
 
 
+def claude_totals(adapter: Any | None = None) -> Totals:
+    return totals_by_model(_events(adapter or ClaudeCodeAdapter()))
+
+
 def codex_totals(adapter: Any | None = None) -> Totals:
     return totals_by_model(_events(adapter or CodexAdapter()))
 
@@ -124,6 +130,20 @@ def _ccusage(source: str, saved: str | None) -> dict[str, Any]:
            "--breakdown", "--offline"]
     done = subprocess.run(cmd, capture_output=True, text=True, check=True)
     return json.loads(done.stdout)
+
+
+def ccusage_claude(doc: dict[str, Any]) -> Totals:
+    """Per model, from the monthly breakdown. ccusage reports one cache-write
+    figure (5m and 1h together), which is what `cache_write` holds here too."""
+    totals: Totals = defaultdict(lambda: dict.fromkeys(FIELDS, 0))
+    for month in doc.get("monthly", []):
+        for row in month.get("modelBreakdowns", []):
+            bucket = totals[row["modelName"]]
+            bucket["input"] += row.get("inputTokens", 0)
+            bucket["cache_read"] += row.get("cacheReadTokens", 0)
+            bucket["cache_write"] += row.get("cacheCreationTokens", 0)
+            bucket["output"] += row.get("outputTokens", 0)
+    return dict(totals)
 
 
 def ccusage_codex(doc: dict[str, Any]) -> Totals:
@@ -195,11 +215,17 @@ def table(title: str, columns: dict[str, Totals]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--claude-json", help="saved `ccusage claude monthly --json --breakdown` output")
     parser.add_argument("--codex-json", help="saved `ccusage codex monthly --json --breakdown` output")
     parser.add_argument("--opencode-json", help="saved `ccusage opencode monthly --json --breakdown` output")
     parser.add_argument("--skip-opencode", action="store_true")
     args = parser.parse_args(argv)
 
+    print(table("Claude Code", {
+        "ours": claude_totals(),
+        "ccusage": ccusage_claude(_ccusage("claude", args.claude_json)),
+    }))
+    print()
     print(table("Codex", {
         "ours": codex_totals(),
         "ccusage": ccusage_codex(_ccusage("codex", args.codex_json)),
