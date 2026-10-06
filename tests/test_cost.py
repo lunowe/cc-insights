@@ -42,7 +42,7 @@ def event(conn, eid, thread, ts, *, model=None, i=0, o=0, cr=0, cw=0, ordinal=0)
 
 
 def price(conn, model, *, i=None, o=None, cr=None, cw=None, cw1h=None, since=0,
-          origin="genai-prices"):
+          origin="litellm"):
     conn.execute(
         "INSERT INTO model_price (model, effective_from, input_mtok, output_mtok,"
         " cache_read_mtok, cache_write_mtok, cache_write_1h_mtok, currency, origin,"
