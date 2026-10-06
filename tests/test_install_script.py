@@ -445,6 +445,9 @@ def test_uninstall_unloads_the_job_even_when_cci_cannot_run(tmp_path: Path,
     # /usr/bin carries on macOS too.
     write_shim(shim_dir, "pipx", "exit 1")
     write_shim(shim_dir, "crontab", "exit 1")
+    # The launchd fallback only runs on Darwin, and CI is Linux. Without this
+    # the test passed on the author's Mac and failed on every CI run.
+    write_shim(shim_dir, "uname", 'if [ "$1" = -s ]; then echo Darwin; else /usr/bin/uname "$@"; fi')
 
     proc = source_and_run("do_uninstall", env={
         "PATH": f"{shim_dir}{os.pathsep}/usr/bin{os.pathsep}/bin",
