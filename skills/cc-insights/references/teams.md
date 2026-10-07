@@ -50,7 +50,7 @@ cci team repos --ids                # repos in your scope
 cci team share <repo>               # put a repo on the team's roster
 cci team share --no-branches <repo> # ...with branch names hidden
 cci team branches off <repo>        # hide branch names on a repo already shared
-cci team invite                     # mint a join code: single-use, 3 days
+cci team invite                     # mint a join link: single-use, 3 days
 cci team invite --uses 3 --expires-in 1w --note "backend team"   # caps: 50 uses, 30 days
 cci team invites                    # outstanding codes and who redeemed what
 cci team revoke <invite-id>
@@ -85,11 +85,21 @@ These are the things that surprise people. Tell the user before they act:
 
 ## Joining a team (member)
 
+The admin sends a join link, `https://<server>/join/<code>`. It names the
+server, so nothing else is needed:
+
 ```bash
-cci login --server <the team's server>   # see sync.md
-cci team join <code>                     # redeeming the code is the consent
-cci publish --dry-run                    # then publish as described above
+cci team join <link>       # signs in to the link's server if needed, then redeems
+cci publish --dry-run      # then publish as described above
 ```
+
+`team join <link>` runs the same browser sign-in as `cci login` (see
+sync.md for relaying the code) when the machine is not signed in yet. On a
+machine with nothing installed, the installer does all of it:
+`curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/master/scripts/install.sh | bash -s -- --join <link>`.
+A machine signed in to a different server refuses the link; `cci logout`
+first switches it. Redeeming is the consent, so the user runs or approves it.
+Treat the link as a password: keep it out of logs and messages to anyone else.
 
 ## Reading
 

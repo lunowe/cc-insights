@@ -111,9 +111,10 @@ them for you:
 
 - **Joining a team takes the joiner's own credential.** This used to say that
   `add_member` had no consent — any admin could add any account by id. That
-  route is **gone**. An admin now mints a join code (`cci team invite`) and
+  route is **gone**. An admin now mints a join link (`cci team invite`) and
   sends it however they like; the colleague redeems it with their own token
-  (`cci team join <code>`), and that redemption is the consent. Both ends are
+  (`cci team join <link>`, which signs a fresh machine in to this server
+  first), and that redemption is the consent. Both ends are
   recorded, so `cci team members` answers "who let this person in" and
   `cci team invites` answers "who did I let in, and when".
 

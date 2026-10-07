@@ -498,14 +498,14 @@ cci sync status</code></pre>
 cci privacy
 <span class="c"># asks first, and says what it withholds</span>
 cci publish
-<span class="c"># you, an admin: mints a join code, shown once</span>
+<span class="c"># you, an admin: mints a join link, shown once</span>
 cci team invite
-<span class="c"># them: redeems it with their own sign-in</span>
-cci team join &lt;code&gt;</code></pre>
+<span class="c"># them: signs in to your server, then redeems</span>
+cci team join &lt;link&gt;</code></pre>
               <ul class="bullets">
                 <li>Published rows are re-keyed on the repo's git remote. No paths, no hostnames, no path-derived ids.</li>
                 <li>The boundary is repo access: if you can see the repo, you can see the agent time on it. Work with no remote stays local, counted rather than silently dropped.</li>
-                <li>Invite codes are single-use bearer secrets, stored hashed, valid three days by default. The redemption <em>is</em> the consent: nobody can be added by id.</li>
+                <li>Invite links are single-use bearer secrets, stored hashed, valid three days by default. They name your server, so a fresh machine needs nothing else; there is no default server. The redemption <em>is</em> the consent: nobody can be added by id.</li>
                 <li>Joining a team widens nothing on its own: inside a team, only <code>cci team share</code> changes what others can read.</li>
               </ul>
             </div>
@@ -589,7 +589,7 @@ If you cannot fetch those files, use this short version:
 2. Check whether the package is on PyPI: `curl -fsS -o /dev/null https://pypi.org/pypi/cc-insights/json`. On macOS or Linux, if it is on PyPI, run `curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/master/scripts/install.sh | bash`. If you get a 404, run `git clone https://github.com/lunowe/cc-insights ~/cc-insights &amp;&amp; bash ~/cc-insights/scripts/install.sh`, which also needs pnpm or npm. On Windows, run `pipx install cc-insights`, then `cci install`. The installer finds Python 3.11+, installs `cci`, sets up the config, the database and a background job, then runs `cci doctor`. If it needs a Python or a package installed with sudo, give me the command to run.
 3. If the installer says its bin directory is not on my PATH, add the line it prints to the shell rc file it names, and tell me which file you edited. On Linux the background job is one line in my crontab; `cci install` writes it and leaves my other entries alone. If it says `no scheduler found`, this machine has no cron: give me the command to install it, then run `cci install` again. Setup is done when `$SHELL -ilc 'cci doctor'` passes.
 4. Run `cci stats` and summarize what you see. Active time counts only spans without a gap of more than 5 minutes, so it is far lower than how long sessions sat open. `cci cost` (after `cci price sync`) gives a list-price equivalent, not a bill. Then start `cci serve` in the background so the dashboard opens at http://localhost:8787.
-5. Ask me whether I want to sync several machines (`cci login --server &lt;url&gt;`, then `cci sync push` and `cci sync pull`) or share with a team (`cci publish`, `cci team join &lt;code&gt;`, `cci team new`). Each of these needs an account server URL, which I will give you. There is no public default.
+5. Ask me whether I want to sync several machines (`cci login --server &lt;url&gt;`, then `cci sync push` and `cci sync pull`) or share with a team (`cci publish`, `cci team join &lt;link&gt;`, `cci team new`). A join link from a team admin already names the server, and `cci team join &lt;link&gt;` signs in and joins in one step. Otherwise these need an account server URL, which I will give you. There is no public default.
 
 Rules while you do this:
 - `cci doctor` decides whether something works. Every line that is not `ok` names the command that fixes it.

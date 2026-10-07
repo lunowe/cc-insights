@@ -199,9 +199,25 @@ Teams themselves are `cci team <verb>` — `list`, `new`, `members`, `repos`,
 a colleague in takes two commands and two people:
 
 ```bash
-cci team invite            # you, an admin: mints a join code, printed once
-cci team join <code>       # them: redeems it with their own sign-in
+cci team invite            # you, an admin: mints a join link, printed once
+cci team join <link>       # them: signs in to your server if needed, then redeems
 ```
+
+The link is `https://<your-server>/join/<code>`, so it carries the one thing a
+fresh machine is missing: which server to sign in to. There is deliberately no
+default server — a public package that signed everybody in to one instance
+would make that instance a hosted service. A colleague with nothing installed
+runs the installer with the link instead, and it installs, signs them in and
+joins in one go:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/master/scripts/install.sh | bash -s -- --join <link>
+```
+
+Opened in a browser, the link shows those same two commands and nothing else:
+the page never looks the code up, so it cannot confirm that a team exists. For
+your own second machine, `--server <url>` in place of `--join` installs and
+signs in.
 
 The redemption *is* the consent — there is no way to add somebody by id, and
 no way to look an account id up. The code is a bearer secret: 256 bits, stored

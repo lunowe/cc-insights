@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 
 from cci_server import config, github
 from cci_server.db import Database, now_ms
-from cci_server.routes import auth_routes, personal, team_data, teams
+from cci_server.routes import auth_routes, join_page, personal, team_data, teams
 
 
 def create_app(
@@ -77,6 +77,7 @@ def create_app(
     app.include_router(personal.router)
     app.include_router(teams.router)
     app.include_router(team_data.router)
+    app.include_router(join_page.router)
 
     @app.get("/healthz")
     def healthz():
