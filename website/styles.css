@@ -386,6 +386,8 @@ h1 em { font-style: italic; color: var(--sig-ink); }
 /* install */
 .install-block { margin-top: 2rem; display: grid; gap: 0.6rem; max-width: 52rem; }
 .install-block h3 { font-size: 0.96rem; }
+.install-note { margin-top: 1.25rem; max-width: 52rem; color: var(--ink-2); font-size: 0.95rem; }
+.install-note code { white-space: normal; }
 .h3-note { font-weight: 400; color: var(--ink-3); font-size: 0.88rem; margin-left: 0.4rem; }
 .reqs { margin-top: 2.5rem; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; border-top: 1px solid var(--rule-strong); padding-top: 1rem; }
 .reqs dt { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }

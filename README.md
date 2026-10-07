@@ -30,12 +30,17 @@ into `~/.local/bin`, and finishes by running `cci install` and then
 `cci doctor` — so the last thing on screen is either a green report or the
 exact command that fixes what is wrong. It never prompts: piped from curl it
 *cannot*, since stdin is the script itself. Re-running it upgrades in place.
-`--watch` and `--uninstall` pass straight through:
+Options go after `-s --`:
 
 ```bash
-curl -fsSL .../scripts/install.sh | bash -s -- --watch
+curl -fsSL .../scripts/install.sh | bash -s -- --watch         # live mode (macOS)
+curl -fsSL .../scripts/install.sh | bash -s -- --join <link>   # then sign in and join a team
+curl -fsSL .../scripts/install.sh | bash -s -- --server <url>  # then sign in to your own server
 curl -fsSL .../scripts/install.sh | bash -s -- --uninstall
 ```
+
+`--join` and `--server` end in a browser sign-in that waits for your
+approval; see "Sharing with other people" for where a join link comes from.
 
 If you would rather not pipe a script you have not read, this is the same
 thing with the Python-finding left to you:

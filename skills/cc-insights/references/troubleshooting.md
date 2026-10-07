@@ -41,6 +41,12 @@ below are the ones where the named fix is not the whole story.
   `cci init`.
 - **`account` WARN, server unreachable:** capture continues locally. The
   push catches up once the server is back.
+- **`account` FAIL, `rejected this credential`:** the token was revoked, or
+  the server was reset and no longer knows the account. Run `cci logout`,
+  then `cci login --server <url>` (the user approves in the browser). After a
+  server reset the account and its teams are new: the admin recreates the
+  team, re-shares repos, mints new join links, and each member publishes
+  again. The next background run pushes this machine's history in full.
 - **`sync`: a sync URL is set but the driver is missing:** install the
   postgres extra. See "Direct PostgreSQL" in [sync.md](sync.md).
 
@@ -64,6 +70,17 @@ below are the ones where the named fix is not the whole story.
   writers on one database contend. `cci install` and `cci install --watch`
   each remove the other.
 
+## Teams and sign-in
+
+- **`cci team join <link>` says this machine is signed in to another
+  server:** one machine holds one sign-in, and its background job pushes
+  there. Switching is the user's decision: `cci logout`, then the join again.
+- **`cci team invite` (or `join`) fails with `not_found`:** the account
+  server is older than the CLI and lacks the join-link routes. Whoever runs
+  the server redeploys it from current master; its migrations run on start.
+- **`database is locked`:** another `cci` process is writing, usually the
+  background job mid-run. Wait a few seconds and repeat the command.
+
 ## Upgrade, move, remove
 
 - **Upgrade:** re-run the installer, adding `-s -- --watch` (or
@@ -76,6 +93,14 @@ below are the ones where the named fix is not the whole story.
   pins only the background job. Also export `CC_INSIGHTS_HOME` in the
   user's rc file, or every interactive `cci` command reads `~/.config`
   instead.
+- **Costs about double what ccusage reports, on a database built before
+  2026-10-06:** older versions counted each Claude response once per content
+  block, and some Codex usage twice. Stored rows are never rewritten, so the
+  fix needs a rebuild from the logs, and a rebuild loses any history whose
+  log files the agents have already deleted. That trade-off is the user's
+  call: back up the database file first, and compare `cci stats` before and
+  after. `scripts/parity_ccusage.py` in the repo compares per-model tokens
+  with ccusage.
 - **Old databases missing the cache-write tier in cost:** run `cci backfill`.
   It fills the column from logs still on disk.
 - **Uninstall:** `cci install --uninstall` removes only the background job.

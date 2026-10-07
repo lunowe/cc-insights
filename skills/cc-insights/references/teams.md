@@ -1,7 +1,8 @@
 # Teams
 
-Teams need sign-in first ([sync.md](sync.md)), and everyone on a team signs
-in to the same server.
+Everyone on a team signs in to the same server. A join link names that
+server and signs in by itself; every other command here needs sign-in first
+([sync.md](sync.md)).
 
 ## What crosses the boundary
 
@@ -52,17 +53,20 @@ cci team share --no-branches <repo> # ...with branch names hidden
 cci team branches off <repo>        # hide branch names on a repo already shared
 cci team invite                     # mint a join link: single-use, 3 days
 cci team invite --uses 3 --expires-in 1w --note "backend team"   # caps: 50 uses, 30 days
-cci team invites                    # outstanding codes and who redeemed what
+cci team invites                    # outstanding links and who redeemed what
 cci team revoke <invite-id>
 cci team remove <who>
 ```
 
 These are the things that surprise people. Tell the user before they act:
 
-- **A join code is a password, and it is shown exactly once.** It is stored
-  hashed and can never be displayed again. Give it to the user and suggest
-  they send it in a direct message, not a channel. If it is lost, mint a new
-  one and revoke the old one.
+- **A join link is a password, and it is shown exactly once.** `cci team
+  invite` prints `https://<server>/join/<code>`; the code is stored hashed
+  and can never be displayed again. Give the link to the user only, and
+  suggest they send it in a direct message, not a channel. If it is lost,
+  mint a new one and revoke the old one. The colleague needs nothing else:
+  the link names the server, the installer accepts it (`--join <link>`), and
+  opened in a browser it shows both commands.
 - **Branch names are published by default.** They are free text and can say
   more than intended, for example `feat/acme-layoffs`. Hide them on sensitive
   repos *before* inviting anyone. **Running `cci team share` again turns them
@@ -77,11 +81,12 @@ These are the things that surprise people. Tell the user before they act:
   only `cci team share` changes who can read what.
 - **`unshare` stops the next read; it cannot un-read.** Whatever the team
   already saw stays seen.
-- **Removing a member does not kill their code.** After
-  `cci team remove`, run `cci team invites`. A code with seats left can
+- **Removing a member does not kill their link.** After
+  `cci team remove`, run `cci team invites`. A link with seats left can
   readmit the person, so revoke it.
-- **An invalid code and an expired code return the same error**, on purpose.
-  When a colleague says the code doesn't work, check `cci team invites`.
+- **An invalid link and an expired one return the same error**, on purpose,
+  and the browser page looks the same for both. When a colleague says the
+  link doesn't work, check `cci team invites`.
 
 ## Joining a team (member)
 
@@ -93,8 +98,11 @@ cci team join <link>       # signs in to the link's server if needed, then redee
 cci publish --dry-run      # then publish as described above
 ```
 
-`team join <link>` runs the same browser sign-in as `cci login` (see
-sync.md for relaying the code) when the machine is not signed in yet. On a
+`team join <link>` runs the same browser sign-in as `cci login` when the
+machine is not signed in yet, and blocks until the user approves it. Run it
+the way sync.md step 2 runs `cci login` -- in the background, output to a
+file, relaying the code -- and poll for `joined <team>` instead of
+`signed in as`. On a
 machine with nothing installed, the installer does all of it:
 `curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/master/scripts/install.sh | bash -s -- --join <link>`.
 A machine signed in to a different server refuses the link; `cci logout`
