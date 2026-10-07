@@ -49,12 +49,13 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # What /healthz reports is the schema's state, not what this boot
+        # changed: the image runs `cci-server migrate` before `run`, so the
+        # migration `run` does itself applies nothing, and reporting that
+        # read as "no migrations" on every healthy deploy.
         if migrate:
-            app.state.migrations = database.migrate()
-        else:
-            app.state.migrations = sorted(
-                _applied(database)
-            )
+            database.migrate()
+        app.state.migrations = sorted(_applied(database))
         yield
         if owns_db:
             database.close()

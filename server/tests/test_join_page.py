@@ -47,3 +47,16 @@ def test_anything_not_shaped_like_a_code_is_never_echoed(client):
 def test_a_hostile_host_header_is_escaped(client):
     r = client.get(f"/join/{FAKE}", headers={"host": "x\"><script>alert(1)</script>"})
     assert "<script>alert" not in r.text
+
+
+def test_healthz_reports_the_schema_not_what_this_boot_applied(settings, migrated_db, provider):
+    """The image migrates before it serves, so the app's own migrate applies
+    nothing. /healthz must still list every applied migration."""
+    from fastapi.testclient import TestClient
+
+    from cci_server.app import create_app
+
+    app = create_app(settings, db=migrated_db, provider=provider, migrate=True)
+    with TestClient(app) as c:
+        listed = c.get("/healthz").json()["migrations"]
+    assert listed and listed == sorted(listed) and listed[0] == 1
