@@ -660,6 +660,7 @@ to guess about.
 | `GET /v1/teams/{teamId}/invites` | admin | the codes, **without the codes** |
 | `DELETE /v1/teams/{teamId}/invites/{inviteId}` | admin | `204`, idempotent |
 | `POST /v1/teams/join` | any account | `{code}` → `200`, joins the code's team |
+| `GET /join/{code}` | nobody (public) | an HTML page saying how to use a join link. Never looks the code up: the same page for live, spent and invented codes; `404` only for a string not shaped like a code. `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `noindex`. The CLI prints invites as `<server>/join/<code>` and `cci team join` accepts that link. |
 | `GET /v1/teams/{teamId}/repos` | member | the roster |
 | `POST /v1/teams/{teamId}/repos` | admin | `{repoId, branchNamesPublished?}` → `201` |
 | `PATCH /v1/teams/{teamId}/repos/{repoId}` | admin | `{branchNamesPublished}` → `200` |

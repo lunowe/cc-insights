@@ -297,3 +297,24 @@ def test_an_invite_defaults_to_a_member_seat_and_no_overrides():
     args = cli.build_parser().parse_args(["team", "invite"])
     assert args.role == "member"
     assert args.expires_in is None and args.uses is None and args.note is None
+
+
+# --------------------------------------------------------------- join links --
+
+
+def test_a_join_link_carries_server_and_code():
+    from cc_insights.cli import join_link, parse_join
+
+    link = join_link("https://cci.example.org/", "ccij_abc")
+    assert link == "https://cci.example.org/join/ccij_abc"
+    assert parse_join(link) == ("https://cci.example.org", "ccij_abc")
+    # A server mounted under a path keeps it; a pasted fragment or query and
+    # surrounding whitespace do not end up in the code.
+    assert parse_join("  https://h.example/cci/join/ccij_abc/?utm=x#y \n") == (
+        "https://h.example/cci", "ccij_abc")
+
+
+def test_a_bare_code_still_works_where_a_server_is_known():
+    from cc_insights.cli import parse_join
+
+    assert parse_join("ccij_abc") == (None, "ccij_abc")

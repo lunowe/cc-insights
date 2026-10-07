@@ -5,6 +5,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/master/scripts/install.sh | bash
 #
 #   ... | bash -s -- --watch       follow the logs instead of every 15 minutes
+#   ... | bash -s -- --join LINK   then join the team the link is for (signs in)
+#   ... | bash -s -- --server URL  then sign in to your own account server
 #   ... | bash -s -- --uninstall   remove the job and the managed install
 #
 # Run from inside a checkout it installs that checkout rather than PyPI. That
@@ -62,12 +64,15 @@ usage() {
     cat <<'EOF'
 cc-insights installer
 
-usage: install.sh [--watch] [--uninstall]
+usage: install.sh [--watch] [--join LINK | --server URL] [--uninstall]
 
-  --watch      install the live-follow background job instead of the
-               15-minute interval one (passed to `cci install --watch`)
-  --uninstall  remove the background job and this installer's managed
-               install. Your config and database are kept.
+  --watch       install the live-follow background job instead of the
+                15-minute interval one (passed to `cci install --watch`)
+  --join LINK   then join a team with the link from `cci team invite`. The
+                link names the server, so this also signs you in to it.
+  --server URL  then sign in to this account server, to sync your machines
+  --uninstall   remove the background job and this installer's managed
+                install. Your config and database are kept.
   -h, --help   this
 
 environment:
@@ -81,11 +86,23 @@ EOF
 
 WATCH=0
 UNINSTALL=0
+JOIN=""
+SERVER=""
+
+# Both take a value. `--join` carries a bearer secret, which is why nothing
+# below ever echoes it: a failed join says "<link>", not the link.
+needs_value() {
+    if [ $# -lt 2 ] || [ -z "$2" ] || [ "${2#--}" != "$2" ]; then
+        die "$1 needs a value"
+    fi
+}
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --watch)     WATCH=1 ;;
         --uninstall) UNINSTALL=1 ;;
+        --join)      needs_value "$@"; JOIN="$2"; shift ;;
+        --server)    needs_value "$@"; SERVER="$2"; shift ;;
         -h|--help)   usage; exit 0 ;;
         *)           usage >&2; die "unknown option: $1" ;;
     esac
@@ -94,6 +111,12 @@ done
 
 if [ "$WATCH" = 1 ] && [ "$UNINSTALL" = 1 ]; then
     die "--watch and --uninstall do opposite things; pick one"
+fi
+if [ "$UNINSTALL" = 1 ] && { [ -n "$JOIN" ] || [ -n "$SERVER" ]; }; then
+    die "--uninstall does not sign in or join anything; drop --join/--server"
+fi
+if [ -n "$JOIN" ] && [ -n "$SERVER" ]; then
+    die "--join already names its server; drop --server"
 fi
 
 # ----------------------------------------------------------------- python --
@@ -527,6 +550,19 @@ main() {
         "$cci_path" install --watch
     else
         "$cci_path" install
+    fi
+
+    # Signing in waits for a browser approval and cannot be done for the
+    # user, so a failure here is reported and the install still finishes:
+    # capture is already running, and the command to retry is one line.
+    if [ -n "$JOIN" ]; then
+        step "Joining the team (approve the sign-in in your browser)"
+        "$cci_path" team join "$JOIN" ||
+            warn "joining did not finish. Run it again: cci team join <link>"
+    elif [ -n "$SERVER" ]; then
+        step "Signing in to $SERVER (approve it in your browser)"
+        "$cci_path" login --server "$SERVER" ||
+            warn "sign-in did not finish. Run it again: cci login --server $SERVER"
     fi
 
     step "Checking it"

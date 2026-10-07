@@ -12,8 +12,11 @@ different rules.
 
 ## 1. Get a server URL
 
-Signing in needs an account server, and there is **no public default**. Ask
-the user for their server URL; a team admin usually provides it. Without a
+Signing in needs an account server, and there is **no public default**. A
+join link from a team admin (`https://<server>/join/<code>`) carries the
+server: `cci team join <link>` signs in and joins in one step (teams.md).
+Otherwise ask the user for their server URL. On a machine with nothing
+installed yet, `install.sh --server <url>` installs and signs in. Without a
 server, there are two options:
 
 - **Self-host one:** PostgreSQL plus a GitHub OAuth app with device flow

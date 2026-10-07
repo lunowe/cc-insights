@@ -958,6 +958,7 @@ def _no_server_message(cfg) -> str:
     return (
         "no account server configured. Point this machine at yours:\n"
         "  cci login --server https://your-instance\n"
+        "  (a join link from `cci team invite` carries the server: cci team join <link>)\n"
         f"  (or export CC_INSIGHTS_SERVER, or set server_url in {cfg.path})"
     )
 
@@ -1017,41 +1018,9 @@ def cmd_login(args: argparse.Namespace) -> int:
         print(_no_server_message(cfg), file=sys.stderr)
         return 1
 
-    client = remote.Client(url)
-    try:
-        flow = client.device_start(f"cci {__version__} on {cfg.hostname}")
-    except remote.RemoteError as exc:
-        print(f"cannot start sign-in: {exc}", file=sys.stderr)
+    identity = _sign_in(cfg, url)
+    if identity is None:
         return 1
-
-    # Both codes, and the user code is the one a person types. Printing the
-    # device code instead would have somebody paste a bearer-equivalent
-    # secret into a web form.
-    print()
-    print(f"  Open this page   {flow.verification_uri}")
-    print(f"  Enter this code  {flow.user_code}")
-    print()
-    print(f"  or go straight to {flow.verification_uri_complete}")
-    print()
-    print("waiting for approval", end="", flush=True)
-
-    def waiting(seconds: int, why: str) -> None:
-        if why == remote.SLOW_DOWN:
-            print(f"[server asked us to slow to {seconds}s]", end="", flush=True)
-        else:
-            print(".", end="", flush=True)
-
-    try:
-        identity = client.device_await(flow, on_wait=waiting)
-    except remote.RemoteError as exc:
-        print(f"\n\n{exc}", file=sys.stderr)
-        return 1
-    print()
-
-    account.save(
-        account.Credential(identity.token, identity.account_id, url, _now_ms()),
-        cfg.config_dir,
-    )
     claimed = _claim_host(cfg, identity.account_id)
 
     print()
@@ -1075,6 +1044,51 @@ def cmd_login(args: argparse.Namespace) -> int:
     print("  cci sync pull   bring your other machines' history down")
     print("  cci publish     share the redacted projection with your team")
     return 0
+
+
+def _sign_in(cfg, url: str):
+    """Run the device grant against `url` and store the credential.
+
+    Returns the identity, or None after saying why on stderr. Shared by
+    `cci login` and by `cci team join <link>`, which signs a fresh machine in
+    on the way to redeeming the code.
+    """
+    client = remote.Client(url)
+    try:
+        flow = client.device_start(f"cci {__version__} on {cfg.hostname}")
+    except remote.RemoteError as exc:
+        print(f"cannot start sign-in: {exc}", file=sys.stderr)
+        return None
+
+    # Both codes, and the user code is the one a person types. Printing the
+    # device code instead would have somebody paste a bearer-equivalent
+    # secret into a web form.
+    print()
+    print(f"  Open this page   {flow.verification_uri}")
+    print(f"  Enter this code  {flow.user_code}")
+    print()
+    print(f"  or go straight to {flow.verification_uri_complete}")
+    print()
+    print("waiting for approval", end="", flush=True)
+
+    def waiting(seconds: int, why: str) -> None:
+        if why == remote.SLOW_DOWN:
+            print(f"[server asked us to slow to {seconds}s]", end="", flush=True)
+        else:
+            print(".", end="", flush=True)
+
+    try:
+        identity = client.device_await(flow, on_wait=waiting)
+    except remote.RemoteError as exc:
+        print(f"\n\n{exc}", file=sys.stderr)
+        return None
+    print()
+
+    account.save(
+        account.Credential(identity.token, identity.account_id, url, _now_ms()),
+        cfg.config_dir,
+    )
+    return identity
 
 
 def cmd_logout(args: argparse.Namespace) -> int:
@@ -1498,7 +1512,7 @@ def cmd_team_invite(args: argparse.Namespace) -> int:
     The code goes on its own line with nothing else on it, so that a
     double-click selects the whole of it and nothing else.
     """
-    _cfg, client, _url = _team_client(args)
+    _cfg, client, url = _team_client(args)
     team = _resolve_team(client, args.team)
 
     ttl = None
@@ -1513,8 +1527,9 @@ def cmd_team_invite(args: argparse.Namespace) -> int:
                         expires_in_ms=ttl, max_uses=args.uses, note=args.note)
 
     seats = minted.get("maxUses", 1)
-    print(f"\njoin code for {team['name']} — COPY IT NOW, IT IS NOT SHOWN AGAIN")
-    print(f"\n    {minted['code']}\n")
+    link = join_link(url, minted["code"])
+    print(f"\njoin link for {team['name']} — COPY IT NOW, IT IS NOT SHOWN AGAIN")
+    print(f"\n    {link}\n")
     print(f"  joins as   {minted.get('role', 'member')}")
     print(f"  expires    {_relative(minted.get('expiresAt'))}")
     print(f"  good for   {_plural(seats, 'person', 'people')}")
@@ -1525,8 +1540,12 @@ def cmd_team_invite(args: argparse.Namespace) -> int:
     # the code is a bearer secret, and somebody who treats it as a team name
     # will paste it somewhere public.
     print("\nAnyone holding this can join the team and read what it shares. Send it")
-    print("the way you would send a password. They run:")
-    print(f"\n    cci team join {minted['code'][:9]}…\n")
+    print("the way you would send a password. The link carries the server, so on")
+    print("any machine they run")
+    print("\n    cci team join <link>\n")
+    print("or, with nothing installed yet,")
+    print(f"\n    curl -fsSL {INSTALL_SCRIPT_URL} | bash -s -- --join <link>\n")
+    print("Opened in a browser, the link shows the same instructions.")
     print("  cci team invites          to see it listed (without the code)")
     print(f"  cci team revoke {minted.get('inviteId', '')}   if it goes astray\n")
     return 0
@@ -1581,10 +1600,73 @@ def cmd_team_revoke(args: argparse.Namespace) -> int:
     return 0
 
 
+#: Where the installer lives, for the line `cci team invite` prints.
+INSTALL_SCRIPT_URL = "https://raw.githubusercontent.com/lunowe/cc-insights/master/scripts/install.sh"
+
+#: The path segment between a server's address and a code in a join link.
+#: The server answers a browser on it (cci_server/routes/join_page.py).
+JOIN_PATH = "/join/"
+
+
+def join_link(server_url: str, code: str) -> str:
+    """`<server>/join/<code>`: a join code that also says which server it is for.
+
+    A bare code was useless on a fresh machine -- nothing on it knew where to
+    sign in -- and there is deliberately no default server. The link carries
+    that, so one thing sent to a colleague is enough.
+    """
+    return server_url.rstrip("/") + JOIN_PATH + code
+
+
+def parse_join(text: str) -> tuple[str | None, str]:
+    """(server, code) from a join link, or (None, code) for a bare code."""
+    text = text.strip()
+    if text.startswith(("https://", "http://")) and JOIN_PATH in text:
+        server, _, code = text.rpartition(JOIN_PATH)
+        code = code.split("#", 1)[0].split("?", 1)[0].strip("/")
+        return server.rstrip("/"), code
+    return None, text
+
+
+def _join_client(args):
+    """The client to redeem with, signing this machine in first if the link
+    names a server it is not yet signed in to.
+
+    A machine holds one credential, so a link for a different server than the
+    one it is signed in to is refused rather than silently switching -- that
+    would move this machine's automatic pushes to another server.
+    """
+    server, code = parse_join(args.code)
+    if server is None:
+        _cfg, client, _url = _team_client(args)
+        return client, code
+
+    cfg = config_mod.load(args.config_dir)
+    if args.server and args.server.rstrip("/") != server:
+        print(f"the link is for {server}, but --server says {args.server}", file=sys.stderr)
+        raise SystemExit(1)
+    credential = account.load(cfg.config_dir)
+    token = account.token_for(credential)
+    current = credential.server_url.rstrip("/") if credential is not None else None
+    if token and current is not None and current != server:
+        print(f"this machine is signed in to {current}, and the link is for {server}.\n"
+              "  cci logout     first, to switch this machine to the other server",
+              file=sys.stderr)
+        raise SystemExit(1)
+    if not token:
+        print(f"\nThe link is for {server}. Sign in to it first:")
+        identity = _sign_in(cfg, server)
+        if identity is None:
+            raise SystemExit(1)
+        print(f"signed in as {identity.actor} — this host {_claim_host(cfg, identity.account_id)}")
+        token = identity.token
+    return remote.Client(server, token), code
+
+
 def cmd_team_join(args: argparse.Namespace) -> int:
     """Redeem a join code. This is the moment you agree to be on the team."""
-    _cfg, client, _url = _team_client(args)
-    joined = _team_call(client.join_team, args.code.strip())
+    client, code = _join_client(args)
+    joined = _team_call(client.join_team, code)
 
     if joined.get("alreadyMember"):
         print(f"\nyou were already on {joined.get('name', '')} — nothing changed.")
@@ -2575,9 +2657,10 @@ def build_parser() -> argparse.ArgumentParser:
     trev = team_sub("revoke", "kill a join code", cmd_team_revoke)
     trev.add_argument("invite_id", metavar="INVITE-ID")
 
-    tjoin = team_sub("join", "redeem a join code a colleague sent you",
+    tjoin = team_sub("join", "redeem a join link a colleague sent you (signs in if needed)",
                      cmd_team_join, team_flag=False)
-    tjoin.add_argument("code", metavar="CODE")
+    tjoin.add_argument("code", metavar="LINK|CODE",
+                       help="the join link from `cci team invite`, or a bare code")
 
     tleave = team_sub("leave", "leave a team", cmd_team_leave)
     tleave.add_argument("--yes", action="store_true", help="skip the confirmation")

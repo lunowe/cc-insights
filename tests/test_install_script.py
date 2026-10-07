@@ -250,6 +250,30 @@ def test_the_flags_are_accepted_and_nonsense_is_not(tmp_path: Path):
     assert both.returncode != 0, "--watch --uninstall is a contradiction, not a sequence"
 
 
+@pytest.mark.parametrize("argv, why", [
+    (["--join"], "a flag that takes a value must not swallow the next flag or nothing"),
+    (["--join", "--watch"], "a flag that takes a value must not swallow the next flag"),
+    (["--join", "https://s/join/ccij_x", "--server", "https://s"],
+     "the link already names its server"),
+    (["--uninstall", "--join", "https://s/join/ccij_x"], "uninstalling joins nothing"),
+    (["--uninstall", "--server", "https://s"], "uninstalling signs in nowhere"),
+])
+def test_join_and_server_refuse_what_makes_no_sense(tmp_path: Path, argv, why):
+    proc = subprocess.run(["bash", str(SCRIPT), *argv], capture_output=True, text=True,
+                          timeout=30, env={**os.environ, "HOME": str(tmp_path)})
+    assert proc.returncode != 0, why
+
+
+def test_join_hands_the_link_to_cci_and_never_echoes_it():
+    """The link is a bearer secret: it goes to `cci team join` and nowhere
+    else -- not into a step title, not into the retry hint."""
+    text = SCRIPT.read_text()
+    assert '"$cci_path" team join "$JOIN"' in text
+    assert '"$cci_path" login --server "$SERVER"' in text
+    uses = [line for line in text.splitlines() if "$JOIN" in line and "[ -n" not in line]
+    assert uses == ['        "$cci_path" team join "$JOIN" ||'], uses
+
+
 # ------------------------------------------------------------ the ending --
 
 

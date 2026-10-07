@@ -19,6 +19,8 @@ server harness is two things to keep in step.
 
 from __future__ import annotations
 
+import time
+
 from test_remote_e2e import (  # noqa: F401  (imported for pytest to collect)
     ACTOR,
     ROOT_PATH,
@@ -45,8 +47,40 @@ def _second_home(tmp_path, monkeypatch, name: str):
     return where
 
 
+def _link_from(out: str) -> str:
+    return next(w for w in out.split() if "/join/ccij_" in w)
+
+
 def _code_from(out: str) -> str:
-    return next(w for w in out.split() if w.startswith("ccij_"))
+    return _link_from(out).rsplit("/join/", 1)[1]
+
+
+def _approving(live, home, argv, actor: str, repos=()) -> int:
+    """Run any cci command that may sign in, approving the device flow from a
+    thread -- the same shape as `_login_via_cli`, for `team join <link>`."""
+    import threading
+
+    from cc_insights import cli
+
+    before = set(live._get("/test/provider/devices")["devices"])
+
+    def approve() -> None:
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            new = set(live._get("/test/provider/devices")["devices"]) - before
+            if new:
+                token = f"gh-token-{actor}"
+                live.register_identity(token, f"gh-sub-{actor}", actor, list(repos))
+                live.script_device(sorted(new)[0], [{"accessToken": token}])
+                return
+            time.sleep(0.1)
+
+    helper = threading.Thread(target=approve, daemon=True)
+    helper.start()
+    try:
+        return cli.main(["--config-dir", str(home), *argv])
+    finally:
+        helper.join(timeout=5)
 
 
 def _setup_alice(live, home, capsys, *, team="Platform"):
@@ -88,7 +122,8 @@ def test_an_admin_mints_a_code_and_a_colleague_joins_with_it(
     code = _code_from(minted)
     assert len(code) > 40, "a short code would be guessable with no throttle"
     # On a line of its own, so a double-click selects all of it and no more.
-    assert any(line.strip() == code for line in minted.splitlines())
+    assert any(line.strip() == f"{live.base_url}/join/{code}" for line in minted.splitlines())
+    assert minted.count(code) == 1, "the secret is printed exactly once"
     assert "the way you would send a password" in minted
 
     bob_home = _setup_bob(live, tmp_path, monkeypatch, capsys)
@@ -414,3 +449,39 @@ def test_daily_and_actors_both_show_the_withheld_hours(
     # timezones -- a renderer that does not say so shows somebody a day that
     # is not theirs.
     assert "UTC" in daily
+
+
+def test_a_fresh_machine_joins_with_the_link_alone(live, home, tmp_path, monkeypatch, capsys):
+    """The colleague has `cci` and nothing else: no server configured, never
+    signed in. The link carries the server, so `team join <link>` signs them
+    in to it and redeems -- and the machine stays pointed at that server, so
+    its background job pushes there from now on."""
+    from cc_insights import account, cli
+
+    _setup_alice(live, home, capsys)
+    assert cli.main(["--config-dir", str(home), "team", "invite"]) == 0
+    link = _link_from(capsys.readouterr().out)
+
+    bob_home = _second_home(tmp_path, monkeypatch, "fresh-bob")
+    assert cli.main(["--config-dir", str(bob_home), "init"]) == 0
+    capsys.readouterr()
+    assert _approving(live, bob_home, ["team", "join", link], actor="bob") == 0
+    out = capsys.readouterr().out
+    assert "Sign in to it first" in out and "joined Platform as member" in out
+
+    credential = account.load(bob_home)
+    assert credential is not None and credential.server_url == live.base_url
+
+
+def test_a_link_for_another_server_is_refused_not_followed(
+    live, home, tmp_path, monkeypatch, capsys
+):
+    """One machine, one credential. Following a link to a different server
+    would silently move this machine's automatic pushes there."""
+    from cc_insights import cli
+
+    _setup_alice(live, home, capsys)
+    other = "https://elsewhere.invalid/join/ccij_" + "x" * 43
+    assert cli.main(["--config-dir", str(home), "team", "join", other]) == 1
+    err = capsys.readouterr().err
+    assert "signed in to" in err and "elsewhere.invalid" in err and "cci logout" in err
