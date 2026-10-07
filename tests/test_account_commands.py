@@ -345,6 +345,24 @@ def test_logout_clears_the_credential_even_when_the_server_is_down(home, capsys)
     assert "stays valid until revoked" in out
 
 
+def test_logout_after_a_server_reset_does_not_claim_the_token_lives_on(home, monkeypatch, capsys):
+    """A 401 on revoke means the server does not know the token at all --
+    revoked elsewhere, or the server was reset. Saying it "stays valid until
+    revoked" sends somebody looking for a machine that can revoke nothing."""
+    from cc_insights import remote
+
+    signed_in(home, DEAD_SERVER)
+
+    def gone(self):
+        raise remote.RemoteError("unknown token", code="unauthenticated")
+
+    monkeypatch.setattr(remote.Client, "logout", gone)
+    assert cli.main(["--config-dir", str(home), "logout"]) == 0
+    out = capsys.readouterr().out
+    assert "already invalid on the server" in out
+    assert "stays valid" not in out
+
+
 def test_logout_when_not_signed_in_says_so(home, capsys):
     assert cli.main(["--config-dir", str(home), "logout"]) == 0
     assert "nothing to clear" in capsys.readouterr().out

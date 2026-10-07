@@ -1108,8 +1108,14 @@ def cmd_logout(args: argparse.Namespace) -> int:
         outcome = "revoked on the server"
         reachable = True
     except remote.RemoteError as exc:
-        outcome = f"not revoked — {exc.code or 'the server could not be reached'}"
-        reachable = False
+        if exc.code == "unauthenticated":
+            # The server does not know this token -- it was revoked elsewhere,
+            # or the server was reset. Nothing is left valid anywhere.
+            outcome = "already invalid on the server"
+            reachable = True
+        else:
+            outcome = f"not revoked — {exc.code or 'the server could not be reached'}"
+            reachable = False
 
     account.clear(cfg.config_dir)
     print("signed out.")
