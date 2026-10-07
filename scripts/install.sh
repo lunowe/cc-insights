@@ -92,7 +92,9 @@ SERVER=""
 # Both take a value. `--join` carries a bearer secret, which is why nothing
 # below ever echoes it: a failed join says "<link>", not the link.
 needs_value() {
-    [ $# -ge 2 ] && [ -n "$2" ] && [ "${2#--}" = "$2" ] || die "$1 needs a value"
+    if [ $# -lt 2 ] || [ -z "$2" ] || [ "${2#--}" != "$2" ]; then
+        die "$1 needs a value"
+    fi
 }
 
 while [ $# -gt 0 ]; do
