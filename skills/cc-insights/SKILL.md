@@ -36,10 +36,12 @@ wait.
   `--watch` turns live mode back into the 15-minute job. With a job
   installed, view the data with `cci serve`, which is read-only.
 - **The user consents; you prepare.** Two actions put data where other people
-  can read it: publishing (`cci publish`) and handing out a join code. For
+  can read it: publishing (`cci publish`) and handing out a join link. For
   both, show the user what will happen and act only on their explicit yes.
-  Commands that need `sudo`, or a browser sign-in, belong to the user: give
-  them the exact command and wait.
+  Commands that need `sudo` belong to the user: give them the exact command
+  and wait. A browser sign-in (`cci login`, `cci team join <link>`, the
+  installer's `--join`/`--server`) blocks until the user approves a code:
+  run it in the background and relay the code (references/sync.md, step 2).
 
 ## First setup
 
@@ -62,8 +64,21 @@ wait.
    The installer finds Python 3.11+, installs through pipx or a managed venv,
    links `cci` into `~/.local/bin`, then runs `cci install` (config,
    database, first ingest, background job) and `cci doctor`. It never
-   prompts. To follow the logs live instead of every 15 minutes, append
-   `-s -- --watch` (macOS only).
+   prompts. Options go after `-s --` (or straight after `install.sh` in a
+   clone):
+   - `--join <link>`: the user has a join link from a team admin
+     (`https://<server>/join/<code>`). The installer also signs in to that
+     server and joins the team. The link is a password: pass it through,
+     never echo it.
+   - `--server <url>`: the user has their own account server. The installer
+     also signs in to it.
+   - `--watch`: follow the logs live instead of every 15 minutes (macOS only).
+
+   With `--join` or `--server`, the installer ends in a browser sign-in that
+   waits for the user, so run it in the background and relay the code as
+   references/sync.md step 2 describes. If the sign-in times out, the install
+   itself is still complete; re-run just `cci team join <link>` or
+   `cci login --server <url>`.
 
    If the installer stops at `no Python 3.11+ found` or `no ensurepip`, it
    prints a fix that usually needs `sudo`. Hand that command to the user. On
@@ -98,9 +113,14 @@ wait.
      `idle_threshold_s` (300 s by default). Hours a session sits open don't
      count, so active time is far lower than session wall-clock.
    - **Cost** (`cci cost`, after `cci price sync`) is a list-price
-     equivalent at published API rates, dated per model. It is not a bill: a
-     subscription charges a flat fee. Unpriced models are reported, not
-     counted as zero.
+     equivalent at published API rates (LiteLLM's catalog, the one ccusage
+     uses), dated per model. It is not a bill: a subscription charges a flat
+     fee. Each API response is counted once, and per-model token totals
+     match ccusage's. Unpriced models are reported, not counted as zero; free
+     tiers such as opencode's `*-free` models are unpriced on purpose, and
+     `cci price set <model> --input 0 --output 0` records them as free if the
+     user wants. `database is locked` from `cci cost` means the background
+     job is writing: retry after a few seconds.
    - If one repo shows up as many projects (worktrees, subdirectories), run
      `cci group auto --dry-run`, show the plan, then `cci group auto`.
 
@@ -109,15 +129,18 @@ wait.
    skips the browser).
 
 5. **Offer the next steps** that fit the user: more machines, a team, or
-   neither. Stopping at local-only is a complete setup.
+   neither. Stopping at local-only is a complete setup. If the user has a
+   join link and didn't install with `--join`, `cci team join <link>` does
+   the sign-in and the join now (references/teams.md).
 
 ## Where to go next
 
 - **Several machines:** signing in, `cci login`, `cci sync`, or your own
   PostgreSQL. See [references/sync.md](references/sync.md).
-- **Teams:** `cci publish`, creating or joining a team, invites, sharing a
-  repo, branch names. See [references/teams.md](references/teams.md). This
-  needs sign-in from `sync.md` first.
+- **Teams:** `cci publish`, creating or joining a team, join links, sharing
+  a repo, branch names. See [references/teams.md](references/teams.md). A
+  join link signs in by itself; everything else there needs sign-in from
+  `sync.md` first.
 - **Something wrong:** a doctor FAIL, missing data, upgrading, uninstalling,
   or a custom data location. See
   [references/troubleshooting.md](references/troubleshooting.md).

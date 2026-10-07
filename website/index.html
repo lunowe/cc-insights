@@ -406,8 +406,11 @@
           </div>
           <p class="fine">
             Costs are list-price equivalents, not bills: a subscription charges a flat fee no matter how many
-            tokens run through it. Rates come from a committed price catalog keyed by model <em>and date</em>, so a
-            vendor's next price change does not rewrite last month.
+            tokens run through it. Each API response is counted once, though the logs repeat its usage on every
+            content block, and per-model token totals match
+            <a href="https://github.com/ccusage/ccusage">ccusage</a> token for token. Rates come from LiteLLM's
+            catalog, committed and keyed by model <em>and date</em>, so a vendor's next price change does not rewrite
+            last month.
           </p>
         </div>
       </div>
@@ -558,6 +561,11 @@ cci team join &lt;link&gt;</code></pre>
             </div>
           </div>
 
+          <p class="install-note">
+            Got a join link from a team admin? Add it, and the script also signs you in and joins the team:
+            <code>… | bash -s -- --join &lt;link&gt;</code>. The link names the server, so nothing else is needed.
+          </p>
+
           <div class="agent-setup" id="agent-setup">
             <div class="agent-head">
               <h3>Set it up with your coding agent</h3>
@@ -586,7 +594,7 @@ The full guide is a skill in that repo. Read it before you start, and read each 
 If you cannot fetch those files, use this short version:
 
 1. If `cci` is already installed, run `cci doctor`. If it reports `everything is working.`, skip to step 4.
-2. Check whether the package is on PyPI: `curl -fsS -o /dev/null https://pypi.org/pypi/cc-insights/json`. On macOS or Linux, if it is on PyPI, run `curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/master/scripts/install.sh | bash`. If you get a 404, run `git clone https://github.com/lunowe/cc-insights ~/cc-insights &amp;&amp; bash ~/cc-insights/scripts/install.sh`, which also needs pnpm or npm. On Windows, run `pipx install cc-insights`, then `cci install`. The installer finds Python 3.11+, installs `cci`, sets up the config, the database and a background job, then runs `cci doctor`. If it needs a Python or a package installed with sudo, give me the command to run.
+2. Check whether the package is on PyPI: `curl -fsS -o /dev/null https://pypi.org/pypi/cc-insights/json`. On macOS or Linux, if it is on PyPI, run `curl -fsSL https://raw.githubusercontent.com/lunowe/cc-insights/master/scripts/install.sh | bash`. If you get a 404, run `git clone https://github.com/lunowe/cc-insights ~/cc-insights &amp;&amp; bash ~/cc-insights/scripts/install.sh`, which also needs pnpm or npm. If I gave you a join link from a team admin (`https://&lt;server&gt;/join/&lt;code&gt;`), add `-s -- --join &lt;link&gt;` to the curl command (or `--join &lt;link&gt;` after `install.sh` in the clone): it also signs me in and joins the team. Treat the link as a password and never echo it. On Windows, run `pipx install cc-insights`, then `cci install`. The installer finds Python 3.11+, installs `cci`, sets up the config, the database and a background job, then runs `cci doctor`. If it needs a Python or a package installed with sudo, give me the command to run.
 3. If the installer says its bin directory is not on my PATH, add the line it prints to the shell rc file it names, and tell me which file you edited. On Linux the background job is one line in my crontab; `cci install` writes it and leaves my other entries alone. If it says `no scheduler found`, this machine has no cron: give me the command to install it, then run `cci install` again. Setup is done when `$SHELL -ilc 'cci doctor'` passes.
 4. Run `cci stats` and summarize what you see. Active time counts only spans without a gap of more than 5 minutes, so it is far lower than how long sessions sat open. `cci cost` (after `cci price sync`) gives a list-price equivalent, not a bill. Then start `cci serve` in the background so the dashboard opens at http://localhost:8787.
 5. Ask me whether I want to sync several machines (`cci login --server &lt;url&gt;`, then `cci sync push` and `cci sync pull`) or share with a team (`cci publish`, `cci team join &lt;link&gt;`, `cci team new`). A join link from a team admin already names the server, and `cci team join &lt;link&gt;` signs in and joins in one step. Otherwise these need an account server URL, which I will give you. There is no public default.
@@ -595,8 +603,8 @@ Rules while you do this:
 - `cci doctor` decides whether something works. Every line that is not `ok` names the command that fixes it.
 - Never delete or move `~/.config/cc-insights` (`%APPDATA%\cc-insights` on Windows), and never change `host_id` in its `config.toml`. The database there holds history the agents have already deleted from their logs. Don't print `credentials.toml`; it holds a token.
 - Run exactly one background job per machine. Don't start `cci watch` while a job is installed; use `cci serve` to look at the data.
-- `cci login` blocks until I approve a code in my browser. Start it with `nohup cci login --server &lt;url&gt; &gt; /tmp/cci-login.log 2&gt;&amp;1 &amp;`, give me the URL and the code from that file, then check the file every few seconds until it says `signed in as`.
-- Before anything leaves this machine for other people, run `cci publish --dry-run`, show me the report, and tell me that anyone on that server with access to those repos on GitHub can read what I publish. Run `cci publish --yes` only after I say yes. If you mint a team join code, give it only to me, and tell me it is shown only once and should be sent privately.
+- Signing in blocks until I approve a code in my browser: `cci login`, `cci team join &lt;link&gt;`, and the installer with `--join` or `--server`. Run it in the background with its output going to a file (for example `nohup cci login --server &lt;url&gt; &gt; /tmp/cci-login.log 2&gt;&amp;1 &amp;`), give me the URL and the code from that file, then check the file every few seconds until it says `signed in as` (or `joined &lt;team&gt;`).
+- Before anything leaves this machine for other people, run `cci publish --dry-run`, show me the report, and tell me that anyone on that server with access to those repos on GitHub can read what I publish. Run `cci publish --yes` only after I say yes. If you mint a team join link with `cci team invite`, give it only to me, and tell me it is shown only once and should be sent privately; the person I send it to needs nothing else.
 
 Once everything works, offer to save the skill folder (https://github.com/lunowe/cc-insights/tree/master/skills/cc-insights) into your skills directory, so it is available next time I ask about cci.</pre>
 <button class="prompt-toggle" type="button" id="prompt-toggle" aria-expanded="false" aria-controls="agent-prompt">Show the whole prompt</button>

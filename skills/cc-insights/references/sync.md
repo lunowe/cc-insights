@@ -50,6 +50,9 @@ start the login again. Done when the log shows `signed in as <name>`. Alternativ
 the user can run it in their own terminal. In Claude Code they can type
 `! cci login --server <url>`.
 
+`cci team join <link>` and the installer's `--join`/`--server` run this
+same sign-in; relay their codes the same way.
+
 The device flow works over SSH, so a remote machine can be signed in from
 the laptop's browser. Signing in claims this host for the account and stores
 the token in `credentials.toml` (mode 0600). `cci logout` clears the token
