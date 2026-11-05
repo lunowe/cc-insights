@@ -134,16 +134,19 @@ cci serve     # the dashboard
 date range, with the filter state in the URL so a view is shareable. The page
 reads the live database through the API it is served from; if it is opened
 from somewhere with no API behind it, it falls back to the bundled sample and
-says so on the badge rather than passing the sample off as your data.
+says so on the badge rather than passing the sample off as your data. An open
+page refreshes itself whenever the database changes, whatever changed it: the
+15-minute job, a background watcher, a `cci sync pull`. The server only
+notices those writes; it never makes one.
 
-To watch it happen instead, `cci watch` follows the logs and keeps the database
-current as the agents write it, ~0.15 s per cycle because ingest resumes at
+For updates within seconds instead of every 15 minutes, `cci watch` follows
+the logs and keeps the database current as the agents write it, ~0.15 s per cycle because ingest resumes at
 each file's byte offset and only the sessions that moved are re-derived:
 
 ```bash
 cci watch                 # follow the logs, print a line per change
 cci watch --serve         # ...and a dashboard that refreshes itself
-cci install --watch       # ...or leave it running in the background
+cci install --watch       # ...or leave it running, and `cci serve` to look
 ```
 
 Install one background job or the other, not both: two writers on one database

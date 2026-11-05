@@ -20,12 +20,14 @@ parsed, 404 for a path that does not exist, 405 for a write verb, 500 for a
 query that blew up. Never a 200 carrying an error: a dashboard that renders
 `{"error": ...}` as an empty chart is worse than one that shows a failure.
 
-**One endpoint is not JSON.** `/api/live` is a Server-Sent Events stream that
-`cci watch --serve` feeds, so an open dashboard refreshes when a log file
-grows instead of polling. It is outside `metrics.ENDPOINTS` on purpose: those
-are the filtered, cacheable, fixture-capturable contract, and a stream is
-none of those. Without a watcher behind it the path 404s, which is exactly
-what makes an `EventSource` give up rather than reconnect forever.
+**One endpoint is not JSON.** `/api/live` is a Server-Sent Events stream, so
+an open dashboard refreshes when the data moves instead of polling. `cci
+watch --serve` feeds it from its own pipeline; a plain `cci serve` feeds it
+from commits other processes make to the database (`live.DatabaseFeed`). It
+is outside `metrics.ENDPOINTS` on purpose: those are the filtered, cacheable,
+fixture-capturable contract, and a stream is none of those. A server built
+with nothing feeding it 404s the path, which is exactly what makes an
+`EventSource` give up rather than reconnect forever.
 
 **CORS is exactly the Vite dev server.** `http://localhost:5173` (and its
 127.0.0.1 spelling) so the frontend can be developed against a live backend.
@@ -311,7 +313,7 @@ class _Handler(BaseHTTPRequestHandler):
         once = "once=1" in query
         generation, payload = live.snapshot()
         self._event("hello", {"generation": generation, "last": payload,
-                              "heartbeatS": HEARTBEAT_S})
+                              "heartbeatS": HEARTBEAT_S, "feed": live.feed})
         while not once:
             tick = live.wait_after(generation, HEARTBEAT_S)
             if tick is None:
@@ -500,7 +502,9 @@ def run(
     base = server.url.rstrip("/")
     say(f"  endpoints  {base}/api/summary  (see docs/API.md for all {len(metrics.ENDPOINTS)})")
     if live is not None:
-        say(f"  live       {base}{LIVE_PATH}  (the page refreshes as the logs grow)")
+        what = ("as the logs grow" if live.feed == "watch"
+                else "when the database changes")
+        say(f"  live       {base}{LIVE_PATH}  (the page refreshes {what})")
     say()
     say("  Ctrl-C to stop")
     say()

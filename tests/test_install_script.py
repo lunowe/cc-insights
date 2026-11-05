@@ -166,7 +166,11 @@ def test_a_too_old_python3_does_not_end_the_search(shim_dir: Path):
     and install a Python they already have, which is the single most likely
     way for this installer to fail on a machine where it should work.
     """
-    write_shim(shim_dir, "python3", "exit 1")           # stands in for 3.9
+    # The search tries newest first and /usr/bin stays on PATH, so anything
+    # newer the host really has must be hidden or it wins: ubuntu-26.04 ships
+    # a /usr/bin/python3.14.
+    for name in ("python3.14", "python3.13", "python3"):
+        write_shim(shim_dir, name, "exit 1")            # stands in for 3.9
     write_shim(shim_dir, "python3.12", f'exec "{sys.executable}" "$@"')
 
     proc = source_and_run("find_python", env={"PATH": f"{shim_dir}{os.pathsep}/usr/bin:/bin"})
