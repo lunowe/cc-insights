@@ -36,7 +36,9 @@ derivation engine, static HTML dashboard, CSV export.
     database was built from the logs still on disk — the alternative,
     "rebuild", drops every session whose log has aged out. Worth $956 here.
     See FINDINGS §6b.
-- **Watch mode.** ✅ `watch.py` + `cci watch [--serve]` + `/api/live`.
+- **Watch mode.** ✅ `watch.py` + `cci watch [--serve]` + `/api/live`. A
+  plain `cci serve` feeds `/api/live` too, from other processes' commits
+  (`live.DatabaseFeed`), so the page never needs `--serve` to stay current.
   **It polls rather than using FSEvents, deliberately** — 50 ms to stat the
   whole corpus against a dependency or 150 lines of untestable `ctypes`, and
   polling is the only option that already works on the Windows box v2 assumes.

@@ -492,6 +492,78 @@ def test_cci_serve_answers_every_endpoint_and_shuts_down_cleanly(
     assert f":{port}/" in out and "Ctrl-C" in out
 
 
+def test_cci_serve_streams_commits_made_by_other_processes(
+        cfg, conn, monkeypatch, capsys):
+    """`cci serve` with no watcher still refreshes the page.
+
+    The background job and `cci install --watch` write from other processes;
+    the server notices their commits and says so on `/api/live`. Before this,
+    the stream 404'd under a plain `cci serve` and the page never moved.
+    """
+    cfg.save()
+    port = _free_port()
+    made: list[serve.InsightsServer] = []
+    real_make = serve.make_server
+
+    def capture(*a, **kw):
+        srv = real_make(*a, **kw)
+        srv.quiet = True
+        made.append(srv)
+        return srv
+
+    monkeypatch.setattr(serve, "make_server", capture)
+    monkeypatch.setattr(serve.webbrowser, "open", lambda *a, **kw: None)
+    thread = threading.Thread(
+        target=lambda: cli.main(["--config-dir", str(cfg.config_dir), "serve",
+                                 "--port", str(port), "--no-open"]),
+        daemon=True)
+    thread.start()
+    deadline = time.monotonic() + TIMEOUT
+    while not made and time.monotonic() < deadline:
+        time.sleep(0.01)
+    srv = made[0]
+
+    got: list[bytes] = []
+
+    def listen():
+        try:
+            with urllib.request.urlopen(srv.url.rstrip("/") + "/api/live",
+                                        timeout=TIMEOUT) as resp:
+                for _ in range(8):
+                    chunk = resp.readline()
+                    if not chunk:
+                        break
+                    got.append(chunk)
+        except Exception:       # the server is torn down under us at the end
+            pass
+
+    listener = threading.Thread(target=listen, daemon=True)
+    listener.start()
+    try:
+        deadline = time.monotonic() + TIMEOUT
+        while not parse_sse(b"".join(got)) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        frames = dict(parse_sse(b"".join(got)))
+        assert frames["hello"]["feed"] == "database"
+
+        # No wait needed: the feed takes its baseline before the server
+        # accepts its first request, so the hello above already postdates it.
+        conn.execute("INSERT INTO host (host_id, hostname, os, first_seen, last_seen) "
+                     "VALUES ('h-other', 'other', 'linux', 1, 1)")
+        deadline = time.monotonic() + TIMEOUT
+        while time.monotonic() < deadline:
+            if any(name == "change" for name, _ in parse_sse(b"".join(got))):
+                break
+            time.sleep(0.05)
+        frames = dict(parse_sse(b"".join(got)))
+        assert "change" in frames, f"no change frame in {got!r}"
+        assert isinstance(frames["change"]["at"], int)
+    finally:
+        srv.shutdown()
+        thread.join(timeout=TIMEOUT)
+    assert "when the database changes" in capsys.readouterr().out
+
+
 # --- startup banner -------------------------------------------------------
 # These cover two bugs that shipped briefly: the banner was block-buffered and
 # so never reached a redirected log (which is exactly what launchd gives it),

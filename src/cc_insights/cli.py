@@ -37,6 +37,7 @@ from cc_insights import (
     sync,
     watch as watch_mod,
 )
+from cc_insights.live import DatabaseFeed, LiveState
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -750,10 +751,23 @@ def cmd_serve(args: argparse.Namespace) -> int:
     `_open_db` is used only to reuse its "no database yet" message; the handle
     is closed immediately, because the server opens its own **read-only**
     connections, one per worker thread.
+
+    The page stays current on its own: a `DatabaseFeed` notices whenever the
+    background job, a `cci install --watch` watcher or a `cci sync pull`
+    commits, and tells the page through `/api/live`. It only reads, so this
+    stays a viewer and never becomes a second writer. It is started from
+    `on_ready`, which runs before the first request is accepted, so its
+    baseline always predates whatever the page fetched.
     """
     cfg, conn = _open_db(args)
     conn.close()
-    return serve.run(cfg, port=args.port, open_browser=not args.no_open)
+    live = LiveState(feed="database")
+    feed = DatabaseFeed(cfg.db_path, live)
+    try:
+        return serve.run(cfg, port=args.port, open_browser=not args.no_open,
+                         live=live, on_ready=lambda _server: feed.start())
+    finally:
+        feed.stop()
 
 
 # ------------------------------------------------------- install and doctor --

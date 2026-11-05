@@ -288,19 +288,27 @@ type Cost = CostTotals & {
 };
 ```
 
-## `GET /api/live` — the watch-mode stream
+## `GET /api/live` — the change stream
 
 Not one of the endpoints above, and deliberately outside the `Filters`
 contract: those are filtered, cacheable and capturable as a fixture, and a
 stream is none of the three.
 
-`cci watch --serve` runs the pipeline in the background and feeds this
-endpoint, so an open dashboard refreshes when a log file grows instead of
-polling. Content type `text/event-stream`.
+An open dashboard listens here and refetches when the database moves,
+instead of polling. Content type `text/event-stream`. Two things feed it, and
+`feed` in the `hello` frame says which:
+
+- `"watch"` — `cci watch --serve` runs the pipeline in this process and
+  publishes each cycle that changed something, with the cycle's numbers.
+- `"database"` — a plain `cci serve` runs no pipeline. It watches the
+  database for commits by other processes (the background job, a watcher, a
+  sync pull) through `PRAGMA data_version`, about once a second, and
+  publishes `{"generation": n, "at": <ms>}` for each poll that saw one.
+  Any commit counts, including an ingest that found nothing new.
 
 ```
 event: hello
-data: {"generation": 12, "last": {...}, "heartbeatS": 20}
+data: {"generation": 12, "last": {...}, "heartbeatS": 20, "feed": "watch"}
 
 : keep-alive                        <- a comment frame; fires no event
 
@@ -311,13 +319,16 @@ data: {"generation": 13, "at": 1789913704558, "changedFiles": 1,
        "durationS": 0.155, "errors": []}
 ```
 
-- `spans`, `activeMs` and `cost` are **corpus totals after the cycle**;
-  `eventsInserted` and `sessions` are that cycle's delta.
+- In `watch` frames, `spans`, `activeMs` and `cost` are **corpus totals
+  after the cycle**; `eventsInserted` and `sessions` are that cycle's delta.
+  `database` frames carry only `generation` and `at`.
 - `generation` only advances on a cycle that changed something, so a client
   may refetch on every `change` without looping.
-- **With no watcher running the path returns `404`.** That is what makes an
-  `EventSource` give up instead of reconnecting forever, and it is how a page
-  learns there is nothing live to listen to. Treat the 404 as "not watching",
+- **A server with nothing feeding the stream returns `404`.** Neither
+  `cci serve` nor `cci watch --serve` runs one any more, but the frontend
+  must still handle it: that is what makes
+  an `EventSource` give up instead of reconnecting forever, and it is how a
+  page learns there is nothing live to listen to. Treat the 404 as "not watching",
   not as an error worth showing.
 
 ## Errors

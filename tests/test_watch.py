@@ -327,6 +327,80 @@ def test_publish_bumps_the_generation():
     assert live.snapshot() == (1, {"a": 1})
 
 
+def _touch(conn: sqlite3.Connection, host_id: str = "h-feed") -> None:
+    """One commit from a connection other than the feed's."""
+    conn.execute(
+        "INSERT OR REPLACE INTO host (host_id, hostname, os, first_seen, last_seen) "
+        "VALUES (?, 'feed', 'darwin', 1, 1)", (host_id,))
+
+
+def test_database_feed_publishes_when_another_connection_commits(conn, tmp_path):
+    """The whole of `cci serve`'s liveness: a commit elsewhere, and only that."""
+    live = watch.LiveState(feed="database")
+    feed = live_mod.DatabaseFeed(tmp_path / "test.db", live)
+
+    assert feed.poll() is False, "the first look is a baseline, not a change"
+    assert feed.poll() is False, "nothing committed, nothing to report"
+    assert live.generation == 0
+
+    _touch(conn)
+    assert feed.poll() is True
+    gen, payload = live.snapshot()
+    assert gen == 1 and isinstance(payload["at"], int)
+    assert feed.poll() is False, "one commit is one change"
+    feed._close()
+
+
+def test_database_feed_counts_a_reconnect_as_a_change(conn, tmp_path):
+    """A handle that died may have missed a write; refetching is the safe side."""
+    live = watch.LiveState(feed="database")
+    feed = live_mod.DatabaseFeed(tmp_path / "test.db", live)
+    feed.poll()
+    feed._conn.close()                    # what a dropped handle looks like
+
+    assert feed.poll() is False and live.generation == 0   # the failed look
+    _touch(conn)                          # written while the feed was blind
+    assert feed.poll() is True and live.generation == 1
+    feed._close()
+
+
+def test_database_feed_thread_starts_and_stops(conn, tmp_path):
+    live = watch.LiveState(feed="database")
+    feed = live_mod.DatabaseFeed(tmp_path / "test.db", live, interval_s=0.01)
+    feed.start()
+    try:
+        _touch(conn)          # start() has already taken the baseline
+        deadline = time.monotonic() + 5
+        while live.generation == 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert live.generation >= 1
+    finally:
+        feed.stop()
+    assert not feed._thread.is_alive() and feed._conn is None
+
+
+def test_a_commit_before_the_first_successful_look_is_not_lost(conn, tmp_path):
+    """If the baseline cannot be taken at start, the first look that works is
+    a change: whatever was written in between is otherwise never announced."""
+    live = watch.LiveState(feed="database")
+    feed = live_mod.DatabaseFeed(tmp_path / "test.db", live, interval_s=3600)
+    real_open = feed._open
+    feed._open = lambda: (_ for _ in ()).throw(sqlite3.OperationalError("busy"))
+    feed.start()
+    try:
+        assert live.generation == 0
+        _touch(conn)
+        feed._open = real_open
+        assert feed.poll() is True and live.generation == 1
+    finally:
+        feed.stop()
+
+
+def test_status_names_the_feed():
+    assert watch.LiveState().status()["feed"] == "watch"
+    assert watch.LiveState(feed="database").status()["feed"] == "database"
+
+
 def test_wait_after_returns_none_on_timeout():
     live = watch.LiveState()
     started = time.monotonic()

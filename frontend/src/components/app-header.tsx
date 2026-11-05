@@ -19,7 +19,7 @@ export function AppHeader({
   meta: Meta | null
   /** null until the backend probe resolves. */
   mode: DataMode | null
-  /** Watch mode, when a `cci watch --serve` is feeding this page. */
+  /** Live updates, when `cci serve` or `cci watch --serve` is feeding this page. */
   live?: LiveState
 }) {
   return (
@@ -81,29 +81,34 @@ export function IdleThresholdBadge({ seconds }: { seconds: number }) {
 }
 
 /**
- * Shown only while a watcher is actually feeding this page.
+ * Shown only while something is actually feeding this page.
  *
  * It is a claim about the present tense, so it appears only once the stream
  * has said hello and disappears the moment it drops: a badge that says "live"
  * because it did at some point is the failure it exists to prevent. The dot
  * pulses, because the one thing it is asserting is that this is moving.
+ *
+ * On a phone the label goes and the dot stays: the header row is one badge
+ * too wide for 390 px otherwise, and the theme toggle is what falls off.
  */
 function WatchingBadge({ live }: { live: LiveState }) {
+  const label = live.feed === "database" ? "auto-refresh" : "watching"
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
+          aria-label={label}
           className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/8 px-2.5 py-1 text-[0.6875rem] text-primary"
         >
           <span className="relative grid size-3 place-items-center">
             <span className="absolute size-2 animate-ping rounded-full bg-primary/60" />
             <span className="size-1.5 rounded-full bg-primary" />
           </span>
-          <span>watching</span>
+          <span className="hidden sm:inline">{label}</span>
           {live.changes > 0 ? (
             <>
-              <span aria-hidden className="text-primary/40">|</span>
+              <span aria-hidden className="hidden text-primary/40 sm:inline">|</span>
               <span className="num whitespace-nowrap">
                 {formatCount(live.changes)}
               </span>
@@ -112,8 +117,18 @@ function WatchingBadge({ live }: { live: LiveState }) {
         </button>
       </TooltipTrigger>
       <TooltipContent className="max-w-72">
-        <code>cci watch</code> is following the logs; this page refreshes as
-        they grow, at most once every few seconds.
+        {live.feed === "database" ? (
+          <>
+            This page refreshes whenever the database changes: after each
+            background ingest, or as a <code>cci watch</code> writes. At most
+            once every few seconds.
+          </>
+        ) : (
+          <>
+            <code>cci watch</code> is following the logs; this page refreshes
+            as they grow, at most once every few seconds.
+          </>
+        )}
         {live.lastChangeAt !== null ? (
           <> Last change: {formatDateTime(live.lastChangeAt)}.</>
         ) : (
