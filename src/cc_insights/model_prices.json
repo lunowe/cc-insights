@@ -1,16 +1,16 @@
 {
  "source": {
   "repo": "BerriAI/litellm",
-  "url": "https://raw.githubusercontent.com/BerriAI/litellm/096b20b6db40a9f22500ea837b0ab77a7374a26a/model_prices_and_context_window.json",
-  "commit": "096b20b6db40a9f22500ea837b0ab77a7374a26a",
+  "url": "https://raw.githubusercontent.com/BerriAI/litellm/306b73d11341eb6e5b90b5e4d2fd03d0e8bf5775/model_prices_and_context_window.json",
+  "commit": "306b73d11341eb6e5b90b5e4d2fd03d0e8bf5775",
   "license": "MIT",
-  "fetched_at": "2026-10-06T17:48:20Z",
+  "fetched_at": "2026-11-27T11:11:30Z",
   "fallback": {
    "name": "models.dev",
    "url": "https://models.dev/api.json",
-   "sha256": "6770aebe416145d4286d08b11308a07a6506d8ef11df849578a2f39917eb14e0",
+   "sha256": "fb8238304094c0c4822d401768151d72a609a19a27a3680dfaaf91d5aff02cfa",
    "license": "MIT",
-   "fetched_at": "2026-10-06T17:48:20Z"
+   "fetched_at": "2026-11-27T11:11:30Z"
   }
  },
  "models": {
@@ -72,8 +72,7 @@
      "output_mtok": 15.0,
      "cache_read_mtok": 0.3,
      "cache_write_mtok": 3.75,
-     "cache_write_1h_mtok": 6.0,
-     "tiered": true
+     "cache_write_1h_mtok": 6.0
     }
    ]
   },
@@ -187,6 +186,21 @@
     }
    ]
   },
+  "claude-fable-5-2": {
+   "source": "litellm",
+   "upstream": "claude-fable-5-2",
+   "provider": "anthropic",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 8.0,
+     "output_mtok": 40.0,
+     "cache_read_mtok": 0.2,
+     "cache_write_mtok": 10.0,
+     "cache_write_1h_mtok": 16.0
+    }
+   ]
+  },
   "claude-haiku-4-5": {
    "source": "litellm",
    "upstream": "claude-haiku-4-5",
@@ -217,6 +231,22 @@
     }
    ]
   },
+  "claude-haiku-5-5": {
+   "source": "litellm",
+   "upstream": "claude-haiku-5-5",
+   "provider": "anthropic",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 0.1,
+     "output_mtok": 0.5,
+     "cache_read_mtok": 0.01,
+     "cache_write_mtok": 0.125,
+     "cache_write_1h_mtok": 0.2,
+     "tiered": true
+    }
+   ]
+  },
   "claude-mythos-5": {
    "source": "litellm",
    "upstream": "claude-mythos-5",
@@ -244,6 +274,21 @@
      "cache_read_mtok": 0.25,
      "cache_write_mtok": 12.5,
      "cache_write_1h_mtok": 20.0
+    }
+   ]
+  },
+  "claude-mythos-5-2": {
+   "source": "litellm",
+   "upstream": "claude-mythos-5-2",
+   "provider": "anthropic",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 8.0,
+     "output_mtok": 40.0,
+     "cache_read_mtok": 0.2,
+     "cache_write_mtok": 10.0,
+     "cache_write_1h_mtok": 16.0
     }
    ]
   },
@@ -457,8 +502,7 @@
      "output_mtok": 15.0,
      "cache_read_mtok": 0.3,
      "cache_write_mtok": 3.75,
-     "cache_write_1h_mtok": 6.0,
-     "tiered": true
+     "cache_write_1h_mtok": 6.0
     }
    ]
   },
@@ -473,8 +517,7 @@
      "output_mtok": 15.0,
      "cache_read_mtok": 0.3,
      "cache_write_mtok": 3.75,
-     "cache_write_1h_mtok": 6.0,
-     "tiered": true
+     "cache_write_1h_mtok": 6.0
     }
    ]
   },
@@ -520,12 +563,35 @@
      "cache_read_mtok": 0.2,
      "cache_write_mtok": 2.5,
      "cache_write_1h_mtok": 4.0
+    },
+    {
+     "start_date": "2026-11-27",
+     "input_mtok": 2.0,
+     "output_mtok": 10.0,
+     "cache_read_mtok": 0.1,
+     "cache_write_mtok": 2.5,
+     "cache_write_1h_mtok": 4.0
     }
    ]
   },
   "computer-use-preview": {
    "source": "litellm",
    "upstream": "computer-use-preview",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 3.0,
+     "output_mtok": 12.0,
+     "cache_read_mtok": null,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
+  "computer-use-preview-2025-03-11": {
+   "source": "litellm",
+   "upstream": "computer-use-preview-2025-03-11",
    "provider": "openai",
    "clauses": [
     {
@@ -632,8 +698,8 @@
   },
   "deepseek-v4.1-flash": {
    "source": "models.dev",
-   "upstream": "vivgrid/deepseek-v4.1-flash",
-   "provider": "vivgrid",
+   "upstream": "liquid/deepseek-v4.1-flash",
+   "provider": "liquid",
    "trust": "owner",
    "clauses": [
     {
@@ -641,6 +707,14 @@
      "input_mtok": 0.31,
      "output_mtok": 1.23,
      "cache_read_mtok": 0.01,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    },
+    {
+     "start_date": "2026-11-27",
+     "input_mtok": 0.0868,
+     "output_mtok": 0.21,
+     "cache_read_mtok": 0.007,
      "cache_write_mtok": null,
      "cache_write_1h_mtok": null
     }
@@ -858,8 +932,8 @@
   },
   "gemini-3-flash": {
    "source": "models.dev",
-   "upstream": "pioneer/gemini-3-flash",
-   "provider": "pioneer",
+   "upstream": "cloudflare-ai-gateway/google/gemini-3-flash",
+   "provider": "cloudflare-ai-gateway",
    "trust": "reseller",
    "clauses": [
     {
@@ -868,6 +942,14 @@
      "output_mtok": 3.0,
      "cache_read_mtok": 0.05,
      "cache_write_mtok": 0.083333,
+     "cache_write_1h_mtok": null
+    },
+    {
+     "start_date": "2026-11-27",
+     "input_mtok": 0.5,
+     "output_mtok": 3.0,
+     "cache_read_mtok": 0.05,
+     "cache_write_mtok": null,
      "cache_write_1h_mtok": null
     }
    ]
@@ -891,8 +973,8 @@
   },
   "gemini-3.1-pro": {
    "source": "models.dev",
-   "upstream": "neon/gemini-3-1-pro",
-   "provider": "neon",
+   "upstream": "cloudflare-ai-gateway/google/gemini-3.1-pro",
+   "provider": "cloudflare-ai-gateway",
    "trust": "reseller",
    "clauses": [
     {
@@ -976,6 +1058,66 @@
      "input_mtok": 0.75,
      "output_mtok": 3.75,
      "cache_read_mtok": 0.075,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
+  "gemini-4-argon": {
+   "source": "litellm",
+   "upstream": "gemini/gemini-4-argon",
+   "provider": "gemini",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 2.0,
+     "output_mtok": 10.0,
+     "cache_read_mtok": 0.1,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
+  "gemini-4-carbon": {
+   "source": "litellm",
+   "upstream": "gemini/gemini-4-carbon",
+   "provider": "gemini",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 2.0,
+     "output_mtok": 10.0,
+     "cache_read_mtok": 0.1,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
+  "gemini-4-hydrogen": {
+   "source": "litellm",
+   "upstream": "gemini/gemini-4-hydrogen",
+   "provider": "gemini",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 1.5,
+     "output_mtok": 7.5,
+     "cache_read_mtok": 0.075,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
+  "gemini-4-neon": {
+   "source": "litellm",
+   "upstream": "gemini/gemini-4-neon",
+   "provider": "gemini",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 3.0,
+     "output_mtok": 15.0,
+     "cache_read_mtok": 0.15,
      "cache_write_mtok": null,
      "cache_write_1h_mtok": null
     }
@@ -1507,9 +1649,39 @@
     }
    ]
   },
+  "gpt-4o-mini-search-preview-2025-03-11": {
+   "source": "litellm",
+   "upstream": "gpt-4o-mini-search-preview-2025-03-11",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 0.15,
+     "output_mtok": 0.6,
+     "cache_read_mtok": 0.075,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
   "gpt-4o-search-preview": {
    "source": "litellm",
    "upstream": "gpt-4o-search-preview",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 2.5,
+     "output_mtok": 10.0,
+     "cache_read_mtok": 1.25,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
+  "gpt-4o-search-preview-2025-03-11": {
+   "source": "litellm",
+   "upstream": "gpt-4o-search-preview-2025-03-11",
    "provider": "openai",
    "clauses": [
     {
@@ -1929,9 +2101,9 @@
   },
   "gpt-5.3-codex-spark": {
    "source": "models.dev",
-   "upstream": "openai/gpt-5.3-codex-spark",
-   "provider": "openai",
-   "trust": "owner",
+   "upstream": "opencode/gpt-5.3-codex-spark",
+   "provider": "opencode",
+   "trust": "reseller",
    "clauses": [
     {
      "start_date": null,
@@ -2114,6 +2286,21 @@
     }
    ]
   },
+  "gpt-5.5-cyber-preview": {
+   "source": "litellm",
+   "upstream": "gpt-5.5-cyber-preview",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 12.5,
+     "output_mtok": 75.0,
+     "cache_read_mtok": 1.25,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
   "gpt-5.5-pro": {
    "source": "litellm",
    "upstream": "gpt-5.5-pro",
@@ -2242,6 +2429,54 @@
     }
    ]
   },
+  "gpt-6-astra-healthcare": {
+   "source": "litellm",
+   "upstream": "gpt-6-astra-healthcare",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 10.0,
+     "output_mtok": 50.0,
+     "cache_read_mtok": 1.0,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null,
+     "tiered": true
+    }
+   ]
+  },
+  "gpt-6-astra-law": {
+   "source": "litellm",
+   "upstream": "gpt-6-astra-law",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 10.0,
+     "output_mtok": 50.0,
+     "cache_read_mtok": 1.0,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null,
+     "tiered": true
+    }
+   ]
+  },
+  "gpt-6-cyber": {
+   "source": "litellm",
+   "upstream": "gpt-6-cyber",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 20.0,
+     "output_mtok": 100.0,
+     "cache_read_mtok": 2.0,
+     "cache_write_mtok": 25.0,
+     "cache_write_1h_mtok": null,
+     "tiered": true
+    }
+   ]
+  },
   "gpt-6-luna": {
    "source": "litellm",
    "upstream": "gpt-6-luna",
@@ -2253,6 +2488,22 @@
      "output_mtok": 0.5,
      "cache_read_mtok": 0.01,
      "cache_write_mtok": 0.125,
+     "cache_write_1h_mtok": null,
+     "tiered": true
+    }
+   ]
+  },
+  "gpt-6-rosalind": {
+   "source": "litellm",
+   "upstream": "gpt-6-rosalind",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 10.0,
+     "output_mtok": 50.0,
+     "cache_read_mtok": 1.0,
+     "cache_write_mtok": 12.5,
      "cache_write_1h_mtok": null,
      "tiered": true
     }
@@ -2277,6 +2528,118 @@
   "gpt-6.1-sol": {
    "source": "litellm",
    "upstream": "gpt-6.1-sol",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 2.0,
+     "output_mtok": 10.0,
+     "cache_read_mtok": 0.1,
+     "cache_write_mtok": 2.5,
+     "cache_write_1h_mtok": null,
+     "tiered": true
+    }
+   ]
+  },
+  "gpt-6.1-sol-healthcare": {
+   "source": "litellm",
+   "upstream": "gpt-6.1-sol-healthcare",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 2.0,
+     "output_mtok": 10.0,
+     "cache_read_mtok": 0.1,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null,
+     "tiered": true
+    }
+   ]
+  },
+  "gpt-6.1-terra": {
+   "source": "litellm",
+   "upstream": "gpt-6.1-terra",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 1.0,
+     "output_mtok": 5.0,
+     "cache_read_mtok": 0.05,
+     "cache_write_mtok": 1.25,
+     "cache_write_1h_mtok": null,
+     "tiered": true
+    }
+   ]
+  },
+  "gpt-6.2-astra": {
+   "source": "litellm",
+   "upstream": "gpt-6.2-astra",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 8.0,
+     "output_mtok": 40.0,
+     "cache_read_mtok": 0.4,
+     "cache_write_mtok": 10.0,
+     "cache_write_1h_mtok": null,
+     "tiered": true
+    }
+   ]
+  },
+  "gpt-6.2-astra-healthcare": {
+   "source": "litellm",
+   "upstream": "gpt-6.2-astra-healthcare",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 8.0,
+     "output_mtok": 40.0,
+     "cache_read_mtok": 0.4,
+     "cache_write_mtok": 10.0,
+     "cache_write_1h_mtok": null,
+     "tiered": true
+    }
+   ]
+  },
+  "gpt-6.2-astra-law": {
+   "source": "litellm",
+   "upstream": "gpt-6.2-astra-law",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 8.0,
+     "output_mtok": 40.0,
+     "cache_read_mtok": 0.4,
+     "cache_write_mtok": 10.0,
+     "cache_write_1h_mtok": null,
+     "tiered": true
+    }
+   ]
+  },
+  "gpt-6.2-sol": {
+   "source": "litellm",
+   "upstream": "gpt-6.2-sol",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 2.0,
+     "output_mtok": 10.0,
+     "cache_read_mtok": 0.1,
+     "cache_write_mtok": 2.5,
+     "cache_write_1h_mtok": null,
+     "tiered": true
+    }
+   ]
+  },
+  "gpt-6.2-sol-healthcare": {
+   "source": "litellm",
+   "upstream": "gpt-6.2-sol-healthcare",
    "provider": "openai",
    "clauses": [
     {
@@ -2338,6 +2701,21 @@
   "gpt-audio-mini": {
    "source": "litellm",
    "upstream": "gpt-audio-mini",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 0.6,
+     "output_mtok": 2.4,
+     "cache_read_mtok": null,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
+  "gpt-audio-mini-2025-10-06": {
+   "source": "litellm",
+   "upstream": "gpt-audio-mini-2025-10-06",
    "provider": "openai",
    "clauses": [
     {
@@ -2415,15 +2793,23 @@
   },
   "gpt-oss-120b": {
    "source": "models.dev",
-   "upstream": "amazon-bedrock/openai.gpt-oss-120b",
-   "provider": "amazon-bedrock",
-   "trust": "platform",
+   "upstream": "thinkingmachines/openai/gpt-oss-120b",
+   "provider": "thinkingmachines",
+   "trust": "owner",
    "clauses": [
     {
      "start_date": null,
      "input_mtok": 0.15,
      "output_mtok": 0.6,
      "cache_read_mtok": null,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    },
+    {
+     "start_date": "2026-11-27",
+     "input_mtok": 0.33,
+     "output_mtok": 0.84,
+     "cache_read_mtok": 0.066,
      "cache_write_mtok": null,
      "cache_write_1h_mtok": null
     }
@@ -2447,15 +2833,23 @@
   },
   "gpt-oss-20b": {
    "source": "models.dev",
-   "upstream": "amazon-bedrock/openai.gpt-oss-20b",
-   "provider": "amazon-bedrock",
-   "trust": "platform",
+   "upstream": "thinkingmachines/openai/gpt-oss-20b",
+   "provider": "thinkingmachines",
+   "trust": "owner",
    "clauses": [
     {
      "start_date": null,
      "input_mtok": 0.07,
      "output_mtok": 0.3,
      "cache_read_mtok": null,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    },
+    {
+     "start_date": "2026-11-27",
+     "input_mtok": 0.18,
+     "output_mtok": 0.45,
+     "cache_read_mtok": 0.036,
      "cache_write_mtok": null,
      "cache_write_1h_mtok": null
     }
@@ -2504,6 +2898,21 @@
      "input_mtok": 0.07,
      "output_mtok": 0.2,
      "cache_read_mtok": null,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
+  "gpt-rosalind-discovery": {
+   "source": "litellm",
+   "upstream": "gpt-rosalind-discovery",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 5.0,
+     "output_mtok": 25.0,
+     "cache_read_mtok": 0.5,
      "cache_write_mtok": null,
      "cache_write_1h_mtok": null
     }
@@ -2677,6 +3086,29 @@
      "cache_read_mtok": 0.3,
      "cache_write_mtok": null,
      "cache_write_1h_mtok": null
+    },
+    {
+     "start_date": "2026-11-27",
+     "input_mtok": 3.0,
+     "output_mtok": 15.0,
+     "cache_read_mtok": 0.3,
+     "cache_write_mtok": 3.0,
+     "cache_write_1h_mtok": 6.0
+    }
+   ]
+  },
+  "kimi-k3.1-pro": {
+   "source": "litellm",
+   "upstream": "moonshot/kimi-k3.1-pro",
+   "provider": "moonshot",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 2.0,
+     "output_mtok": 10.0,
+     "cache_read_mtok": 0.2,
+     "cache_write_mtok": 2.0,
+     "cache_write_1h_mtok": 4.0
     }
    ]
   },
@@ -2745,6 +3177,37 @@
     }
    ]
   },
+  "mistral-large-4": {
+   "source": "litellm",
+   "upstream": "mistral/mistral-large-4",
+   "provider": "mistral",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 0.7,
+     "output_mtok": 2.1,
+     "cache_read_mtok": 0.07,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
+  "muse-ember-1.0": {
+   "source": "litellm",
+   "upstream": "meta/muse-ember-1.0",
+   "provider": "meta",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 0.1,
+     "output_mtok": 0.5,
+     "cache_read_mtok": 0.004,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null,
+     "tiered": true
+    }
+   ]
+  },
   "muse-spark-1.2": {
    "source": "litellm",
    "upstream": "meta/muse-spark-1.2",
@@ -2770,6 +3233,21 @@
      "input_mtok": 1.25,
      "output_mtok": 4.25,
      "cache_read_mtok": 0.15,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
+  "muse-wonder-1.0": {
+   "source": "litellm",
+   "upstream": "meta/muse-wonder-1.0",
+   "provider": "meta",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 4.0,
+     "output_mtok": 20.0,
+     "cache_read_mtok": 0.2,
      "cache_write_mtok": null,
      "cache_write_1h_mtok": null
     }
@@ -2868,6 +3346,21 @@
   "o3-deep-research": {
    "source": "litellm",
    "upstream": "o3-deep-research",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 10.0,
+     "output_mtok": 40.0,
+     "cache_read_mtok": 2.5,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
+  "o3-deep-research-2025-06-26": {
+   "source": "litellm",
+   "upstream": "o3-deep-research-2025-06-26",
    "provider": "openai",
    "clauses": [
     {
@@ -2985,10 +3478,25 @@
     }
    ]
   },
+  "o4-mini-deep-research-2025-06-26": {
+   "source": "litellm",
+   "upstream": "o4-mini-deep-research-2025-06-26",
+   "provider": "openai",
+   "clauses": [
+    {
+     "start_date": null,
+     "input_mtok": 2.0,
+     "output_mtok": 8.0,
+     "cache_read_mtok": 0.5,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
+    }
+   ]
+  },
   "qwen3-coder": {
    "source": "models.dev",
-   "upstream": "vercel/alibaba/qwen3-coder",
-   "provider": "vercel",
+   "upstream": "kilo/qwen/qwen3-coder",
+   "provider": "kilo",
    "trust": "reseller",
    "clauses": [
     {
@@ -2999,6 +3507,14 @@
      "cache_write_mtok": null,
      "cache_write_1h_mtok": null,
      "tiered": true
+    },
+    {
+     "start_date": "2026-11-27",
+     "input_mtok": 0.3,
+     "output_mtok": 1.0,
+     "cache_read_mtok": 0.1,
+     "cache_write_mtok": null,
+     "cache_write_1h_mtok": null
     }
    ]
   },
@@ -3015,6 +3531,15 @@
      "cache_read_mtok": null,
      "cache_write_mtok": null,
      "cache_write_1h_mtok": null
+    },
+    {
+     "start_date": "2026-11-27",
+     "input_mtok": 0.4,
+     "output_mtok": 2.4,
+     "cache_read_mtok": null,
+     "cache_write_mtok": 0.5,
+     "cache_write_1h_mtok": null,
+     "tiered": true
     }
    ]
   },

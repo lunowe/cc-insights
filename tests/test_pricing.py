@@ -458,7 +458,9 @@ def test_the_shipped_catalog_is_readable_and_traceable():
     ("claude-opus-5", (5, 25, 0.5, 6.25, 10)),
     ("claude-fable-5-1", (10, 50, 0.25, 12.5, 20)),
     ("claude-fable-5", (10, 50, 1, 12.5, 20)),
-    ("claude-sonnet-5-5", (2, 10, 0.2, 2.5, 4)),
+    ("claude-sonnet-5-5", (2, 10, 0.1, 2.5, 4)),  # Cache reads are $0.10 on Sonnet 5.5.
+    ("claude-haiku-5-5", (0.1, 0.5, 0.01, 0.125, 0.2)),
+    ("claude-fable-5-2", (8, 40, 0.2, 10, 16)),
     ("gpt-6.1-sol", (2, 10, 0.1, 2.5, None)),
     ("gpt-6-sol", (2, 10, 0.2, 2.5, None)),
     ("gpt-6-astra", (10, 50, 1, 12.5, None)),
